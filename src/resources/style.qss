@@ -1,0 +1,6 @@
+QTabWidget, QTextElement, QTableView, QCodelist, QStatusBar, QScrollArea, QCustomScroll, QScrollArea, QTableWidget, SourceFileTab, QGlobalView, QTabBar, QAbstractButton, QMainWindow, QLineEdit, QTableWidgetItem, QLabel, QComboBox, QAbstractSpinBox, QMenu, QMenuBar, QGuiApplication
+{
+	color: #E0E0E0;
+	background: #111213;
+	border: 1px solid #404040;
+}

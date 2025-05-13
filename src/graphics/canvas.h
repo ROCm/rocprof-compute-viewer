@@ -1,0 +1,71 @@
+// MIT License
+//
+// Copyright (c) 2024-2025 Advanced Micro Devices, Inc. All rights reserved.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in all
+// copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+#pragma once
+#include <QWidget>
+#include "util/custom_layouts.h"
+
+struct WaitList
+{
+    int code_line;
+    std::vector<std::pair<int, int>> sources;
+};
+
+// This class will paint arrows on top of a QCodelist
+class ArrowCanvas : public QWidget
+{
+    Q_OBJECT
+    set_tracked();
+
+public:
+    struct arrow_t
+    {
+        int wait_number;
+        int mem_line;
+        int prev_slot_n;
+        bool bIsInterior;
+    };
+
+    ArrowCanvas() { setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Ignored); };
+
+    virtual void paintEvent(class QPaintEvent* event) override;
+    void buildConnections(const std::vector<WaitList>& waitcnt);
+    bool checkConnectionsCache(const std::vector<WaitList>& waitcnt);
+
+    virtual QSize sizeHint() const override;
+    void setScroll(int posy)
+    {
+        scrollposy = posy;
+        update();
+    }
+
+protected:
+    bool Connect(QPainter& painter, int l1, int l2, int xslot, QColor& color);
+
+private:
+    int max_slot_alloc = 0;
+    int scrollposy = 0;
+
+public:
+    static std::vector<QColor> arrow_colors;
+    static std::vector<arrow_t> arrows;
+};
