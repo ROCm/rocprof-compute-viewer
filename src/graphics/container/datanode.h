@@ -112,5 +112,5 @@ inline int64_t verify_skew(int64_t first, int64_t second)
 {
     auto arg1 = std::min(first, second);
     auto arg2 = std::max(first, second);
-    return (arg2 <= 8*arg1/7) ? arg2 : arg1;
+    return (arg2 <= 8 * arg1 / 7) ? arg2 : arg1;
 }

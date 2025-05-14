@@ -36,6 +36,7 @@
 #include "code/qcodelist.h"
 #include "code/sourcefile.h"
 #include "collection/histogramdelegate.h"
+#include "collection/jsonfilemodel.h"
 #include "collection/options.h"
 #include "config/appconfig.h"
 #include "config/config.hpp"
@@ -44,6 +45,7 @@
 #include "graphics/container/counterdialog.h"
 #include "graphics/hotspot.h"
 #include "graphics/specialized_plots.h"
+#include "summary/summaryview.h"
 #include "wave/scroll.h"
 #include "wave/waveglobal.h"
 #include "wave/waveview.h"
@@ -211,7 +213,10 @@ MainWindow::MainWindow(std::string uidir) : QMainWindow(nullptr), ui(new Ui::Mai
     utilization_v_scrollarea->setWidget(utilization_content);
     this->global_view_tab = ui->globalview_tab;
 
-    fileExplorer = ui->fileExplorer;
+    summary_view = new SummaryView(this);
+    ui->stats_view->layout()->setSpacing(0);
+    ui->stats_view->layout()->setContentsMargins(0, 0, 0, 0);
+    ui->stats_view->layout()->addWidget(summary_view);
 
     // --- MENU ---
     if (uidir != "")
@@ -241,8 +246,6 @@ MainWindow::MainWindow(std::string uidir) : QMainWindow(nullptr), ui(new Ui::Mai
     connect(ui->search_edit, &QLineEdit::editingFinished, this, &MainWindow::NextSearch);
     connect(ui->next_inst, &QPushButton::clicked, this, &MainWindow::NextSearch);
     connect(ui->prev_inst, &QPushButton::clicked, this, &MainWindow::PrevSearch);
-
-    connect(fileExplorer, &QTreeView::clicked, this, &MainWindow::onFileClicked);
 
     ui->source_hotspot_size_edit->setValidator(new QIntValidator(this));
     connect(ui->source_hotspot_size_edit, &QLineEdit::editingFinished, this, &MainWindow::SourceHotspotSizeEdited);
@@ -286,18 +289,19 @@ void MainWindow::updateFont()
     update();
     updateGeometry();
 
-    if (ui->tabWidget) {
+    if (ui->tabWidget)
+    {
         int currentIndex = ui->tabWidget->currentIndex();
-        ui->tabWidget->setCurrentIndex((!currentIndex ? 1 : currentIndex-1));
+        ui->tabWidget->setCurrentIndex((!currentIndex ? 1 : currentIndex - 1));
         ui->tabWidget->setCurrentIndex(currentIndex);
     }
 
-    if (ui->tabWidget_2) {
+    if (ui->tabWidget_2)
+    {
         int currentIndex = ui->tabWidget_2->currentIndex();
-        ui->tabWidget_2->setCurrentIndex((!currentIndex ? 1 : currentIndex-1));
+        ui->tabWidget_2->setCurrentIndex((!currentIndex ? 1 : currentIndex - 1));
         ui->tabWidget_2->setCurrentIndex(currentIndex);
     }
-
 }
 
 double MainWindow::_paint_scale = 1.0;
@@ -426,6 +430,45 @@ void MainWindow::SetMainWave(int se, int simd, int sl, int wid)
         }
     );
     timer->start();
+
+    // Print code idle/stall/wait/exec
+    int64_t idle = 0;
+    int64_t stall = 0;
+    int64_t exec = 0;
+
+    if (WaveInstance::main_wave)
+        for (auto& code : WaveInstance::main_wave->code)
+            if (code.line)
+            {
+                idle += code.line->idle_sum;
+                stall += code.line->stall_sum;
+                exec += code.line->latency_sum - code.line->stall_sum;
+            }
+
+    auto total = idle + stall + exec;
+
+    // set colors for pie chart before setting data (as legend table takes colors from pie chart)
+    auto& colors = Config::StateColors();
+    if (colors.size() < 4) { QWARNING(false, "Not enough colors for pie chart", ); }
+    else
+    {
+        QColor stall_color = Color(colors.at(3).qcolor) * 0.35f + Color(colors.at(4).qcolor) * 0.65f;
+
+        // Idle, Stall/Wait, Issue
+        summary_view->setPieChartColors({
+            {colors.at(1).qcolor, stall_color, colors.at(2).qcolor}
+        });
+    }
+
+    summary_view->clearPieChartData();
+    summary_view->setPieChartData(
+        {
+            {      "Idle",  100 * idle / float(total)},
+            {"Stall/Wait", 100 * stall / float(total)},
+            {     "Issue",  100 * exec / float(total)}  // Rename Exec as Issue
+    },
+        "Activity Distribution"
+    );
 }
 
 void MainWindow::OpenOptionsDialog()
@@ -461,61 +504,36 @@ void recursive_load(
     }
 }
 
-void MainWindow::clearFileExplorerTree()
-{
-    // Reset the hotspot summary if it exists
-    if (hotspotSummary) {
-        hotspotSummary->clear();
-    }
-
-    // Clear any existing layout in fileExplorer_tab
-    if (ui->fileExplorer_tab->layout()) {
-        // Clean up widgets properly
-        if (fileExplorer) {
-            fileExplorer->setParent(nullptr);
-            fileExplorer = nullptr;
-        }
-
-        if (hotspotSummary) {
-            hotspotSummary->setParent(nullptr);
-            hotspotSummary = nullptr;
-        }
-
-        // Delete the layout (and its items)
-        QLayout* oldLayout = ui->fileExplorer_tab->layout();
-        delete oldLayout;
-    }
-
-    // Create a blank layout to prevent Qt warnings
-    QVBoxLayout* layout = new QVBoxLayout();
-    ui->fileExplorer_tab->setLayout(layout);
-
-    // Reset file model pointer
-    fileModel = nullptr;
-}
-
 void MainWindow::LoadSourceFiles()
 {
-    QWARNING(source_filetab, "No source file tab", return);
+    QWARNING(source_filetab, "No source file tab", return );
+    if (ui->fileExplorer_tab->layout()) delete ui->fileExplorer_tab->layout();
 
-    clearFileExplorerTree();
-
-    JsonRequest req(GetUIDir() + "/snapshots.json");
     source_filetab->clear();
+    hotspotSummary = nullptr;
 
-    if (req.bValid)
+    try
     {
+        JsonRequest req(GetUIDir() + "/snapshots.json", false);
+
+        if (!req.bValid) throw std::exception();
+
         std::vector<std::pair<std::string, std::string>> widgets{};
         recursive_load("", req.data, widgets);
 
-        for (auto& [profilingPath, uiFilename] : widgets) {
+        for (auto& [profilingPath, uiFilename] : widgets)
+        {
             std::string fullUiPath = ui_dir + std::string(uiFilename);
             source_filetab->addFile(profilingPath, fullUiPath);
         }
 
         loadJsonFileTree(req.data.dump().c_str());
+        ui->tabWidget_2->setTabEnabled(3, true);
     }
-    else { QWARNING(false, "Invalid snapshots.json", 0); }
+    catch (...)
+    {
+        ui->tabWidget_2->setTabEnabled(3, false);
+    }
 
     // Only show raw source ref if no snapshot is found
     bool hassource = source_filetab->files.size();
@@ -628,6 +646,139 @@ void MainWindow::CreateCountersPlot()
     counters_plot_layout->addWidget(this->counters_plot);
 
     UpdateCountersPlotSelection();
+    UpdateSummaryView(accumulated);
+}
+
+void MainWindow::UpdateSummaryView(std::vector<CounterPlotView::CounterAccum>& accumulated)
+{
+    auto acc_index = [&accumulated](int index) -> double
+    {
+        double acc = 0;
+        for (auto& se : accumulated)
+            for (auto& cu : se)
+                if (index < cu.size()) acc += cu.at(index);
+
+        return acc;
+    };
+
+    summary_view->clearTableData();
+    summary_view->clearBarChartData();
+
+    bool bVisible = perfcounter_names.size() && accumulated.size();
+    ui->tabWidget_2->setTabEnabled(2, bVisible);
+    if (!bVisible) return;
+
+    std::map<std::string, size_t> util_names{};
+    QList<std::tuple<QString, float, QColor>> bar_chart_data;
+
+    int busy_cu_index = -1;
+
+    const auto& tokenColors = Config::TokenColors();
+    // Create a lambda function to get the color by name
+    auto getColorByName = [&](const std::string& lookupName) -> QColor
+    {
+        QColor color = tokenColors[0].qcolor; // Default color if name not found
+        for (const auto& style_color : tokenColors)
+        {
+            if (style_color.name == lookupName)
+            {
+                color = style_color.qcolor;
+                return color;
+            }
+        }
+        return color;
+    };
+
+    for (int i = 0; i < perfcounter_names.size(); i++)
+    {
+        auto name = perfcounter_names.at(i);
+
+        if (name == "SQ_BUSY_CU_CYCLES")
+        {
+            // Baseline quadcycle measurement
+            busy_cu_index = i;
+        }
+        else if (name == "SQ_VALU_MFMA_BUSY_CYCLES")
+        {
+            QColor color = getColorByName("MATRIX"); // special case for MFMA
+            // This counter increments by cycles, not quadcycles
+            bar_chart_data.push_back({"MFMA", acc_index(i) / 4, color});
+            util_names["MFMA"] = i;
+        }
+        else if (name.find("SQ_ACTIVE_INST_") == 0)
+        {
+            name = name.substr(std::string("SQ_ACTIVE_INST_").size());
+            QColor color = (name == "SCA") ? getColorByName("SMEM") : getColorByName(name); // special case for SCA
+            bar_chart_data.push_back({name.c_str(), acc_index(i), color});
+            util_names[name] = i;
+        }
+    }
+
+    if (busy_cu_index >= 0)
+    {
+        double busy_cu_cycles = acc_index(busy_cu_index);
+
+        for (auto& [name, data, _] : bar_chart_data) data = 100.0 * data / busy_cu_cycles;
+
+        summary_view->setBarChartData(bar_chart_data, "Hardware Utilization");
+    }
+    else
+        util_names.clear();
+
+    {
+        QStringList q_perf_names;
+
+        for (auto& [name, _] : util_names) q_perf_names.push_back((name + " Util").c_str());
+
+        for (auto& name : perfcounter_names) q_perf_names.push_back(name.c_str());
+
+        summary_view->setTableHeaders(q_perf_names);
+    }
+
+    QStringList row_headers;
+    for (int se = 0; se < accumulated.size(); se++)
+    {
+        for (int cu = 0; cu < accumulated.at(se).size(); cu++)
+        {
+            bool nonzero = false;
+            QList<QString> row_data;
+
+            for (auto& [name, index] : util_names)
+            {
+                double value = accumulated.at(se).at(cu).at(index);
+                if (name == "MFMA") value /= 4;
+
+                double div = std::max(accumulated.at(se).at(cu).at(busy_cu_index), 1.0);
+
+                auto number = QString::number(int(100.0 * value / div + 0.5)) + "%";
+                row_data.push_back(number);
+            }
+
+            for (int cidx = 0; cidx < perfcounter_names.size(); cidx++)
+            {
+                QString number = "N/A";
+                try
+                {
+                    double value = accumulated.at(se).at(cu).at(cidx);
+                    number = QString::number(value);
+                    nonzero |= value > 0;
+                }
+                catch (...)
+                {}
+
+                row_data.push_back(number);
+            }
+
+            // Only add rows for CUs which had any counter increment
+            if (nonzero)
+            {
+                row_headers.push_back(QString("SE %1").arg(se) + QString(" CU %1").arg(cu));
+                summary_view->addTableRow(row_data);
+            }
+        }
+    }
+
+    summary_view->setTableRowHeaders(row_headers);
 }
 
 void MainWindow::updatePerfNames()
@@ -644,7 +795,7 @@ void MainWindow::updatePerfNames()
 
 void MainWindow::CountersFilter()
 {
-    QWARNING(this->counters_plot, "Counter plot missing", return);
+    QWARNING(this->counters_plot, "Counter plot missing", return );
 
     if (perfcounter_names.empty()) return;
 
@@ -1064,25 +1215,10 @@ void MainWindow::GatherWaves()
 void MainWindow::loadJsonFileTree(const char* streambytes)
 {
     QJsonDocument jsonDoc = QJsonDocument::fromJson(QByteArray(streambytes));
-    if (!jsonDoc.isObject()) {
+    if (!jsonDoc.isObject())
+    {
         qWarning() << "Invalid JSON file";
         return;
-    }
-
-    // Clear the layout in a cleaner way
-    if (ui->fileExplorer_tab->layout()) {
-        if (fileExplorer) {
-            fileExplorer->setParent(nullptr);
-            fileExplorer = nullptr;
-        }
-
-        if (hotspotSummary) {
-            hotspotSummary->setParent(nullptr);
-            hotspotSummary = nullptr;
-        }
-
-        QLayout* oldLayout = ui->fileExplorer_tab->layout();
-        delete oldLayout;
     }
 
     // Create horizontal splitter
@@ -1105,16 +1241,16 @@ void MainWindow::loadJsonFileTree(const char* streambytes)
     hotspotSummary = new HotspotSummaryWidget();
     horizontalSplitter->addWidget(hotspotSummary);
 
-    //make explorer about 40% of the width
+    // make explorer about 40% of the width
     horizontalSplitter->setSizes(QList<int>({4, 6}));
 
     // Add the splitter to the layout
-    QVBoxLayout* layout = new QVBoxLayout();
+    QVBoxLayout* layout = new QVBox();
     ui->fileExplorer_tab->setLayout(layout);
     layout->addWidget(horizontalSplitter);
 
     // Create new model
-    fileModel = new JsonFileModel(fileExplorer, fileExplorer);
+    auto* fileModel = new JsonFileModel(fileExplorer, fileExplorer);
     fileExplorer->setModel(fileModel);
 
     HistogramDelegate* delegate = new HistogramDelegate(this);
@@ -1153,61 +1289,38 @@ void MainWindow::onFileClicked(const QModelIndex& index)
     std::string uiPath = ui_dir + fileName;
     std::string profilingPath = "";
 
-    if(source_filetab) {
+    if (source_filetab)
+    {
         auto it = source_filetab->snap_to_filename.find(uiPath);
-        if (it != source_filetab->snap_to_filename.end()) {
-            profilingPath = it->second;
-        }
+        if (it != source_filetab->snap_to_filename.end()) { profilingPath = it->second; }
     }
 
-    if (profilingPath.empty()) {
+    if (profilingPath.empty())
+    {
         qDebug() << "ERROR: No profiling path found for:" << nodeName;
         return;
     }
 
     // Find or create hotspot summary widget
     QSplitter* horizontalSplitter = nullptr;
-    if (ui->fileExplorer_tab->layout()) {
+    if (ui->fileExplorer_tab->layout())
+    {
         QLayoutItem* item = ui->fileExplorer_tab->layout()->itemAt(0);
-        if (item && item->widget()) {
-            horizontalSplitter = qobject_cast<QSplitter*>(item->widget());
-        }
+        if (item && item->widget()) { horizontalSplitter = qobject_cast<QSplitter*>(item->widget()); }
     }
 
-    if (horizontalSplitter) {
-        // If the second widget is not our hotspot summary, create it
-        if (!hotspotSummary) {
-            // Remove any existing second widget
-            if (horizontalSplitter->count() > 1) {
-                QWidget* oldWidget = horizontalSplitter->widget(1);
-                oldWidget->setParent(nullptr);
-                delete oldWidget;
-            }
-
-            // Create our hotspot summary widget
-            hotspotSummary = new HotspotSummaryWidget();
-            horizontalSplitter->addWidget(hotspotSummary);
-            horizontalSplitter->setSizes(QList<int>({4, 6}));
-        }
-
-        // Update the hotspot summary
-        if (hotspotSummary) {
-            hotspotSummary->setFile(profilingPath, fileName);
-        }
-    }
+    if (horizontalSplitter && hotspotSummary) hotspotSummary->setFile(profilingPath, fileName);
 }
 
-void MainWindow::paintEvent(QPaintEvent* event)
-{
-    QMainWindow::paintEvent(event);
-}
+void MainWindow::paintEvent(QPaintEvent* event) { QMainWindow::paintEvent(event); }
 
-void MainWindow::showEvent(QShowEvent *event)
+void MainWindow::showEvent(QShowEvent* event)
 {
     QMainWindow::showEvent(event);
 
     static bool first_time_init = true;
-    if(first_time_init) {
+    if (first_time_init)
+    {
         first_time_init = false;
         const double pixelRatio = 1.2;
 #if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)

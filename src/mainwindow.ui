@@ -11,7 +11,7 @@
    </rect>
   </property>
   <property name="windowTitle">
-   <string>Rocprof Compute Viewer 0.1</string>
+   <string>ROCprof Compute Viewer</string>
   </property>
   <widget class="QWidget" name="centralwidget">
    <layout class="QVBoxLayout" name="verticalLayout_1">
@@ -1056,9 +1056,6 @@
           <string>Explorer</string>
          </attribute>
          <layout class="QVBoxLayout" name="fileExplorerLayout">
-          <item>
-           <widget class="QTreeView" name="fileExplorer"/>
-          </item>
          </layout>
         </widget>
        </widget>

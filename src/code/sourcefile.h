@@ -79,7 +79,6 @@ public:
 
 private:
     int next_index = 0;
-
 };
 
 class SourceFile : public QTextElement
@@ -115,7 +114,6 @@ private:
     int stepy = 0;
 
     std::vector<std::shared_ptr<SourceLine>> lines{};
-
 };
 
 class SourceFileTab : public QTabWidget

@@ -48,10 +48,10 @@ private:
 class CounterPlotView : public PlotGraph
 {
 public:
-    using CounterAccum = std::array<std::array<double, 4*BANKS>, NUM_CU>;
+    using CounterAccum = std::array<std::array<double, 4 * BANKS>, NUM_CU>;
 
-    CounterPlotView() : CounterPlotView(nullptr) {};
-    CounterPlotView(class QWidget* parent): PlotGraph(1, parent) {};
+    CounterPlotView() : CounterPlotView(nullptr){};
+    CounterPlotView(class QWidget* parent) : PlotGraph(1, parent){};
     virtual ~CounterPlotView() = default;
 
     virtual void UpdateDataSelection(
@@ -67,10 +67,11 @@ public:
 class OccupancyPlotView : public PlotGraph
 {
 public:
-    OccupancyPlotView() : OccupancyPlotView(nullptr) {};
+    OccupancyPlotView() : OccupancyPlotView(nullptr){};
     OccupancyPlotView(class QWidget* parent) : PlotGraph(2, parent){};
     virtual void LoadOccupancyData(const std::string& filename);
     virtual void UpdateGraphTable(float timepos) override;
+
 protected:
 };
 
@@ -80,7 +81,7 @@ class DispatchPlotView : public OccupancyPlotView
 public:
     DispatchPlotView(class QWidget* parent) : OccupancyPlotView(parent){};
     virtual void LoadOccupancyData(const std::string& filename) override;
-    virtual void UpdateGraphTable(float timepos) override {};
+    virtual void UpdateGraphTable(float timepos) override{};
 };
 
 //! Class for visualizing performance counters

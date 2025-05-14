@@ -3,8 +3,8 @@
 #include <QLabel>
 #include <QWidget>
 #include <vector>
-#include "code/textelement.h"
 #include "code/sourcefile.h"
+#include "code/textelement.h"
 
 class HotspotSummaryWidget : public QWidget
 {
@@ -21,7 +21,8 @@ public:
     virtual void paintEvent(QPaintEvent* event) override;
 
 private:
-    struct HotspotLine {
+    struct HotspotLine
+    {
         int lineNumber;
         QString content;
         int64_t latency;

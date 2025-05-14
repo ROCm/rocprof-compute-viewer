@@ -61,7 +61,11 @@ public:
     std::array<std::unique_ptr<TextLineElement>, Element::ENUMTYPES> elements{};
 
     static void Populate(const std::vector<CodeData>& codedata);
-    static void Clear() { line_map.clear(); line_vec.clear(); };
+    static void Clear()
+    {
+        line_map.clear();
+        line_vec.clear();
+    };
 
     static std::map<int, std::shared_ptr<ASMCodeline>> line_map;
     static std::vector<std::shared_ptr<ASMCodeline>> line_vec;

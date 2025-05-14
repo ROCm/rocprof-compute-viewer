@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16...3.22)
-project(rcviewer VERSION 0.1.0 LANGUAGES CXX)
+project(rocprof-compute-viewer VERSION 0.1.0 LANGUAGES CXX)
 
 set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTOMOC ON)
@@ -49,6 +49,7 @@ file(GLOB RCVIEWER_SOURCE_FILES
     src/util/*.cpp
     src/wave/*.cpp
     src/config/*.cpp
+    src/summary/*.cpp
     src/mainwindow.ui
     src/resources.qrc
 )
@@ -95,11 +96,11 @@ target_link_libraries(${PROJECT_NAME} PRIVATE Threads::Threads ${QT_V}::Core ${Q
 install(TARGETS ${PROJECT_NAME} BUNDLE DESTINATION . RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 install(SCRIPT ${deploy_script})
 
-set(RCVIEW_CONFIG_DESTINATION ${CMAKE_INSTALL_PREFIX}/share/rcviewer)
+set(RCVIEW_CONFIG_DESTINATION ${CMAKE_INSTALL_PREFIX}/share/rocprof-compute-viewer)
 
 set(CPACK_PACKAGE_NAME "Rocprof-Compute-Viewer")
 set(CPACK_PACKAGE_VENDOR "Advanced Micro Devices, Inc.")
-set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Rocprof Compute Viewer")
+set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "ROCprof Compute Viewer")
 set(CPACK_PACKAGE_VERSION_MAJOR "${PROJECT_VERSION_MAJOR}")
 set(CPACK_PACKAGE_VERSION_MINOR "${PROJECT_VERSION_MINOR}")
 set(CPACK_PACKAGE_VERSION_PATCH "${PROJECT_VERSION_PATCH}")

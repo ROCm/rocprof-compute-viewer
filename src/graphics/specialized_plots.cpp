@@ -103,8 +103,7 @@ void WavePlotView::UpdateGraphTable(float mousepos)
     for (int i = 0; i < 4; i++) MainWindow::window->UpdateGraphInfo(state_names[i + 1], values[i], values[i] / total);
 }
 
-CounterPlotView::CounterAccum
-TraceCounterPlotView::LoadCounterData(JsonRequest& file, int shader_engine)
+CounterPlotView::CounterAccum TraceCounterPlotView::LoadCounterData(JsonRequest& file, int shader_engine)
 {
     std::array<std::vector<CounterData>, BANKS> data;
     data[0].reserve(file.data["data"].size());
@@ -123,10 +122,9 @@ TraceCounterPlotView::LoadCounterData(JsonRequest& file, int shader_engine)
         if (data[b].size()) rootnodes.at(b)->Insert(shader_engine, data[b]);
 
     CounterPlotView::CounterAccum ret{};
-    for (size_t b=0; b<data.size(); b++)
+    for (size_t b = 0; b < data.size(); b++)
         for (auto& counter : data[b])
-            for (int c=0; c<4; c++)
-                ret.at(counter.cu).at(4*b + c) += counter.events[c];
+            for (int c = 0; c < 4; c++) ret.at(counter.cu).at(4 * b + c) += counter.events[c];
 
     return ret;
 }
@@ -280,8 +278,7 @@ void DispatchPlotView::LoadOccupancyData(const std::string& filename)
             continue;
         }
 
-        for (auto& v : array)
-            occupancy.push_back(occupancy_data::build(v));
+        for (auto& v : array) occupancy.push_back(occupancy_data::build(v));
     }
 
     std::sort(

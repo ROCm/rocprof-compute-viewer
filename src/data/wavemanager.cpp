@@ -235,13 +235,15 @@ WaveInstance::WaveInstance(const std::string& _path) : path(_path)
 
                     int64_t idle = 0;
                     int64_t stall = 0;
-                    if (isIdleInfo)
-                    try {
-                        idle = int64_t(c[9]);
-                        stall = int64_t(c[8]);
-                    } catch(...) {
-                        isIdleInfo = false;
-                    }
+                    if (isIdleInfo) try
+                        {
+                            idle = int64_t(c[9]);
+                            stall = int64_t(c[8]);
+                        }
+                        catch (...)
+                        {
+                            isIdleInfo = false;
+                        }
                     code_cache.second.push_back(
                         {bIsV2 ? i : int(c[2]),
                          int(c[6]),

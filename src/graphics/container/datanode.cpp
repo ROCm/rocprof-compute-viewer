@@ -54,7 +54,8 @@ int64_t SECounterNode::getDelta() const
 int64_t GPUCounterNode::getDelta() const
 {
     std::set<int64_t> deltas{};
-    for (auto& node : se_nodes) if (node) deltas.insert(node->getDelta());
+    for (auto& node : se_nodes)
+        if (node) deltas.insert(node->getDelta());
 
     deltas.erase(MAXIMUM_DELTA_TIME);
 
@@ -123,12 +124,9 @@ void SECounterNode::AccumFromMask(std::vector<CounterData>& out, uint64_t cu_mas
             out.insert(out.end(), cu_nodes.at(cu)->data.begin(), cu_nodes.at(cu)->data.end());
 }
 
-template<typename Type>
-std::vector<Type> FromMask(std::vector<Type>& ret, int64_t res, int max_linear_pos)
+template <typename Type> std::vector<Type> FromMask(std::vector<Type>& ret, int64_t res, int max_linear_pos)
 {
-    std::sort(
-        ret.begin(), ret.end(), [](const Type& d1, const Type& d2) -> bool { return d1.time < d2.time; }
-    );
+    std::sort(ret.begin(), ret.end(), [](const Type& d1, const Type& d2) -> bool { return d1.time < d2.time; });
 
     if (!ret.size()) return {};
 
@@ -165,7 +163,7 @@ std::vector<CounterData> GPUCounterNode::AccumFromMask(uint64_t se_mask, uint64_
     for (auto& shader : se_nodes)
         if (shader.get()) max_se_num = std::max(max_se_num, shader->se);
 
-    return FromMask(ret, 4, (1+max_se_num)*NUM_CU);
+    return FromMask(ret, 4, (1 + max_se_num) * NUM_CU);
 }
 
 void GPUCounterNode::Insert(int SE, const std::vector<CounterData>& data)

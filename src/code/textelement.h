@@ -24,6 +24,7 @@
 
 #include <QComboBox>
 #include <QWidget>
+#include <optional>
 #include "util/custom_layouts.h"
 #include "util/highlight.h"
 

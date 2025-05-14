@@ -24,8 +24,8 @@
 #include <QApplication>
 #include <QDebug>
 #include <QFile>
-#include <QTextStream>
 #include <QPalette>
+#include <QTextStream>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -64,9 +64,10 @@ public:
 
 namespace WindowColors
 {
-QPalette& getLightPalette() {
-    static QPalette lightPalette = [](){
-
+QPalette& getLightPalette()
+{
+    static QPalette lightPalette = []()
+    {
         QPalette palette;
         // Set colors for various roles
         palette.setColor(QPalette::Window, QColor(240, 240, 240));
@@ -95,9 +96,10 @@ QPalette& getLightPalette() {
 
     return lightPalette;
 }
-QPalette& getDarkPalette() {
-    static QPalette darkPalette = [](){
-
+QPalette& getDarkPalette()
+{
+    static QPalette darkPalette = []()
+    {
         QPalette palette;
 
         // Set colors for various roles
@@ -137,7 +139,8 @@ QString& dark_style()
     static auto style = []()
     {
         QFile file(":/resources/style.qss");
-        if (!file.open(QFile::ReadOnly | QFile::Text)) {
+        if (!file.open(QFile::ReadOnly | QFile::Text))
+        {
             qDebug() << "Failed loading stylesheet: " << file.errorString();
             return QString("");
         }
@@ -153,7 +156,7 @@ void setDark(bool bDark)
     bDarkTheme = bDark;
     qApp->setPalette(bDarkTheme ? getDarkPalette() : getLightPalette());
 
-    const_cast<QColor&>(Config::PlotColors(6)) = bDark ? QColor(255,255,255) : QColor(0,0,0);
+    const_cast<QColor&>(Config::PlotColors(6)) = bDark ? QColor(255, 255, 255) : QColor(0, 0, 0);
 }
 const QColor& Background()
 {
@@ -193,7 +196,8 @@ const QColor& HotspotBkg()
     static QColor white(224, 224, 224);
     return bDarkTheme ? dark : white;
 }
-const QColor& HotspotOutline() {
+const QColor& HotspotOutline()
+{
     static QColor dark(Qt::lightGray);
     static QColor white(Qt::darkGray);
     return bDarkTheme ? dark : white;
@@ -210,6 +214,12 @@ const QColor& LatencyTextColor()
     static QColor light(0, 0, 0);
     return bDarkTheme ? dark : light;
 }
+const QColor& UtilizationBarColorBg()
+{
+    static QColor dark = QColor(38, 38, 38).lighter(120);
+    static QColor white = QColor(224, 224, 224).darker(120);
+    return bDarkTheme ? dark : white;
+}
 QColor textColor() { return bDarkTheme ? Qt::white : Qt::black; }
 QColor reverseTextColor() { return bDarkTheme ? Qt::black : Qt::white; }
 }; // namespace WindowColors
@@ -218,7 +228,7 @@ namespace Config
 {
 const std::vector<StyleColor>& StateColors()
 {
-    static ColorSet colorset(
+    static ColorSet colorset_light(
         []()
         {
             nlohmann::json def_state;
@@ -230,7 +240,20 @@ const std::vector<StyleColor>& StateColors()
             return def_state;
         }()
     );
-    return colorset.colors;
+    // 20% darker than the light theme colors
+    static ColorSet colorset_dark(
+        []()
+        {
+            nlohmann::json def_state;
+            addpair(def_state, "NONE", "#cccccc");  // 20% darker than #ffffff
+            addpair(def_state, "IDLE", "#595959");  // 20% darker than #707070
+            addpair(def_state, "EXEC", "#00cc00");  // 20% darker than #00fe00
+            addpair(def_state, "WAIT", "#cccc00");  // 20% darker than #fefe00
+            addpair(def_state, "STALL", "#cc0000"); // 20% darker than #ff0000
+            return def_state;
+        }()
+    );
+    return bDarkTheme ? colorset_dark.colors : colorset_light.colors;
 }
 
 const std::vector<StyleColor>& TokenColors()

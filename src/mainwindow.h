@@ -34,10 +34,10 @@
 #include <QTreeView>
 #include <string_view>
 #include <vector>
-#include "collection/jsonfilemodel.h"
-#include "graphics/hotspot.h"
-#include "util/custom_layouts.h"
 #include "collection/hotspotsummarywidget.h"
+#include "graphics/hotspot.h"
+#include "graphics/specialized_plots.h"
+#include "util/custom_layouts.h"
 #include "wave/waveglobal.h"
 
 QT_BEGIN_NAMESPACE
@@ -56,7 +56,7 @@ public:
     MainWindow(std::string uidir);
     virtual ~MainWindow();
     virtual void paintEvent(QPaintEvent* event) override;
-    virtual void showEvent(QShowEvent *event) override;
+    virtual void showEvent(QShowEvent* event) override;
 
     static std::string GetUIDir();
     std::string GetDisplayDir();
@@ -85,6 +85,7 @@ public:
     void ScrollViewsTo(int64_t cycle);
     void GatherWaves();
     void UpdateOccupancyInfo(const std::vector<std::pair<std::string, int>>& values, float norm);
+    void UpdateSummaryView(std::vector<CounterPlotView::CounterAccum>& accumulated);
 
     uint64_t GetSEMask() { return ToMask(se_enable_list); }
     uint64_t GetCUMask() { return ToMask(cu_enable_list); }
@@ -95,7 +96,6 @@ public:
     void SourceHotspotSizeEdited();
 
     void LoadSourceFiles();
-    void clearFileExplorerTree();
 
     class QLayout* widSel = nullptr;
     class QLayout* wslSel = nullptr;
@@ -116,6 +116,7 @@ public:
     class QCustomScroll* cuwaves_h_scrollarea = nullptr;
     class QCustomScroll* utilization_h_scrollarea = nullptr;
     class QScrollArea* global_view_scrollarea = nullptr;
+    class SummaryView* summary_view = nullptr;
 
     class QGridLayout* waves_plot_layout = nullptr;
     class QGridLayout* counters_plot_layout = nullptr;
@@ -185,8 +186,6 @@ private:
     int64_t current_loaded_clk_end = 0;
 
     QTreeView* fileExplorer;
-    JsonFileModel* fileModel;
-
     void loadJsonFileTree(const char* streambytes);
     void expandChildNodes(const QModelIndex& index);
 

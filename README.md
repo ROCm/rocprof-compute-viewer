@@ -17,6 +17,7 @@ ROCprof Compute Viewer (RCV) is a tool for visualizing and analyzing GPU thread 
     - [Left Side Panel](#left-side-panel)
     - [Compute Unit and Utilization Views](#compute-unit-and-utilization-views)
     - [Global View](#global-view)
+    - [Summary](#summary)
 - [Known Issues](#known-issues-and-limitations)
 - [Building from Source](#building-from-source)
 
@@ -275,6 +276,22 @@ The Global View presents a comprehensive trace of all waves across enabled Shade
 
 ![Alt text](docs/images/globalv.png)
 
+#### Summary
+The summary is a feature availble only on MI2xx and MI3xx GPUs. It displays 3 pieces of information:
+* Average instruction cost for the whole trace, separated by idle, issue and stall.
+* Average hardware utilization by instruction type (VALU, VMEM, LDS, ...)
+* Per-compute hardware utilization values and accumulated counters.
+
+To enable the summary view, use the following parameters:
+
+```bash
+# SQ_ACTIVE_INST_X collects activity for token type X.
+# For summary, a collection interval of 15 is enough.
+rocprofv3 --att-perfcounter-ctrl 15 --att-perfcounters "SQ_BUSY_CU_CYCLES SQ_VALU_MFMA_BUSY_CYCLES SQ_ACTIVE_INST_VALU SQ_ACTIVE_INST_LDS SQ_ACTIVE_INST_VMEM SQ_ACTIVE_INST_FLAT SQ_ACTIVE_INST_SCA SQ_ACTIVE_INST_MISC"
+```
+
+![Alt text](docs/images/summary.png)
+
 ## Known issues and limitations
 * All:
   * Rocprofv3 can fail to generate traces if the target_cu is empty.
@@ -353,14 +370,11 @@ Install Qt5 (or similar instructions for Qt6):
 
 ```bash
 
-# Ubuntu 20.04
-sudo apt install -y qt5-default qtbase5-dev qt5-qmake cmake
-
 # Ubuntu 22.04
-sudo apt install -y qtbase5-dev qt5-qmake cmake
+sudo apt install -y qtbase5-dev qt5-qmake cmake build-essential
 
 # Ubuntu 24.04
-sudo apt install -y libgl1 qtbase5-dev qt5-qmake cmake
+sudo apt install -y libgl1 qtbase5-dev qt5-qmake cmake build-essential
 
 # For other distributions, please follow https://doc.qt.io/qt-5/gettingstarted.html
 ```
@@ -371,6 +385,8 @@ Configure cmake and build:
 mkdir build
 cd build
 cmake .. -DQT_VERSION_MAJOR=5
+# for qt6.4, use
+# cmake .. -DQT_VERSION_MAJOR=6 -DQT_VERSION_MINOR=4
 make -j
 ```
 

@@ -37,6 +37,8 @@ const QColor& HotspotBkg();
 const QColor& HotspotOutline();
 const QColor& MeasureTool();
 const QColor& LatencyTextColor();
+const QColor& UtilizationBarColor();
+const QColor& UtilizationBarColorBg();
 QColor textColor();
 QColor reverseTextColor();
 void setDark(bool bDark);
