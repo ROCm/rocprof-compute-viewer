@@ -18,6 +18,7 @@ ROCprof Compute Viewer (RCV) is a tool for visualizing and analyzing GPU thread 
     - [Compute Unit and Utilization Views](#compute-unit-and-utilization-views)
     - [Global View](#global-view)
     - [Summary](#summary)
+    - [Explorer View](#explorer-view)
 - [Known Issues](#known-issues-and-limitations)
 - [Building from Source](#building-from-source)
 
@@ -39,17 +40,18 @@ Rocprofv3 supports two different input formats:
 ### Command line parameters
 The following table compares the rocprofv3 and closest rocprofv2 parameters. Command line parameters use '-' and Json uses '_' for separating words.
 
-| V3 Parameter | V2 Parameter | Type | Range | Typical | Description |
-| --------- | --------- | ---- | ----- | ----------- | ----------- |
-att-target-cu | att: TARGET_CU | Integer | 0 - 15 | 1 | Defines the CU used to gather detail tokens (WGP on Navi).
-att-shader-engine-mask | SE_MASK | Bitmask | 1 - \~0u | 0x11 | Defines for which shader engines to trace. Max at 2^32 - 1.
-att-simd-select | SIMD_SELECT | Integer / Bitmask | 0 - 0xF | 0xF | Defines which of 4 SIMDs are going to generate detail tokens. Bitmask on GFX9 and SIMD_ID[0,3] on Navi.
-kernel-iteration-range | DISPATCH | List of tuples (v3) | 1 - inf | - | Defines dispatch iteration of the kernel to be profiled. In v3, this is per kernel_id.
-kernel-include-regex | KERNEL | String	| Any | - | Includes a kernel name to be profiled.
-kernel-exclude-regex | Not supported | String	| Any | - | Excludes a kernel name from profiling.
-att-buffer-size | BUFFER_SIZE | Bytes | 1MB-2GB | 96MB | Increase this value if the buffer is getting full too quickly.
-att-perfcounter-ctrl | PERFCOUNTERS_CTRL | Integer | 1 - 32 | 2~5 | Enables SQ perfcounters sent to the SQTT buffer with the given relative period (gfx9). High BW: May cause data loss if polled too quickly.
-att-perfcounters | PERFCOUNTER | String | SQ | - | Adds SQ counters to be sent when PERFCOUNTERS_CTRL is enabled.
+| Parameter | Type | Range | Typical | Description |
+| --------- | ---- | ----- | ----------- | ----------- |
+att-target-cu | Integer | 0 - 15 | 1 | Defines the CU used to gather detail tokens (WGP on Navi).
+att-shader-engine-mask | Bitmask | 1 - \~0u | 0x11 | Defines for which shader engines to trace. Max at 2^32 - 1.
+att-simd-select | Integer / Bitmask | 0 - 0xF | 0xF | Defines which of 4 SIMDs are going to generate detail tokens. Bitmask on GFX9 and SIMD_ID[0,3] on Navi.
+kernel-iteration-range | List of tuples (v3) | 1 - inf | - | Defines dispatch iteration of the kernel to be profiled. In v3, this is per kernel_id.
+kernel-include-regex | String	| Any | - | Includes a kernel name to be profiled.
+kernel-exclude-regex | String	| Any | - | Excludes a kernel name from profiling.
+att-buffer-size | Bytes | 1MB-2GB | 96MB | Increase this value if the buffer is getting full too quickly.
+att-perfcounter-ctrl | Integer | 1 - 32 | 2~5 | Enables SQ perfcounters sent to the SQTT buffer with the given relative period (gfx9). High BW: May cause data loss if polled too quickly.
+att-perfcounters | String | SQ-only | - | Adds SQ counters to be sent when PERFCOUNTERS_CTRL is enabled. rocprofv3 --list-avail to list all counters.
+att-activity | Integer | 1 - 16 | 10 | Adds the activity counters for summary view. Shorthand for att-perfcounter-ctrl + select SQ counters.
 
 Examples:
 ```bash
@@ -252,7 +254,8 @@ rocprofv3 --att-perfcounter-ctrl 3 --att-perfcounters "SQ_VALU_MFMA_BUSY_CYCLES 
   * Default to 0xF (all SIMDs increment counter)
   * By filtering SIMD and CU (in Edit -> Counters Shown), this allows per-SIMD counter collection streaming
 ```bash
-rocprofv3 --att-perfcounter-ctrl 3 --att-perfcounters "SQ_INSTS_VALU SQ_INSTS_SALU:0xF SQ_INSTS_SALU:0x3 SQ_INSTS_SALU:0xC"
+# This enables SQ_INSTS_VALU for all SIMDs, and show individual SQ_INSTS_SALU counters per SIMD [0,1,2]
+rocprofv3 --att-perfcounter-ctrl 3 --att-perfcounters "SQ_INSTS_VALU:0xF SQ_INSTS_SALU:0x1 SQ_INSTS_SALU:0x2 SQ_INSTS_SALU:0x4"
 ```
 
 Counters can be used to visualize specific types of hardware utilization. For instance:
@@ -286,11 +289,36 @@ To enable the summary view, use the following parameters:
 
 ```bash
 # SQ_ACTIVE_INST_X collects activity for token type X.
-# For summary, a collection interval of 15 is enough.
-rocprofv3 --att-perfcounter-ctrl 15 --att-perfcounters "SQ_BUSY_CU_CYCLES SQ_VALU_MFMA_BUSY_CYCLES SQ_ACTIVE_INST_VALU SQ_ACTIVE_INST_LDS SQ_ACTIVE_INST_VMEM SQ_ACTIVE_INST_FLAT SQ_ACTIVE_INST_SCA SQ_ACTIVE_INST_MISC"
+# For summary, a collection interval of 10 is enough.
+rocprofv3 --att-perfcounter-ctrl 10 --att-perfcounters "SQ_BUSY_CU_CYCLES SQ_VALU_MFMA_BUSY_CYCLES SQ_ACTIVE_INST_VALU SQ_ACTIVE_INST_LDS SQ_ACTIVE_INST_VMEM SQ_ACTIVE_INST_FLAT SQ_ACTIVE_INST_SCA SQ_ACTIVE_INST_MISC"
+
+# or using the convenience parameter
+rocprofv3 --att-activity 10
 ```
 
+* Per-CU rates are averaged over the period in which any wave was present in the CU.
+* Peak rates indicate maximum across any given cycle, adding all Shaders and CUs.
+* Utilization for counter X is computed as:
+  * max_over_cycles(add_over_cu(X))/max_over_cycles(add_over_cu(SQ_BUSY_CU_CYCLES)) for peak rates.
+  * add_all(X)/add_all(SQ_BUSY_CU_CYCLES) for other values.
+
 ![Alt text](docs/images/summary.png)
+
+### Explorer View
+
+The Explorer View provides a hierarchical file browser for all source files and profiling data included in your analysis session. It is located on the left side of the main window and allows you to:
+
+- **Browse the file structure** of the profiled application, including folders and files.
+- **Visualize hotspots directly in the tree:** Each file node displays a colored bar representing the total latency (hotspot) for that file, making it easy to identify performance-critical files at a glance.
+- **Click on any file** to display a detailed hotspot summary for that file in the right panel, the top lines by latency and their corresponding source code.
+- **Expand and collapse folders** to navigate large projects efficiently.
+
+The Explorer View is tightly integrated with the rest of the application:
+- Selecting a file automatically updates the Hotspot Summary and Source View.
+- The hotspot bars in the explorer are color-coded and scaled relative to the maximum latency in the dataset.
+- Only leaf nodes (files) display hotspot bars; folders do not show bars.
+
+This view helps you quickly locate and focus on the most performance-critical files in your application.
 
 ## Known issues and limitations
 * All:
@@ -309,7 +337,7 @@ rocprofv3 --att-perfcounter-ctrl 15 --att-perfcounters "SQ_BUSY_CU_CYCLES SQ_VAL
 
 ## FAQ:
 
-1) The Viewer does not display anything except "Occupancy" and "Global View". There are also no wave files on the ui_output directory.
+1) The Viewer does not display anything except "Occupancy" and "Global View". There are also no wave files on the ui_output directory and stats_*.csv file is empty.
 *  
   * Thread Trace only receives detailed information from the target_cu.
   * If the application does not populate the target_cu, then nothing will be traced.

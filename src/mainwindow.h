@@ -36,7 +36,6 @@
 #include <vector>
 #include "collection/hotspotsummarywidget.h"
 #include "graphics/hotspot.h"
-#include "graphics/specialized_plots.h"
 #include "util/custom_layouts.h"
 #include "wave/waveglobal.h"
 
@@ -85,7 +84,6 @@ public:
     void ScrollViewsTo(int64_t cycle);
     void GatherWaves();
     void UpdateOccupancyInfo(const std::vector<std::pair<std::string, int>>& values, float norm);
-    void UpdateSummaryView(std::vector<CounterPlotView::CounterAccum>& accumulated);
 
     uint64_t GetSEMask() { return ToMask(se_enable_list); }
     uint64_t GetCUMask() { return ToMask(cu_enable_list); }

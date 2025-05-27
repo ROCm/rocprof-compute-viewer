@@ -122,20 +122,8 @@ void HotspotSummaryWidget::paintEvent(QPaintEvent* event)
     QFontMetrics latencyFm(latencyFont);
 
     int lineHeight = contentFm.height();
-    int padding = 10;
+    int padding = 14;
     int hotspotBarWidth = 150;
-
-    // Clean up filename
-    QString cleanFileName = fileDisplayName;
-    if (cleanFileName.startsWith("source_"))
-    {
-        int firstUnderscorePos = cleanFileName.indexOf('_');
-        if (firstUnderscorePos != -1)
-        {
-            int secondUnderscorePos = cleanFileName.indexOf('_', firstUnderscorePos + 1);
-            if (secondUnderscorePos != -1) { cleanFileName = cleanFileName.mid(secondUnderscorePos + 1); }
-        }
-    }
 
     // Draw title
     painter.setFont(titleFont);
@@ -143,7 +131,7 @@ void HotspotSummaryWidget::paintEvent(QPaintEvent* event)
 
     QString title = hotspotLines.empty()
                       ? "Click on a source file to view the Hotspots"
-                      : "Top " + QString::number(hotspotLines.size()) + " Hotspots in " + cleanFileName;
+                      : "Top " + QString::number(hotspotLines.size()) + " Hotspots in " + fileDisplayName;
 
     painter.drawText(padding, padding + titleFm.ascent(), title);
 

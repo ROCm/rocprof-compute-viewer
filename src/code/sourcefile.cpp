@@ -91,7 +91,6 @@ void SourceFile::paintEvent(class QPaintEvent* event)
     stepy = fm.height();
 
     int posy = overline + stepy;
-
     QRect rect = event->rect();
 
     int num_lines_width =
@@ -104,6 +103,7 @@ void SourceFile::paintEvent(class QPaintEvent* event)
     {
         if (posy + 2 * stepy >= rect.y() && posy <= rect.y() + rect.height() + stepy)
             line->paint(painter, overline, posy, stepy, overline, num_lines_width);
+
         posy += stepy;
     }
 
@@ -155,15 +155,16 @@ void HorizontalHotspot::paint(
     QPainter& painter, int posx, int posy, int sizey, float value_to_pixel_ratio, bool rightToLeft
 )
 {
+    const int padding = 2;
+    int reducedHeight = sizey - 2 * padding;
+
+    painter.save();
+    painter.setPen(Qt::NoPen);
+
     int xstart = posx;
     float pos = posx;
     float dir = rightToLeft ? -1 : 1;
-
-    painter.save();
-
-    QPen pen = painter.pen();
-    pen.setColor(WindowColors::HotspotOutline());
-    painter.setPen(pen);
+    int totalWidth = 0;
 
     for (int c = 0; c < latency.size(); c++)
     {
@@ -174,9 +175,23 @@ void HorizontalHotspot::paint(
             int start = std::min(xstart, static_cast<int>(pos));
             int end = std::max(xstart, static_cast<int>(pos));
             painter.setBrush(QBrush(Config::TokenColors().at(c).qcolor));
-            painter.drawRect(start, posy, end - start, sizey);
+
+            painter.drawRect(start, posy + padding, end - start, reducedHeight);
+
             xstart = pos;
+            totalWidth = std::max(totalWidth, std::abs(static_cast<int>(pos) - posx));
         }
+    }
+
+    // Draw single border around entire hotspot
+    if (total_latency > 0 && totalWidth > 0) {
+        QPen pen;
+        pen.setColor(WindowColors::HotspotOutline());
+        painter.setPen(pen);
+        painter.setBrush(Qt::NoBrush);
+
+        int x = rightToLeft ? posx - totalWidth : posx;
+        painter.drawRect(x, posy + padding, totalWidth, reducedHeight);
     }
 
     painter.restore();

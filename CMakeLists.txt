@@ -51,7 +51,7 @@ file(GLOB RCVIEWER_SOURCE_FILES
     src/config/*.cpp
     src/summary/*.cpp
     src/mainwindow.ui
-    src/resources.qrc
+    icon.qrc
 )
 
 set(QT_V Qt${QT_VERSION_MAJOR})

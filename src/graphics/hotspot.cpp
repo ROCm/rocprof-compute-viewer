@@ -96,19 +96,6 @@ void HotspotView::mousePressEvent(QMouseEvent* ev)
         QASSERT(QCodelist::singleton, "Invalid codelist");
         QCodelist::singleton->Highlight(begin, end, true);
 
-        /*while (begin <= end && start_success > 0) TODO
-        {
-            bool bSuccess = QCodeline::HighlightLine(begin, true);
-            if (bSuccess) start_success --;
-            begin ++;
-        }
-        while (end >= begin && start_success >= 0)
-        {
-            bool bSuccess = QCodeline::HighlightLine(end, false);
-            if (bSuccess) start_success --;
-            end --;
-        }*/
-
         return;
     }
 }
@@ -196,40 +183,10 @@ void HotspotView::paintEvent(QPaintEvent* event)
         }
     }
 
-    font.setPointSize(top_font_value);
+    font.setPointSize(bottom_font_value);
     painter.setFont(font);
     pen.setColor(WindowColors::textColor());
     painter.setPen(pen);
-
-    {
-        size_t enable_bits = 0;
-        for (size_t i = 0; i < Config::TokenColors().size(); i++)
-            for (auto& bin : bins)
-                if (i < bin.cycles.size() && bin.cycles.at(i) > 0) enable_bits |= 1 << i;
-
-        enable_bits <<= 1;
-
-        QFontMetrics fm(font);
-        // Draw token colors
-        int total_text_width = Config::TokenColors().size() * font_height * 3 / 2;
-        for (auto& color : Config::TokenColors()) total_text_width += fm.horizontalAdvance(color.name.c_str());
-
-        int left_padding = std::max((width() - total_text_width) / 2 + font_height, 0);
-        for (auto& color : Config::TokenColors())
-        {
-            enable_bits >>= 1;
-            if ((enable_bits & 1) == 0) continue;
-
-            painter.fillRect(
-                QRectF(left_padding + font_height / 4, margin, font_height / 2, font_height / 2), color.qcolor
-            );
-            painter.drawText(left_padding + font_height, margin + font_height / 2, color.name.c_str());
-            left_padding += font_height * 3 / 2 + fm.horizontalAdvance(color.name.c_str());
-        }
-    }
-
-    font.setPointSize(bottom_font_value);
-    painter.setFont(font);
 
     {
         QFontMetrics fm(font);
@@ -274,5 +231,35 @@ void HotspotView::paintEvent(QPaintEvent* event)
         // Draw code_line mid label
         std::string_view linen = "Code line number";
         painter.drawText(width() / 2 - fm.horizontalAdvance(linen.data()) / 2, height() - margin / 2, linen.data());
+    }
+
+    font.setPointSize(top_font_value);
+    painter.setFont(font);
+    pen.setColor(WindowColors::textColor());
+    painter.setPen(pen);
+
+    size_t enable_bits = 0;
+    for (size_t i = 0; i < Config::TokenColors().size(); i++)
+        for (auto& bin : bins)
+            if (i < bin.cycles.size() && bin.cycles.at(i) > 0) enable_bits |= 1 << i;
+
+    enable_bits <<= 1;
+
+    QFontMetrics fm(font);
+    // Draw token colors
+    int total_text_width = Config::TokenColors().size() * font_height * 3 / 2;
+    for (auto& color : Config::TokenColors()) total_text_width += fm.horizontalAdvance(color.name.c_str());
+
+    int left_padding = std::max((width() - total_text_width) / 2 + font_height, 0);
+    for (auto& color : Config::TokenColors())
+    {
+        enable_bits >>= 1;
+        if ((enable_bits & 1) == 0) continue;
+
+        painter.fillRect(
+            QRectF(left_padding + font_height / 4, margin, font_height / 2, font_height / 2), color.qcolor
+        );
+        painter.drawText(left_padding + font_height, margin + font_height / 2, color.name.c_str());
+        left_padding += font_height * 3 / 2 + fm.horizontalAdvance(color.name.c_str());
     }
 }

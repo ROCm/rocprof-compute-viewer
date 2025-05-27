@@ -129,27 +129,7 @@ QPalette& getDarkPalette()
 
     return darkPalette;
 }
-QString& white_style()
-{
-    static auto style = qApp->styleSheet();
-    return style;
-}
-QString& dark_style()
-{
-    static auto style = []()
-    {
-        QFile file(":/resources/style.qss");
-        if (!file.open(QFile::ReadOnly | QFile::Text))
-        {
-            qDebug() << "Failed loading stylesheet: " << file.errorString();
-            return QString("");
-        }
-        QTextStream stream(&file);
-        QString stylesheet = stream.readAll();
-        return stylesheet;
-    }();
-    return style;
-}
+
 bool isDark() { return bDarkTheme; }
 void setDark(bool bDark)
 {
@@ -160,13 +140,13 @@ void setDark(bool bDark)
 }
 const QColor& Background()
 {
-    static QColor dark(38, 38, 38);
+    static QColor dark(36, 36, 36);
     static QColor white(224, 224, 224);
     return bDarkTheme ? dark : white;
 }
 const QColor& TraceBackground()
 {
-    static QColor dark(38, 38, 38);
+    static QColor dark(36, 36, 36);
     static QColor white(224, 224, 224);
     return bDarkTheme ? dark : white;
 }
@@ -192,15 +172,15 @@ const QColor& GraphBkg()
 }
 const QColor& HotspotBkg()
 {
-    static QColor dark(48, 48, 48);
+    static QColor dark(56, 56, 56);
     static QColor white(224, 224, 224);
     return bDarkTheme ? dark : white;
 }
 const QColor& HotspotOutline()
 {
-    static QColor dark(Qt::lightGray);
-    static QColor white(Qt::darkGray);
-    return bDarkTheme ? dark : white;
+    static QColor dark(255, 255, 255);
+    static QColor light(0, 0, 0);
+    return bDarkTheme ? dark : light;
 }
 const QColor& MeasureTool()
 {
@@ -286,8 +266,8 @@ const std::vector<StyleColor>& TokenColors()
                 addpair(def_token, "JUMP", "#5038ff");
                 addpair(def_token, "NEXT", "#8020ff");
                 addpair(def_token, "IMMED", "#404040");
-                addpair(def_token, "CONTEXT", "#000000");
-                addpair(def_token, "MESSAGE", "#101010");
+                addpair(def_token, "CTXSW", "#000000");
+                addpair(def_token, "MSG", "#101010");
                 addpair(def_token, "BVH", "#ff0804");
                 addpair(def_token, "MATRIX", "#006000");
             }
@@ -313,7 +293,7 @@ const std::vector<StyleColor>& TokenColors()
             }
             catch (const std::exception& e)
             {
-                addpair(def_token, "NONE", "#505050");
+                addpair(def_token, "NONE", "#707070");
                 addpair(def_token, "SMEM", "#e0f000");
                 addpair(def_token, "SALU", "#a0f0a0");
                 addpair(def_token, "VMEM", "#f0c432");
@@ -322,9 +302,9 @@ const std::vector<StyleColor>& TokenColors()
                 addpair(def_token, "VALU", "#00a000");
                 addpair(def_token, "JUMP", "#5038f0");
                 addpair(def_token, "NEXT", "#8020f0");
-                addpair(def_token, "IMMED", "#303030");
-                addpair(def_token, "CONTEXT", "#d0d0d0");
-                addpair(def_token, "MESSAGE", "#a0a0a0");
+                addpair(def_token, "IMMED", "#282828");
+                addpair(def_token, "CTXSW", "#d0d0d0");
+                addpair(def_token, "MSG", "#080000");
                 addpair(def_token, "BVH", "#f00804");
                 addpair(def_token, "MATRIX", "#006000");
             }
@@ -388,13 +368,13 @@ const QColor& PlotColors(int index)
 
         {255, 255, 255},
 
-        {128, 255,   0},
-        {  0, 128, 255},
-        {255,   0, 128},
+        {128, 192,   0},
+        {  0, 128, 192},
+        {192,   0, 128},
 
-        {255, 128,   0},
-        {  0, 255, 128},
-        {128,   0, 255},
+        {180, 100,   0},
+        {  0, 180, 100},
+        {100,   0, 180},
 
         {160, 255, 255},
         {255, 160, 255},

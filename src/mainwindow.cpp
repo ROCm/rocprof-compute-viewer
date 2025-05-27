@@ -570,14 +570,21 @@ void MainWindow::ResetSelector()
     this->seSelector = nullptr;
     this->seSelector = new SESelector(*request);
 
-    updatePerfNames();
-    CreateWavesPlot();
-    CreateOccupancyPlot(false);
-    CreateOccupancyPlot(true);
-    CreateCountersPlot();
-    if (this->counters_plot) this->counters_plot->setAutoLod(ui->lod_checkBox->isChecked());
+    try
+    {
+        updatePerfNames();
+        CreateWavesPlot();
+        CreateOccupancyPlot(false);
+        CreateOccupancyPlot(true);
+        CreateCountersPlot();
+        if (this->counters_plot) this->counters_plot->setAutoLod(ui->lod_checkBox->isChecked());
 
-    this->CreateGlobalView();
+        this->CreateGlobalView();
+    }
+    catch (std::exception& e)
+    {
+        QWARNING(false, "Unable to create plots:" << e.what(), return );
+    }
 }
 
 MainWindow::~MainWindow()
@@ -615,6 +622,7 @@ void MainWindow::CreateCountersPlot()
 
     se_enable_list = {};
     std::vector<CounterPlotView::CounterAccum> accumulated{};
+    CounterPlotView::CounterList peak_rates{};
     bool load_perf_counters = true;
 
     if (load_perf_counters)
@@ -625,17 +633,15 @@ void MainWindow::CreateCountersPlot()
         for (const auto& SE_name : this->seSelector->names)
         {
             std::string filename = GetUIDir() + "se" + SE_name + "_perfcounter.json";
-            try
-            {
-                int se_num = std::stoi(SE_name);
-                JsonRequest file(filename, false);
 
-                while (accumulated.size() <= se_num) accumulated.push_back({});
-                accumulated.at(se_num) = traceplot->LoadCounterData(file, se_num);
-            }
-            catch (...)
-            {}
+            int se_num = std::stoi(SE_name);
+            JsonRequest file(filename, false);
+
+            while (accumulated.size() <= se_num) accumulated.push_back({});
+            accumulated.at(se_num) = traceplot->LoadCounterData(file, se_num);
         }
+
+        peak_rates = traceplot->GetPeakRates();
     }
     se_enable_list = std::vector<bool>(accumulated.size(), true);
 
@@ -646,11 +652,7 @@ void MainWindow::CreateCountersPlot()
     counters_plot_layout->addWidget(this->counters_plot);
 
     UpdateCountersPlotSelection();
-    UpdateSummaryView(accumulated);
-}
 
-void MainWindow::UpdateSummaryView(std::vector<CounterPlotView::CounterAccum>& accumulated)
-{
     auto acc_index = [&accumulated](int index) -> double
     {
         double acc = 0;
@@ -703,6 +705,7 @@ void MainWindow::UpdateSummaryView(std::vector<CounterPlotView::CounterAccum>& a
             QColor color = getColorByName("MATRIX"); // special case for MFMA
             // This counter increments by cycles, not quadcycles
             bar_chart_data.push_back({"MFMA", acc_index(i) / 4, color});
+            bar_chart_data.push_back({"MFMA Peak", peak_rates.at(i) / 4, color});
             util_names["MFMA"] = i;
         }
         else if (name.find("SQ_ACTIVE_INST_") == 0)
@@ -710,6 +713,7 @@ void MainWindow::UpdateSummaryView(std::vector<CounterPlotView::CounterAccum>& a
             name = name.substr(std::string("SQ_ACTIVE_INST_").size());
             QColor color = (name == "SCA") ? getColorByName("SMEM") : getColorByName(name); // special case for SCA
             bar_chart_data.push_back({name.c_str(), acc_index(i), color});
+            if (name == "VALU") bar_chart_data.push_back({"VALU Peak", peak_rates.at(i), color});
             util_names[name] = i;
         }
     }
@@ -717,8 +721,15 @@ void MainWindow::UpdateSummaryView(std::vector<CounterPlotView::CounterAccum>& a
     if (busy_cu_index >= 0)
     {
         double busy_cu_cycles = acc_index(busy_cu_index);
+        double busy_max_cycles = peak_rates.at(busy_cu_index);
 
-        for (auto& [name, data, _] : bar_chart_data) data = 100.0 * data / busy_cu_cycles;
+        for (auto& [name, data, _] : bar_chart_data)
+        {
+            if (name.contains("Peak"))
+                data = 100.0 * data / busy_max_cycles;
+            else
+                data = 100.0 * data / busy_cu_cycles;
+        }
 
         summary_view->setBarChartData(bar_chart_data, "Hardware Utilization");
     }
@@ -736,6 +747,24 @@ void MainWindow::UpdateSummaryView(std::vector<CounterPlotView::CounterAccum>& a
     }
 
     QStringList row_headers;
+    row_headers.push_back("Peak");
+
+    {
+        QList<QString> row_data;
+        for (auto& [name, index] : util_names)
+        {
+            double value = 100.0 * peak_rates.at(index) / std::max(peak_rates.at(busy_cu_index), 1.0);
+            if (name.find("MFMA") == 0) value /= 4;
+
+            row_data.push_back(QString::number(int(value + 0.5)) + "%");
+        }
+
+        for (int cidx = 0; cidx < perfcounter_names.size(); cidx++)
+            row_data.push_back(QString::number(peak_rates.at(cidx)));
+
+        summary_view->addTableRow(row_data);
+    }
+
     for (int se = 0; se < accumulated.size(); se++)
     {
         for (int cu = 0; cu < accumulated.at(se).size(); cu++)
@@ -745,28 +774,19 @@ void MainWindow::UpdateSummaryView(std::vector<CounterPlotView::CounterAccum>& a
 
             for (auto& [name, index] : util_names)
             {
+                double div = std::max(accumulated.at(se).at(cu).at(busy_cu_index), 1.0);
                 double value = accumulated.at(se).at(cu).at(index);
                 if (name == "MFMA") value /= 4;
 
-                double div = std::max(accumulated.at(se).at(cu).at(busy_cu_index), 1.0);
-
-                auto number = QString::number(int(100.0 * value / div + 0.5)) + "%";
-                row_data.push_back(number);
+                row_data.push_back(QString::number(int(100.0 * value / div + 0.5)) + "%");
             }
 
             for (int cidx = 0; cidx < perfcounter_names.size(); cidx++)
             {
-                QString number = "N/A";
-                try
-                {
-                    double value = accumulated.at(se).at(cu).at(cidx);
-                    number = QString::number(value);
-                    nonzero |= value > 0;
-                }
-                catch (...)
-                {}
+                double value = accumulated.at(se).at(cu).at(cidx);
+                nonzero |= value > 0;
 
-                row_data.push_back(number);
+                row_data.push_back(QString::number(value));
             }
 
             // Only add rows for CUs which had any counter increment
@@ -821,7 +841,7 @@ void MainWindow::UpdateCountersPlotSelection()
     this->counters_plot->UpdateDataSelection(perfcounter_names, GetSEMask(), GetCUMask(), disabled_counters);
     graph_info_table->setRowCount(4 + perfcounter_names.size());
 
-    int i = 4;
+    int i = 3;
     for (auto& name : perfcounter_names)
     {
         class QLabel* v_label = new QLabel("");
@@ -848,9 +868,9 @@ void MainWindow::CreateWavesPlot()
     this->waves_plot->LoadWaveStateData(GetUIDir(), 0);
     this->waves_plot->setAutoLod(ui->lod_checkBox->isChecked());
 
-    for (int i = 0; i < WavePlotView::state_names.size() - 1; i++)
+    for (int i = 0; i < WavePlotView::state_names.size() - 2; i++)
     {
-        auto& name = WavePlotView::state_names[i + 1];
+        auto& name = WavePlotView::state_names[i + 2];
         class QLabel* v_label = new QLabel("");
         class QLabel* i_label = new QLabel("");
 
@@ -1301,6 +1321,12 @@ void MainWindow::onFileClicked(const QModelIndex& index)
         return;
     }
 
+    // Find position of the last path separator
+    size_t pos = profilingPath.find_last_of("/\\");
+
+    // Extract the filename
+    std::string displayFilename = (pos != std::string::npos) ? profilingPath.substr(pos + 1) : profilingPath;
+
     // Find or create hotspot summary widget
     QSplitter* horizontalSplitter = nullptr;
     if (ui->fileExplorer_tab->layout())
@@ -1309,7 +1335,7 @@ void MainWindow::onFileClicked(const QModelIndex& index)
         if (item && item->widget()) { horizontalSplitter = qobject_cast<QSplitter*>(item->widget()); }
     }
 
-    if (horizontalSplitter && hotspotSummary) hotspotSummary->setFile(profilingPath, fileName);
+    if (horizontalSplitter && hotspotSummary) hotspotSummary->setFile(profilingPath, displayFilename);
 }
 
 void MainWindow::paintEvent(QPaintEvent* event) { QMainWindow::paintEvent(event); }

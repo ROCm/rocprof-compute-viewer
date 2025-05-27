@@ -55,15 +55,16 @@ size_t binarySearch(const std::vector<PlotPoint>& vec, float target)
     return std::distance(vec.begin(), it) - 1;
 }
 
-const PlotPoint& LODCurve::search(float time) const
+float LODCurve::search(float time) const
 {
-    static const PlotPoint def{};
-    if (!data.size()) return def;
+    if (!data.size()) return 0;
 
     size_t index = binarySearch(data, time);
-    if (index >= data.size()) return def;
+    if (index >= data.size()) return 0;
 
-    return data.at(index);
+    if (index == 0 && data.at(index).time > time) return 0;
+
+    return data.at(index).value;
 }
 
 void PlotCurve::SetData(std::vector<WeightedPoint>&& data)
@@ -334,22 +335,23 @@ void PlotGraph::paintEvent(QPaintEvent* ev)
     double yview = double(height() - bottom_space - top_space) / yticks;
     int yalign = fm.horizontalAdvance("AAAAA");
 
+    std::array<char, 5> exp_char = {' ', 'K', 'M', 'G', 'T'};
+    std::array<double, 5> exp_value = {1.0, 1E3, 1E6, 1E9, 1E12};
+
     for (int i = 0; i <= yticks; i++)
     {
         double d_value = i * ymax / yscale / yticks;
 
-        std::string value = "";
-        if (d_value < 1E4)
-            value = std::to_string(int64_t(d_value));
-        else if (d_value < 1E7)
-            value = std::to_string(int64_t(d_value / 1E3)) + 'K';
-        else
-            value = std::to_string(int64_t(d_value / 1E6)) + 'M';
+        int exp_idx = 0;
+        for (int i = 1; i < exp_value.size(); i++) exp_idx += d_value >= exp_value.at(i);
+
+        int precision = (d_value / exp_value.at(exp_idx) < 10.0) ? 1 : 0;
+        auto value = QString("%1").arg(d_value / exp_value.at(exp_idx), 0, 'f', precision) + exp_char.at(exp_idx);
 
         double ypos = height() - bottom_space - i * yview;
 
         painter.setPen(pen);
-        painter.drawText(2 + yalign - fm.horizontalAdvance(value.c_str()), ypos - 3, value.c_str());
+        painter.drawText(2 + yalign - fm.horizontalAdvance(value), ypos - 3, value);
 
         painter.setPen(whitepen);
         painter.drawLine(left_space - ticksize, ypos, left_space + ticksize, ypos);

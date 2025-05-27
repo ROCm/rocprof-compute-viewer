@@ -35,6 +35,12 @@ void HistogramDelegate::paint(QPainter* painter, const QStyleOptionViewItem& opt
     const JsonFileModel* model = qobject_cast<const JsonFileModel*>(index.model());
     QWARNING(model, "Invalid model", return );
 
+    // Skip drawing hotspots for folders
+    JsonFileModel::Node* node = static_cast<JsonFileModel::Node*>(index.internalPointer());
+    if (!node || node->value.isObject() || node->children.size() > 0) {
+        return;
+    }
+
     // Update all hotspots on the fly
     model->updateAllHotspotsAndLatencies(model->rootNode);
 
@@ -49,12 +55,13 @@ void HistogramDelegate::paint(QPainter* painter, const QStyleOptionViewItem& opt
     HorizontalHotspot hotspot = variant.value<HorizontalHotspot>();
 
     QRect rect = option.rect;
-    int barHeight = rect.height() - 4;
+    int barHeight = static_cast<int>(rect.height() * 0.8);
+    int verticalOffset = (rect.height() - barHeight) / 2;
 
     float value_to_pixel_ratio = static_cast<float>(MAX_HOTSPOT_WIDTH) / maximum_latency;
 
     painter->save();
-    hotspot.paint(*painter, rect.right(), rect.top() + 2, barHeight, value_to_pixel_ratio, true);
+    hotspot.paint(*painter, rect.right(), rect.top() + verticalOffset, barHeight, value_to_pixel_ratio, true);
     painter->restore();
 }
 

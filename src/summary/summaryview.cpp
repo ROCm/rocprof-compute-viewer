@@ -16,6 +16,11 @@ PieChartWidget::PieChartWidget(QWidget* parent /*= nullptr*/) : QWidget(parent)
     chart_colors = {QColor("#FF7200"), QColor("#9C0000"), QColor("#FE0000")};
 }
 
+QSize PieChartWidget::minimumSizeHint() const
+{
+    return {std::max(200, QWidget::minimumSizeHint().width()), std::max(200, QWidget::minimumSizeHint().height())};
+}
+
 void PieChartWidget::paintEvent(QPaintEvent* event)
 {
     Q_UNUSED(event);
@@ -43,7 +48,7 @@ void PieChartWidget::paintEvent(QPaintEvent* event)
     QRect canvasRect = QRect(0, 0, width(), height() - titleRect.height()); // Adjusted for title height
 
     // Maintain circular aspect ratio
-    int side = qMin(canvasRect.width(), canvasRect.height()) - 20; // -20 for padding
+    int side = std::max(qMin(canvasRect.width(), canvasRect.height()), 100) - 20; // -20 for padding
     pie_rect = QRectF(
         (canvasRect.width() - side) / 2.0, (canvasRect.height() - side) / 2.0 + titleRect.height(), side, side
     ); // Store for mouseMoveEvent
@@ -178,6 +183,16 @@ void PieChartWidget::mouseMoveEvent(QMouseEvent* event)
     }
 }
 
+constexpr int margin = 50;
+constexpr int barWidth = 40;
+constexpr int spacing = 30;
+
+int BarChartWidget::getsizex() const { return (barWidth + spacing) * data.size() + spacing; }
+
+QSize BarChartWidget::sizeHint() const { return QSize(getsizex(), QWidget::sizeHint().height()); }
+
+QSize BarChartWidget::minimumSizeHint() const { return QSize(getsizex(), QWidget::minimumSizeHint().height()); }
+
 void BarChartWidget::paintEvent(QPaintEvent* event)
 {
     QPainter painter(this);
@@ -187,24 +202,6 @@ void BarChartWidget::paintEvent(QPaintEvent* event)
     QColor textColor = palette().color(QPalette::WindowText);
     QColor outlineColor = palette().color(QPalette::Dark);
     QColor backgroundColor = WindowColors::UtilizationBarColorBg();
-
-    int margin = 50;
-    int barWidth = 40;
-    int spacing = 30;
-
-    // Find max value for scaling
-    float maxValue = max_data_value;
-    if (scale_to_data_max)
-    {
-        maxValue = std::numeric_limits<float>::lowest();
-        for (const auto& item : data) maxValue = std::max(maxValue, std::get<1>(item));
-    }
-
-    if (maxValue == 0.0f)
-    {
-        qDebug() << "Warning: All values are zero. Setting maxValue to 1.0 to avoid division by zero.";
-        maxValue = 1.0f; // Avoid division by zero
-    };
 
     QFontMetrics fm(painter.font());
     // measure title size
@@ -217,15 +214,15 @@ void BarChartWidget::paintEvent(QPaintEvent* event)
 
     int maxHeight = height() - 2 * margin;
     int totalWidth = data.size() * (barWidth + spacing) + spacing; // Total width of the chart
-    int xOffset = (width() - totalWidth) / 2;                      // Center the chart horizontally
+
     for (int i = 0; i < data.size(); ++i)
     {
         const QString& label = std::get<0>(data[i]);
-        int value = std::get<1>(data[i]);
+        double value = std::get<1>(data[i]);
         QColor barColor = std::get<2>(data[i]);
 
-        int barHeight = static_cast<int>(value / maxValue * maxHeight);
-        int x = xOffset + i * (barWidth + spacing) + spacing;
+        int barHeight = static_cast<int>(std::min(value / 100.0, 1.0) * maxHeight + 0.5);
+        int x = i * barWidth + spacing * (i + 2);
         int y = height() - margin - barHeight;
 
         // Draw background bar
@@ -259,8 +256,8 @@ void BarChartWidget::paintEvent(QPaintEvent* event)
     if (draw_axis)
     {
         // Draw axes
-        painter.drawLine(xOffset, height() - margin, xOffset + totalWidth, height() - margin); // X-axis
-        painter.drawLine(xOffset, margin, xOffset, height() - margin);                         // Y-axis
+        painter.drawLine(spacing, height() - margin, spacing + totalWidth, height() - margin); // X-axis
+        painter.drawLine(spacing, margin, spacing, height() - margin);                         // Y-axis
     }
 }
 
@@ -333,7 +330,10 @@ tableContainer(nullptr)
     tableWidget->setEditTriggers(QAbstractItemView::NoEditTriggers);
     tableWidget->setSelectionMode(QAbstractItemView::NoSelection);
     tableWidget->setMinimumHeight(280);
-    tableWidget->setToolTip("Load balancing: Utilization and counter values.");
+    tableWidget->setToolTip(
+        "Load balancing: Utilization for counter X is computed as X/BUSY_CU_CYCLES.\nPeak rates indicate maximum "
+        "across any given cycle.\nPer-CU rates are averaged over the period in which any wave was present in the CU."
+    );
     tableLayout->addWidget(tableWidget);
     layout->addWidget(tableContainer);
 

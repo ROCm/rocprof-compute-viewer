@@ -54,7 +54,7 @@ struct LODCurve
     {
         for (auto& point : points) data.emplace_back(PlotPoint{point.time, point.value});
     }
-    const PlotPoint& search(float time) const;
+    float search(float time) const;
 };
 
 struct PlotCurve

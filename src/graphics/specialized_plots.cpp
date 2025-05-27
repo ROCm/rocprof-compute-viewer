@@ -76,7 +76,7 @@ void WavePlotView::LoadWaveStateData(const std::string& pathname, int SE)
 
     std::vector<std::future<decltype(load_state(0))>> threads;
 
-    for (int state = 1; state < 5; state++) threads.push_back(std::async(std::launch::async, load_state, state));
+    for (int state = 2; state < 5; state++) threads.push_back(std::async(std::launch::async, load_state, state));
 
     for (auto& thread : threads)
     {
@@ -90,17 +90,18 @@ void WavePlotView::LoadWaveStateData(const std::string& pathname, int SE)
 void WavePlotView::UpdateGraphTable(float mousepos)
 {
     float total = 0;
-    std::array<float, 4> values{};
+    std::array<float, 3> values{};
 
-    for (int i = 0; i < 4; i++)
+    for (int i = 0; i < 3; i++)
     {
         if (i >= curves.size() || !curves.at(i).lods.size()) continue;
 
-        values.at(i) = curves.at(i).lods.at(0).search(mousepos).value;
+        values.at(i) = curves.at(i).lods.at(0).search(mousepos);
         total += values.at(i);
     }
     total = std::max(total, 1.0f) / 100.0f; // Display as percentage
-    for (int i = 0; i < 4; i++) MainWindow::window->UpdateGraphInfo(state_names[i + 1], values[i], values[i] / total);
+    for (int i = 0; i < 3; i++)
+        MainWindow::window->UpdateGraphInfo(state_names.at(i + 2), values[i], values[i] / total);
 }
 
 CounterPlotView::CounterAccum TraceCounterPlotView::LoadCounterData(JsonRequest& file, int shader_engine)
@@ -122,9 +123,32 @@ CounterPlotView::CounterAccum TraceCounterPlotView::LoadCounterData(JsonRequest&
         if (data[b].size()) rootnodes.at(b)->Insert(shader_engine, data[b]);
 
     CounterPlotView::CounterAccum ret{};
+
     for (size_t b = 0; b < data.size(); b++)
         for (auto& counter : data[b])
             for (int c = 0; c < 4; c++) ret.at(counter.cu).at(4 * b + c) += counter.events[c];
+
+    return ret;
+}
+
+CounterPlotView::CounterList TraceCounterPlotView::GetPeakRates()
+{
+    CounterPlotView::CounterList ret{};
+
+    for (int b = 0; b < BANKS; b++)
+    {
+        if (!rootnodes.at(b)) continue;
+        std::vector<CounterData> counters = rootnodes[b]->AccumFromMask(~0ul, ~0ul);
+
+        for (auto& counter : counters)
+        {
+            for (int c = 0; c < 4; c++)
+            {
+                auto& maxv = ret.at(4 * b + c);
+                maxv = std::max<double>(maxv, counter.events[c]);
+            }
+        }
+    }
 
     return ret;
 }
@@ -178,7 +202,7 @@ void CounterPlotView::UpdateGraphTable(float mousepos)
 {
     for (auto& curve : curves)
         if (curve.lods.size())
-            MainWindow::window->UpdateGraphInfo(curve.fullname, curve.lods.at(0).search(mousepos).value, 0);
+            MainWindow::window->UpdateGraphInfo(curve.fullname, curve.lods.at(0).search(mousepos), 0);
 }
 
 void OccupancyPlotView::LoadOccupancyData(const std::string& filename)
@@ -236,7 +260,7 @@ void OccupancyPlotView::UpdateGraphTable(float timepos)
     for (auto& curve : curves)
     {
         if (!curve.lods.size()) continue;
-        values.push_back({curve.fullname, curve.lods.at(0).search(timepos).value});
+        values.push_back({curve.fullname, curve.lods.at(0).search(timepos)});
         total += values.back().second;
     }
     total = std::max(total, 1.0f) / 100.0f; // Display as percentage

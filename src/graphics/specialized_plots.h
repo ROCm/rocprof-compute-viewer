@@ -48,7 +48,10 @@ private:
 class CounterPlotView : public PlotGraph
 {
 public:
-    using CounterAccum = std::array<std::array<double, 4 * BANKS>, NUM_CU>;
+    // List of [compute_unit][counter_id] -> sum of counter
+    using CounterList = std::array<double, 4 * BANKS>;
+    // First = per CU counter, second = Peak rates
+    using CounterAccum = std::array<CounterList, NUM_CU>;
 
     CounterPlotView() : CounterPlotView(nullptr){};
     CounterPlotView(class QWidget* parent) : PlotGraph(1, parent){};
@@ -100,6 +103,8 @@ public:
         uint64_t cu_mask,
         std::unordered_set<std::string>& disable_counters
     ) override;
+
+    CounterList GetPeakRates();
 
 private:
     std::array<std::unique_ptr<class GPUCounterNode>, BANKS> rootnodes{};

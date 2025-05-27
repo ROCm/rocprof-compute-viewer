@@ -20,6 +20,8 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+#include <QIcon>
+#include <QPixmap>
 #include "mainwindow.h"
 
 int main(int argc, char* argv[])
@@ -27,12 +29,15 @@ int main(int argc, char* argv[])
     int res = 0;
     {
         QApplication a(argc, argv);
+        QIcon icon(QPixmap(":/amd.png"));
+        a.setWindowIcon(icon);
 
 #ifdef _WIN32
         a.setStyle(QStyleFactory::create("Fusion"));
 #endif
 
         MainWindow w((argc >= 2 && argv[1]) ? argv[1] : "");
+        w.setWindowIcon(icon);
         w.show();
         res = a.exec();
     }

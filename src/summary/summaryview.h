@@ -34,6 +34,8 @@ public:
         update(); // Trigger a repaint after setting new colors
     }
 
+    virtual QSize minimumSizeHint() const override;
+
 protected:
     void paintEvent(QPaintEvent*) override;
     void mouseMoveEvent(QMouseEvent* event) override;
@@ -67,13 +69,15 @@ public:
         update(); // Trigger a repaint after setting new title
     }
 
+    virtual QSize sizeHint() const override;
+    virtual QSize minimumSizeHint() const override;
+    int getsizex() const;
+
 protected:
     void paintEvent(QPaintEvent* event) override;
 
 private:
     QList<std::tuple<QString, float, QColor>> data;
-    float max_data_value = 100.0f; // Maximum value for scaling
-    bool scale_to_data_max = false;
     bool draw_axis = true; // Flag to control axis drawing
     QString chart_title = "";
 };

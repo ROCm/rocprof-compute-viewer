@@ -54,7 +54,7 @@ int AppConfig::getFontSize() const { return settings.value("DisplayOptions/FontS
 
 void AppConfig::setFontSize(int size) { settings.setValue("DisplayOptions/FontSize", size); }
 
-bool AppConfig::getDarkTheme() const { return settings.value("DisplayOptions/DarkTheme", false).toBool(); }
+bool AppConfig::getDarkTheme() const { return settings.value("DisplayOptions/DarkTheme", true).toBool(); }
 
 void AppConfig::setDarkTheme(bool enabled) { settings.setValue("DisplayOptions/DarkTheme", enabled); }
 

@@ -43,8 +43,6 @@ QColor textColor();
 QColor reverseTextColor();
 void setDark(bool bDark);
 bool isDark();
-QString& white_style();
-QString& dark_style();
 }; // namespace WindowColors
 
 struct StyleColor
