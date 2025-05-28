@@ -73,7 +73,7 @@ endif()
 
 set(deploy_tool_options_arg "")
 if(WIN32)
-    set(deploy_tool_options_arg --no-compiler-runtime)
+    set(deploy_tool_options_arg "--no-compiler-runtime --no-opengl-sw --no-system-d3d-compiler --release")
 endif()
 
 # Generate a deployment script to be executed at install time
@@ -85,7 +85,7 @@ qt_generate_deploy_script(
 include(\"${QT_DEPLOY_SUPPORT}\")
 qt_deploy_runtime_dependencies(
     EXECUTABLE \"${executable_path}\"
-    DEPLOY_TOOL_OPTIONS \"${deploy_tool_options_arg}\"
+    DEPLOY_TOOL_OPTIONS ${deploy_tool_options_arg}
     GENERATE_QT_CONF
     VERBOSE)
 ")

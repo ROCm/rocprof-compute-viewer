@@ -150,7 +150,7 @@ To open a UI directory, use:
 
 ### Hotspot Tab
 
-![Alt text](docs/images/hotspot.png)
+![Alt text](docs/data/hotspot.png)
 
 The Hotspot tab displays a histogram of instruction costs.
 
@@ -162,7 +162,7 @@ The Hotspot tab displays a histogram of instruction costs.
 
 ### Instructions View
 
-![Alt text](docs/images/isaview.png)
+![Alt text](docs/data/isaview.png)
 
 The ISA view contains a list of instructions with their Hitcount and Latency cost.
 If debug symbols are present, rocprofv3 snapshots the related source files, which are shown on the right.
@@ -188,19 +188,19 @@ If debug symbols are present, rocprofv3 snapshots the related source files, whic
   * Essentially a vertical slice of the Compute Unit tab when looking at wave states.
   * Only for the target_cu
 
-![Alt text](docs/images/wavestate.png)
+![Alt text](docs/data/wavestate.png)
 
 * Occupancy tab shows occupancy per Shader Engine, in number of waves.
 
-![Alt text](docs/images/occupancy.png)
+![Alt text](docs/data/occupancy.png)
 
 * Kernel Dispatches tab shows occupancy per kernel - usually relevant when there are multiple kernels running on different streams.
 
-![Alt text](docs/images/dispatch.png)
+![Alt text](docs/data/dispatch.png)
 
 ### Left Side Panel
 
-  ![Alt text](docs/images/left.png)
+  ![Alt text](docs/data/left.png)
 * "Shader" (Engine), "SIMD", "Slot" (Wave slot within a SIMD) and "WID" (A wave ID counter for that slot) boxes allows the user to select which Wave to focus on.
   * This is defined as the target wave.
   * The interations in "Instruction" tab are only for the target wave: Token-to-ISA mapping, loop iteration navigation, etc.
@@ -229,7 +229,7 @@ If debug symbols are present, rocprofv3 snapshots the related source files, whic
 #### Compute Unit:
 * Displays the trace separated per SIMD-Slot (e.g. 2-6).
 
-![Alt text](docs/images/cu.png)
+![Alt text](docs/data/cu.png)
 
 #### Utilization:
 * Displays the trace per type of instruction (VALU, VMEM, SCALAR, OTHER).
@@ -238,7 +238,7 @@ If debug symbols are present, rocprofv3 snapshots the related source files, whic
 * Can be used to identify bubbles.
 * May have overlapping tokens from different waves slots, in that case only one will be displayed.
 
-![Alt text](docs/images/util.png)
+![Alt text](docs/data/util.png)
 
 ### Counters:
 * Displays a plot of counter collection over time
@@ -267,8 +267,8 @@ Counters are also collected per compute unit and per shader engine.
 * Deselect all compute units except '1' to visualize counters only for CU=1.
   * '1' is usually the default --att-target-cu
 
-![Alt text](docs/images/counter_far.png)
-![Alt text](docs/images/counter_close.png)
+![Alt text](docs/data/counter_far.png)
+![Alt text](docs/data/counter_close.png)
 
 #### Global View
 The Global View presents a comprehensive trace of all waves across enabled Shader Engines, with each wave color-coded by kernel.
@@ -277,7 +277,7 @@ The Global View presents a comprehensive trace of all waves across enabled Shade
 * The "Global View" can be compared with the Kernel Dispatches plot.
 * Right click and drag to measure number of cycles.
 
-![Alt text](docs/images/globalv.png)
+![Alt text](docs/data/globalv.png)
 
 #### Summary
 The summary is a feature availble only on MI2xx and MI3xx GPUs. It displays 3 pieces of information:
@@ -302,7 +302,7 @@ rocprofv3 --att-activity 10
   * max_over_cycles(add_over_cu(X))/max_over_cycles(add_over_cu(SQ_BUSY_CU_CYCLES)) for peak rates.
   * add_all(X)/add_all(SQ_BUSY_CU_CYCLES) for other values.
 
-![Alt text](docs/images/summary.png)
+![Alt text](docs/data/summary.png)
 
 ### Explorer View
 
