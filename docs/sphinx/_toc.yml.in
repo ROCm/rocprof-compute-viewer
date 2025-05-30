@@ -4,6 +4,13 @@ defaults:
   numbered: False
 root: index
 subtrees:
+- caption: Install
+  entries:
+  - file: install/installation
+    title: Build from source
 - caption: How to
   entries:
   - file: how-to/using_compute_viewer
+- caption: About
+  entries:
+  - file: license

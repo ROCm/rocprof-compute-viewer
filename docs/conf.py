@@ -30,7 +30,7 @@ with open('../CMakeLists.txt', encoding='utf-8') as f:
     version_number = match[1]
 
 # for PDF output on Read the Docs
-project = "rocprof-compute-viewer"
+project = "ROCprof Compute Viewer"
 author = "Advanced Micro Devices, Inc."
 copyright = "Copyright (c) 2025 Advanced Micro Devices, Inc. All rights reserved."
 version = version_number
@@ -40,9 +40,9 @@ external_toc_path = "./sphinx/_toc.yml" # Defines Table of Content structure def
 
 # Add more addtional package accordingly
 extensions = [
-    "rocm_docs", 
-] 
+    "rocm_docs",
+]
 
 html_title = f"{project} {version_number} documentation"
 
-external_projects_current_project = "rocprof-compute-viewer"
+external_projects_current_project = "ROCprof Compute Viewer"

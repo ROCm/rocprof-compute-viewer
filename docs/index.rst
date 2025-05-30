@@ -8,7 +8,7 @@
 ROCprof Compute Viewer documentation
 *************************************
 
-ROCprof Compute Viewer (RCV) is a tool for visualizing and analyzing GPU thread trace data collected using rocprofv3.
+ROCprof Compute Viewer (RCV) is a tool for visualizing and analyzing GPU thread trace data collected using `rocprofv3 <https://rocm.docs.amd.com/projects/rocprofiler-sdk/en/latest/how-to/using-rocprofv3.html>`_.
 
 The code is open and hosted at `<https://github.com/ROCm/rocprof-compute-viewer>`_.
 
@@ -17,6 +17,10 @@ The documentation is structured as follows:
 
 .. grid:: 2
   :gutter: 3
+
+  .. grid-item-card:: Install
+
+    * :ref:`Build from source <install-viewer>`
 
   .. grid-item-card:: How to
 
