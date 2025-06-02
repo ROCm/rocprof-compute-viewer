@@ -4,8 +4,14 @@
 
 .. _install-viewer:
 
-Building ROCprof Compute Viewer from source
-============================================
+************************************
+ROCprof Compute Viewer installation
+************************************
+
+Prebuild binaries can be found `in releases <https://github.com/ROCm/rocprof-compute-viewer/releases>`_.
+
+Building from source
+=====================
 
 This topic explains how to build ROCprof Compute Viewer for several Operating Systems.
 

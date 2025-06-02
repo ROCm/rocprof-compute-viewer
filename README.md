@@ -1,138 +1,26 @@
 # ROCprof Compute Viewer
 
-ROCprof Compute Viewer (RCV) is a tool for visualizing and analyzing GPU thread trace data collected with rocprofv3.
+For prebuild binaries, see [releases](https://github.com/ROCm/rocprof-compute-viewer/releases)
 
 ## Table of Contents
-- [Collection](#collecting-thread-trace-using-rocprofv3)
+- [Summary](#summary)
   - [Requirements](#requirements)
-  - [Command Line Parameters](#command-line-parameters)
-  - [Input File Format](#input-file-format)
-  - [Output Format](#output-format)
-- [Visualization](#visualization)
-  - [CSV Output](#viewing-the-results-of-csv-file)
-  - [Rocprof Compute Viewer](#using-the-rocprof-compute-viewer)
-    - [Hotspot Tab](#hotspot-tab)
-    - [Instructions View](#instructions-view)
-    - [Wave States and Plots](#wave-states-occupancy-and-dispatches-plots-tab)
-    - [Left Side Panel](#left-side-panel)
-    - [Compute Unit and Utilization Views](#compute-unit-and-utilization-views)
-    - [Global View](#global-view)
-    - [Summary](#summary)
-    - [Explorer View](#explorer-view)
-- [Known Issues](#known-issues-and-limitations)
+- [Rocprof Compute Viewer](#using-the-rocprof-compute-viewer)
+  - [Hotspot Tab](#hotspot-tab)
+  - [Instructions View](#instructions-view)
+  - [Wave States and Plots](#wave-states-occupancy-and-dispatches-plots-tab)
+  - [Left Side Panel](#left-side-panel)
+  - [Compute Unit and Utilization Views](#compute-unit-and-utilization-views)
+  - [Global View](#global-view)
+  - [Summary](#summary)
+  - [Explorer View](#explorer-view)
+- [Troubleshooting](#troubleshooting)
 - [Building from Source](#building-from-source)
 
-## Collecting Thread Trace using rocprofv3
-* These instructions apply to all supported GPUs, with special attention to the different meanings of SIMD_SELECT on gfx10+ and GFX9.
+## Summary
 
-Rocprofv3 supports two different input formats:
-* Command line parameters
-* JSON configuration file (similar to rocprofv2's input.txt)
-
-### Requirements
-* AQLprofile version ROCm 7.0+.
-  * If rocprofv3 errors out with "INVALID_SHADER_DATA", this means the particular version of aqlprofile and Decoder are incompatible.
-
-* Decoder library in:
-  * /opt/rocm/lib, or
-  * ROCPROF_ATT_LIBRARY_PATH environment variable.
-
-### Command line parameters
-The following table compares the rocprofv3 and closest rocprofv2 parameters. Command line parameters use '-' and Json uses '_' for separating words.
-
-| Parameter | Type | Range | Typical | Description |
-| --------- | ---- | ----- | ----------- | ----------- |
-att-target-cu | Integer | 0 - 15 | 1 | Defines the CU used to gather detail tokens (WGP on Navi).
-att-shader-engine-mask | Bitmask | 1 - \~0u | 0x11 | Defines for which shader engines to trace. Max at 2^32 - 1.
-att-simd-select | Integer / Bitmask | 0 - 0xF | 0xF | Defines which of 4 SIMDs are going to generate detail tokens. Bitmask on GFX9 and SIMD_ID[0,3] on Navi.
-kernel-iteration-range | List of tuples (v3) | 1 - inf | - | Defines dispatch iteration of the kernel to be profiled. In v3, this is per kernel_id.
-kernel-include-regex | String	| Any | - | Includes a kernel name to be profiled.
-kernel-exclude-regex | String	| Any | - | Excludes a kernel name from profiling.
-att-buffer-size | Bytes | 1MB-2GB | 96MB | Increase this value if the buffer is getting full too quickly.
-att-perfcounter-ctrl | Integer | 1 - 32 | 2~5 | Enables SQ perfcounters sent to the SQTT buffer with the given relative period (gfx9). High BW: May cause data loss if polled too quickly.
-att-perfcounters | String | SQ-only | - | Adds SQ counters to be sent when PERFCOUNTERS_CTRL is enabled. rocprofv3 --list-avail to list all counters.
-att-activity | Integer | 1 - 16 | 10 | Adds the activity counters for summary view. Shorthand for att-perfcounter-ctrl + select SQ counters.
-
-Examples:
-```bash
-# Use -d to specify the output directory, similar to other v1, v2, and v3 commands.
-rocprofv3 --att -d out_dir -- ./a.out
-```
-
-```bash
-rocprofv3 --att --att-target-cu 1 -- ./a.out
-```
-
-<span style="color:red">Important</span>: If kernel filtering and range are not provided, by default rocprofv3 profiles each kernel <span style="color:red">instance</span> once.
-
-### Input file
-The JSON input file accepts the same parameters as listed above. Example JSON input:
-```bash
-{
-    "jobs": [
-        {
-            "kernel_include_regex": "copyD",
-            "kernel_exclude_regex": "",
-            "advanced_thread_trace": true,
-            "att_target_cu": 1,
-            "att_shader_engine_mask": "0x1",
-            "att_simd_select": "0xF",
-            "att_buffer_size": "0x6000000"
-        }
-    ]
-}
-```
-```bash
-rocprofv3 -i input.json -d out_dir -- ./a.out
-```
-
-## Output format
-rocprofv3 ATT produces three types of output:
-* Raw files:
-  * .att - Raw SQTT data.
-  * .out - Code object binaries.
-  * results.json - Generated if "--output-formats json" is specified.
-* CSV:
-  * Summarizes trace information such as instruction latency costs.
-* Rocprof Compute Viewer files:
-  * ui_output\_agent\_{agent_id}\_dispatch\_{dispatch_id}
-    * agent_id specifies which GPU was profiled.
-    * dispatch_id specifies which dispatch was profiled.
-    * If desired, these IDs can be checked against --kernel-trace information.
-
-# Visualization
-
-## Viewing the results of CSV file
-If the process completes successfully, the stats_*.csv file should include:
-
-| Codeobj | Vaddr | Instruction | Hitcount | Latency | Stall | Idle | Source
-| ---- | ---- | ----------- | -------- | ------ | ------ | ------ | -------------
-11 | 5888 | s_load_dwordx4 s[40:43], s[0:1], 0x18 | 48 | 276 | 96 | 48 | kernel.py:391
-11 | 5896 | s_load_dwordx2 s[38:39], s[0:1], 0x28 | 48 | 192 | 0 | 0 | kernel.py:391
-11 | 5904 | s_ashr_i32 s3, s2, 31 | 48 | 260 | 0 | 0 | kernel.py:395
-11 | 5908 | s_add_i32 s7, s2, s3 | 48 | 196 | 0 | 0 | kernel.py:395
-
-* Codeobj is the code object load id assigned by rocprofiler-sdk.
-* Vaddr is the ELF vaddr.
-* Hitcount the number of times that particular instruction was executed, adding all the waves traced and all loop iterations.
-* Latency the total latency, defined as the Stall time + Issue time (gfx9) or Stall time + Execute time (gfx10+).
-* Stall is the total number of cycles the hardware pipe was busy and could not issue the instruction.
-  * Usually caused by hardware unit busy.
-* Idle is the total time gap from previous instruction completion to this instruction's start time.
-  * Usually caused by arbiter loss, source/destination register dependency or instruction cache miss.
-* Source is a reference found via debug symbols. Requires compiling with debug symbols.
-
-Additionally, the viewer includes a wave state called "wait".
-* Associated with "IMMED" tokens.
-* Wait is defined as a "voluntary stall", in which the wave voluntarily delays issuing of the instruction until a condition of satisfied.
-* Common examples:
-  * s_waitcnt - waits until a memory dependency is cleared
-  * s_sleep and s_nop - waits until a defined amount of cycles passed
-  * s_barrier - waits until all waves in a block reach the barrier: "__syncthreads()"
-* For the CSV and summaries, 'wait' is considered the same as stall.
-
-## Using the Rocprof Compute Viewer
-The Viewer interprets the output of ui_output\_agent\_{agent_id}\_dispatch\_{dispatch_id}. It includes:
+ROCprof Compute Viewer (RCV) is a tool for visualizing and analyzing GPU thread trace data collected using rocprofv3.
+The tool interprets the rocprofv3 thread trace output, which are directories named ui_output\_agent\_{agent_id}\_dispatch\_{dispatch_id}. It includes:
 
 * Trace -> ISA -> Source visualization
 * Hotspot analysis.
@@ -145,8 +33,28 @@ To open a UI directory, use:
 * or launch the viewer from the command line with:
 
 ```bash
-./rcviewer <dir_to_ui_folder>
+./rocprof-compute-viewer <dir_to_ui_folder>
 ```
+
+For information on how to generate thread trace data, see the documentation on [using rocprofv3 to collect thread trace](https://rocm.docs.amd.com/projects/rocprofiler-sdk/en/amd-mainline/how-to/using-thread-trace.html). Also, see the [ROCprof Compute Viewer documentation](https://rocm.docs.amd.com/projects/rocprof-compute-viewer/en/amd-mainline/).
+
+### Requirements
+For rocprofv3 to generate thread trace data correctly, the following components are required:
+
+* AQLprofile:
+  * ROCm 7.x, or
+  * [Build from source](https://github.com/rocm/aqlprofile)
+  * If rocprofv3 errors out with "INVALID_SHADER_DATA", this means the particular version of aqlprofile and Decoder are incompatible.
+
+* Rocprofiler-sdk:
+  * ROCm 7.x, or
+  * [Build from source](https://github.com/rocm/rocprofiler-sdk)
+
+* ROCprof Trace Decoder:
+  * [Repository](https://github.com/ROCm/rocprof-trace-decoder)
+  * [Binary releases](https://github.com/ROCm/rocprof-trace-decoder/releases)
+
+## Using the ROCprof Compute Viewer
 
 ### Hotspot Tab
 
@@ -320,46 +228,13 @@ The Explorer View is tightly integrated with the rest of the application:
 
 This view helps you quickly locate and focus on the most performance-critical files in your application.
 
-## Known issues and limitations
-* All:
-  * Rocprofv3 can fail to generate traces if the target_cu is empty.
-  * Thread trace cannot be used alongside host trap mechanisms. This includes:
-    * Host trap PC Sampling.
-    * Shader debugger.
-* gfx9 - MI200, 300, 350:
-  * The latency of IMMED type tokens is approximate.
-    * Decoder considers the initial wait time of IMMED to be the first cycle is could have executed.
-    * This is likely but not guaranteed.
-    * The end time, however, is exact.
-* gfx10/11/12 - Radeon 6000/7000/9000:
-  * Wave64 is currently not supported.
-  * s_barrier/s_barrier_wait latency is approximate.
+## Troubleshooting:
 
-## FAQ:
+If the RCV does not display anything except "Occupancy" and stats_*.csv file is empty:
 
-1) The Viewer does not display anything except "Occupancy" and "Global View". There are also no wave files on the ui_output directory and stats_*.csv file is empty.
-*  
   * Thread Trace only receives detailed information from the target_cu.
   * If the application does not populate the target_cu, then nothing will be traced.
-  * Possible solutions:
-    1) Launching more waves
-    2) Set the --att-shader-engine-mask to 0x11111111, or possibly to 0xFFFFFFFF
-      * Too high of a number can cause packet losses. See (2).
-    3) Use the HSA_CU_MASK setting here to mask out all CUs but the target: https://rocm.docs.amd.com/en/latest/how-to/setting-cus.html
-
-2) rocprofv3 Warnings:
-* 
-  * "Stitch Incomplete":
-    * This could be a bug in the decoder. Please report it to us.
-    * The trace is still valid, but some tokens won't be matched with the ISA.
-    * It could also be caused by insufficient buffer size or packet losses, see next item.
-  * "Packet loss" or "Data loss"
-    * This is caused by too high memory traffic coming from the application + thread trace.
-    * Possible solutions:
-      1) Set --att-shader-engine-mask to 0x1
-      2) (gfx9) Set --att-simd-select to a lower bitmask than 0xF. You can go as low as 0x1.
-      3) It is sometimes also caused by the buffer getting full.
-        * Increase buffer size with --att-buffer-size
+  * For possible solutions, the [rocprofv3 documentation](https://rocm.docs.amd.com/projects/rocprofiler-sdk/en/amd-mainline/how-to/using-thread-trace.html#troubleshooting)
 
 ## Building from source
 

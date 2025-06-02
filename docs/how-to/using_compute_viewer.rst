@@ -27,6 +27,25 @@ To launch the Compute Viewer, use any of the following methods:
 
 The various views available as tabs on the top are described in the following sections.
 
+Requirements
+==============
+
+To ensure that ``rocprofv3`` generates the thread trace data correctly, install the following components:
+
+* AQL profile:
+  * Available with ROCm 7.0 or later, or `build from source <https://github.com/rocm/aqlprofile>`_.
+  * `Build from source <https://github.com/rocm/aqlprofile>`_
+  * If ``rocprofv3`` throws INVALID_SHADER_DATA error, the AQL profile and Trace Decoder versions are incompatible.
+
+* ROCprofiler-SDK:
+  * Available with ROCm 7.0 or later, or `build from source <https://github.com/rocm/rocprofiler-sdk>`_
+
+* ROCprof Trace Decoder:
+  * `Repository <https://github.com/ROCm/rocprof-trace-decoder>`_
+  * `Binary releases <https://github.com/ROCm/rocprof-trace-decoder/releases>`_
+
+For instructions on how to run ``rocprofv3`` to collect thread trace data, see `using rocprofv3 to collect thread trace <https://rocm.docs.amd.com/projects/rocprofiler-sdk/en/amd-mainline/how-to/using-thread-trace.html>`_.
+
 Hotspot view
 ==============
 
