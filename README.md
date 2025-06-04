@@ -1,6 +1,6 @@
 # ROCprof Compute Viewer
 
-For prebuild binaries, see [releases](https://github.com/ROCm/rocprof-compute-viewer/releases)
+For pre-build binaries, see [releases](https://github.com/ROCm/rocprof-compute-viewer/releases)
 
 ## Table of Contents
 - [Summary](#summary)
@@ -80,7 +80,7 @@ If debug symbols are present, rocprofv3 snapshots the related source files, whic
 * Left or right on the right side of the instruction takes the trace bar to the SQTT token executing that instruction. This is true for Utilization and Compute Unit tabs as well.
 * Left click on a token highlights (in green) the ISA line corresponding to that instruction.
 * Hover or Click on an ISA line to highlight the corresponding source line. The opposite way is also possible.
-  * Clicking on a source line permamently highlights the ISA lines until the user clicks on the same or another line.
+  * Clicking on a source line permanently highlights the ISA lines until the user clicks on the same or another line.
 
 ### Wave States, Occupancy and Dispatches plots tab
 * Keys:
@@ -90,7 +90,7 @@ If debug symbols are present, rocprofv3 snapshots the related source files, whic
    * Right click and drag for panning.
    * Clicking on a token in the waveview (Trace) will add a blue marker to identify the cycle of that token.
    * The wave states tab shows the number of active waves in each state (IDLE, EXEC, STALL, WAIT)
-* The hightlighted region shows what is visible from the "CU" and "Utilization" tabs.
+* The Highlighted region shows what is visible from the "CU" and "Utilization" tabs.
 
 * Wave state tab:
   * Essentially a vertical slice of the Compute Unit tab when looking at wave states.
@@ -111,7 +111,7 @@ If debug symbols are present, rocprofv3 snapshots the related source files, whic
   ![Alt text](docs/data/left.png)
 * "Shader" (Engine), "SIMD", "Slot" (Wave slot within a SIMD) and "WID" (A wave ID counter for that slot) boxes allows the user to select which Wave to focus on.
   * This is defined as the target wave.
-  * The interations in "Instruction" tab are only for the target wave: Token-to-ISA mapping, loop iteration navigation, etc.
+  * The interactions in the 'Instruction' tab apply only to the target wave: Token-to-ISA mapping, loop iteration navigation, etc.
 * The WaveView Clock range defines the visible cycles in the "Compute Unit" and "utilization" tabs, as well as the "Hotspot" calculation.
   * By default, set to the first cycle target wave, to a little after the last cycle of the target wave.
   * Reduce the start/end range to make navigation easier.
@@ -132,7 +132,7 @@ If debug symbols are present, rocprofv3 snapshots the related source files, whic
 * Left click highlights the ISA corresponding to that token.
   * If nothing happens, likely that token could not be matched with the ISA. Check for warnings at rocprofv3 output.
 * A/D keys can be used for panning.
-* Zoom level controlled by "waveview zoom" on left side pannel or Ctrl+MouseWheel.
+* Zoom level controlled by "waveview zoom" on left side panel or Ctrl+MouseWheel.
 
 #### Compute Unit:
 * Displays the trace separated per SIMD-Slot (e.g. 2-6).
@@ -188,7 +188,7 @@ The Global View presents a comprehensive trace of all waves across enabled Shade
 ![Alt text](docs/data/globalv.png)
 
 #### Summary
-The summary is a feature availble only on MI2xx and MI3xx GPUs. It displays 3 pieces of information:
+The summary is a feature available only on MI2xx and MI3xx GPUs. It displays 3 pieces of information:
 * Average instruction cost for the whole trace, separated by idle, issue and stall.
 * Average hardware utilization by instruction type (VALU, VMEM, LDS, ...)
 * Per-compute hardware utilization values and accumulated counters.
@@ -304,7 +304,7 @@ make -j
 To build on Windows, use QT Tools with QT-6.8+:
 * https://wiki.qt.io/Quick_Start:_Installing_Qt_on_Windows
 
-### Disabling openGL widgets
+### Disabling OpenGL widgets
 
 ```bash
 cmake .. -DRCV_DISABLE_OPENGL=On
