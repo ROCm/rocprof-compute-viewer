@@ -7,7 +7,7 @@ subtrees:
 - caption: Install
   entries:
   - file: install/installation
-    title: Build from source
+    title: Installation
 - caption: How to
   entries:
   - file: how-to/using_compute_viewer

@@ -8,12 +8,12 @@
 ROCprof Compute Viewer installation
 ************************************
 
-Prebuild binaries can be found `in releases <https://github.com/ROCm/rocprof-compute-viewer/releases>`_.
+This topic explains how to build ROCprof Compute Viewer (RCV) from source on various Operating Systems.
+
+For prebuild binaries, see the `RCV release <https://github.com/ROCm/rocprof-compute-viewer/releases>`_.
 
 Building from source
 =====================
-
-This topic explains how to build ROCprof Compute Viewer for several Operating Systems.
 
 By default, the project builds with Qt 6.8. To build with Qt 5, use:
 
