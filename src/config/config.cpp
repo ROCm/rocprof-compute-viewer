@@ -337,6 +337,7 @@ const std::vector<std::pair<std::string, int>> CustomTokens()
             key["v_mfma"] = "MATRIX";
             key["v_smfma"] = "MATRIX";
             key["v_wmma"] = "MATRIX";
+            key["v_swmma"] = "MATRIX";
         }
 
         for (auto& [match, inst] : key.items())
