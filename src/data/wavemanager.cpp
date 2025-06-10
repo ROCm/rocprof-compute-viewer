@@ -326,10 +326,8 @@ WaveInstance::WaveInstance(const std::string& _path) : path(_path)
             if (isIdleInfo && token.clock > prev_token_clock)
                 _code.exec->idle.push_back(token.clock - prev_token_clock);
 
-            if (_code.line->custom_type > 0)
-                token.type = _code.line->custom_type;
-            else if (_code.line->type == 0 || _code.line->type == 9)
-                _code.line->type = token.type;
+            if (_code.line->custom_type > 0) token.type = _code.line->custom_type;
+            if (_code.line->type == 0 || _code.line->type == 9) _code.line->type = token.type;
         }
         catch (std::out_of_range& e)
         {
