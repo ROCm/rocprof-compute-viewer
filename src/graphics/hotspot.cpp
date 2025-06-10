@@ -38,7 +38,7 @@
 
 using namespace std;
 
-HotspotView::HotspotView(int _begin, int _end, int n_bins, int64_t _max_value) :
+HotspotView::HotspotView(int _begin, int _end, int n_bins, double _max_value) :
 code_begin(_begin), code_end(_end), max_value(_max_value)
 {
     this->step = std::max(1, (code_end - code_begin + n_bins - 1) / n_bins);
@@ -78,7 +78,7 @@ void HotspotView::Compile()
         {
             int64_t acc = 0;
             for (int64_t value : bin.cycles) acc += value;
-            max_value = std::max(max_value, int64_t(1.04 * acc));
+            max_value = std::max(max_value, 1.04 * acc);
         }
 }
 
@@ -145,7 +145,7 @@ void HotspotView::paintEvent(QPaintEvent* event)
     double bar_width = width_x / (2 * bins.size() + 1.0);
     double bar_wid_multiplier = 1.25;
 
-    double scaling = (start_y - top_space) / double(max_value);
+    double scaling = (start_y - top_space) / max_value;
 
     QPen pen = painter.pen();
     pen.setWidth(0);
@@ -169,17 +169,24 @@ void HotspotView::paintEvent(QPaintEvent* event)
         pen.setColor(WindowColors::textColor());
         painter.setPen(pen);
 
+        char letter = ' ';
+        double cvt_val = 1.0;
+
+        std::array<std::pair<char, double>, 5> exps = {
+            {{' ', 1.0}, {'K', 1E3}, {'M', 1E6}, {'G', 1E9}, {'T', 1E12}}
+        };
+        for (auto& [ch, exp_val] : exps)
+            if (max_value >= exp_val)
+            {
+                letter = ch;
+                cvt_val = exp_val * num_divs / max_value;
+            }
+
         for (int y = 0; y <= num_divs; y++)
         {
-            std::string value = "";
-            if (max_value < 1E5)
-                value = std::to_string(int64_t(y * max_value / num_divs));
-            else if (max_value < 1E8)
-                value = std::to_string(int64_t(y * max_value / 1E3 / num_divs)) + 'K';
-            else
-                value = std::to_string(int64_t(y * max_value / 1E6 / num_divs)) + 'M';
-
-            painter.drawText(left_side_x / 3, start_y - ystep * y, value.c_str());
+            double value = y / cvt_val;
+            auto str = QString("%1").arg(value, 0, 'f', value < 100 ? 2 : (value < 10 ? 1 : 0)) + letter;
+            painter.drawText(left_side_x / 3, start_y - ystep * y, str);
         }
     }
 

@@ -50,7 +50,7 @@ class HotspotView : public BaseHistogramWidget
     };
 
 public:
-    HotspotView(int begin, int end, int bins, int64_t max_value);
+    HotspotView(int begin, int end, int bins, double max_value);
     void Add(const TokenMap& tokens);
     void Compile();
     void paintEvent(QPaintEvent*) override;
@@ -61,7 +61,7 @@ public:
 
 protected:
     int getBin(int line) { return (line - code_begin) / step; }
-    int64_t max_value;
+    double max_value;
     const int code_begin;
     const int code_end;
     int step;

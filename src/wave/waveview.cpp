@@ -399,15 +399,8 @@ void QUtilView::Add(Token token)
 
 void QUtilView::paintEvent(QPaintEvent* event)
 {
-    try
-    {
-        wave0->wave_begin = QCustomScroll::clock_cutoff_start;
-        wave0->wave_end = QCustomScroll::clock_cutoff_end;
-    }
-    catch (...)
-    {
-        QWARNING(false, "QUtilView error!", );
-    }
+    wave0->wave_begin = QCustomScroll::clock_cutoff_start;
+    wave0->wave_end = QCustomScroll::clock_cutoff_end;
     QWaveView::paintEvent(event);
 }
 
@@ -508,16 +501,13 @@ void QUtilization::AddTokens(int simd, const TokenMap& tokens)
 {
     QWARNING(simd < 4, "Invalid simd " << simd, return );
 
-    for (auto& token : tokens)
-        if (token.type != immed_type)
-        {
-            try
-            {
-                token_defs.at(token.type).at(simd)->Add(token);
-            }
-            catch (std::out_of_range&)
-            {
-                QWARNING(false, "Invalid token found!", return );
-            }
-        }
+    try
+    {
+        for (auto& token : tokens)
+            if (token.type != immed_type) token_defs.at(token.type).at(simd)->Add(token);
+    }
+    catch (std::out_of_range&)
+    {
+        QWARNING(false, "Invalid token found!", );
+    }
 }

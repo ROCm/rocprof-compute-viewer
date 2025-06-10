@@ -329,6 +329,6 @@ void DispatchPlotView::LoadOccupancyData(const std::string& filename)
     }
 
     for (int id = 0; id < num_dispatch_ids; id++)
-        if (datapoints[id].size() > 2)
+        if (datapoints[id].size() >= 2)
             AddData(std::to_string(id) + '-' + kernel_names[id], DispatchColor(id), std::move(datapoints[id]));
 }

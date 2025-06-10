@@ -37,9 +37,7 @@ void HistogramDelegate::paint(QPainter* painter, const QStyleOptionViewItem& opt
 
     // Skip drawing hotspots for folders
     JsonFileModel::Node* node = static_cast<JsonFileModel::Node*>(index.internalPointer());
-    if (!node || node->value.isObject() || node->children.size() > 0) {
-        return;
-    }
+    if (!node || node->value.isObject() || node->children.size() > 0) { return; }
 
     // Update all hotspots on the fly
     model->updateAllHotspotsAndLatencies(model->rootNode);

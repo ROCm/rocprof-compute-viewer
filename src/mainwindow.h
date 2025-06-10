@@ -164,7 +164,7 @@ private:
     int hotspot_n_bins = 36;
     int hotspot_begin = 0;
     int hotspot_end = 1000000;
-    int64_t hotspot_max_value = -1;
+    double hotspot_max_value = -1;
 
     std::vector<bool> cu_enable_list = {};
     std::vector<bool> se_enable_list = {};

@@ -184,7 +184,8 @@ void HorizontalHotspot::paint(
     }
 
     // Draw single border around entire hotspot
-    if (total_latency > 0 && totalWidth > 0) {
+    if (total_latency > 0 && totalWidth > 0)
+    {
         QPen pen;
         pen.setColor(WindowColors::HotspotOutline());
         painter.setPen(pen);

@@ -41,7 +41,7 @@ OptionsDialogH::OptionsDialogH()
     layout->addWidget(new QLabel("Y axis maximum value (<0 disables):"));
 
     hotspot_max_value = new QLineEdit(this);
-    hotspot_max_value->setValidator(new QIntValidator(0, INT_MAX, this));
+    hotspot_max_value->setValidator(new QDoubleValidator(0, 1E14, 30, this));
     hotspot_max_value->setText(std::to_string(MainWindow::window->hotspot_max_value).c_str());
     layout->addWidget(hotspot_max_value);
 
@@ -84,10 +84,10 @@ OptionsDialogH::OptionsDialogH()
 
 void OptionsDialogH::SaveExit()
 {
-    MainWindow::window->hotspot_max_value = atoi(hotspot_max_value->displayText().toStdString().c_str());
-    MainWindow::window->hotspot_n_bins = atoi(hotspot_bins->displayText().toStdString().c_str());
-    MainWindow::window->hotspot_begin = atoi(hotspot_begin->displayText().toStdString().c_str());
-    MainWindow::window->hotspot_end = atoi(hotspot_end->displayText().toStdString().c_str());
+    MainWindow::window->hotspot_max_value = hotspot_max_value->displayText().toDouble();
+    MainWindow::window->hotspot_n_bins = hotspot_bins->displayText().toInt();
+    MainWindow::window->hotspot_begin = hotspot_begin->displayText().toInt();
+    MainWindow::window->hotspot_end = hotspot_end->displayText().toInt();
 
     MainWindow::window->GatherWaves();
     accept();
