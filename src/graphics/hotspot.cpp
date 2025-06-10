@@ -185,7 +185,7 @@ void HotspotView::paintEvent(QPaintEvent* event)
         for (int y = 0; y <= num_divs; y++)
         {
             double value = y / cvt_val;
-            auto str = QString("%1").arg(value, 0, 'f', value < 100 ? 2 : (value < 10 ? 1 : 0)) + letter;
+            auto str = QString("%1").arg(value, 0, 'f', value < 10 ? 2 : (value < 100 ? 1 : 0)) + letter;
             painter.drawText(left_side_x / 3, start_y - ystep * y, str);
         }
     }
