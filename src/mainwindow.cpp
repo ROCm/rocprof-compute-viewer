@@ -565,6 +565,10 @@ void MainWindow::ResetSelector()
 
     ASMCodeline::Clear();
     LoadSourceFiles();
+    cuwaves_content->Clear();
+    utilization_content->Clear();
+    if (hotspot_view) hotspot_view->setVisible(false);
+    updateFont(); // Fixme: This is being called to force redraw in case the incoming trace is empty
 
     if (this->seSelector) delete this->seSelector;
     this->seSelector = nullptr;
@@ -577,7 +581,6 @@ void MainWindow::ResetSelector()
         CreateOccupancyPlot(false);
         CreateOccupancyPlot(true);
         CreateCountersPlot();
-        if (this->counters_plot) this->counters_plot->setAutoLod(ui->lod_checkBox->isChecked());
 
         this->CreateGlobalView();
     }
@@ -615,29 +618,39 @@ MainWindow::~MainWindow()
 
 void MainWindow::CreateCountersPlot()
 {
-    QWARNING(this->seSelector, "Selector missing", return );
-    QWARNING(this->seSelector->names.size(), "Selector has no SE data", return;);
+    QWARNING(summary_view && ui->tabWidget_2, "No summary view!", return );
 
-    if (this->counters_plot_layout) delete this->counters_plot_layout;
+    summary_view->clearTableData();
+    summary_view->clearBarChartData();
+    ui->tabWidget_2->setTabEnabled(2, false);
 
     se_enable_list = {};
     std::vector<CounterPlotView::CounterAccum> accumulated{};
     CounterPlotView::CounterList peak_rates{};
-    bool load_perf_counters = true;
+    bool load_perf_counters = !perfcounter_names.empty();
+
+    auto* traceplot = new TraceCounterPlotView(this);
+    this->counters_plot = traceplot;
 
     if (load_perf_counters)
     {
-        auto* traceplot = new TraceCounterPlotView(this);
-        this->counters_plot = traceplot;
-
-        for (const auto& SE_name : this->seSelector->names)
+        int max_se = 0;
+        if (auto* dispatch_data = dynamic_cast<DispatchPlotView*>(this->dispatch_plot))
         {
-            std::string filename = GetUIDir() + "se" + SE_name + "_perfcounter.json";
+            const auto& list = dispatch_data->seList();
+            auto it = std::max_element(list.begin(), list.end());
+            if (it != list.end()) max_se = 1 + *it;
+        }
+        accumulated.reserve(max_se);
 
-            int se_num = std::stoi(SE_name);
+        // Only try to see counters where waves are present
+        for (int se_num = 0; se_num < max_se; se_num++)
+        {
+            std::string filename = GetUIDir() + "se" + std::to_string(se_num) + "_perfcounter.json";
             JsonRequest file(filename, false);
+            if (!file.bValid) return;
 
-            while (accumulated.size() <= se_num) accumulated.push_back({});
+            if (accumulated.size() <= se_num) accumulated.resize(se_num + 1);
             accumulated.at(se_num) = traceplot->LoadCounterData(file, se_num);
         }
 
@@ -645,11 +658,16 @@ void MainWindow::CreateCountersPlot()
     }
     se_enable_list = std::vector<bool>(accumulated.size(), true);
 
-    this->counters_plot->setGeometry(0, 0, 300, this->counters_plot->size().width());
+    if (this->counters_plot_layout) delete this->counters_plot_layout;
 
-    counters_plot_layout = new QBox();
-    ui->wv_counters_tab->setLayout(counters_plot_layout);
-    counters_plot_layout->addWidget(this->counters_plot);
+    this->counters_plot_layout = new QBox();
+    ui->wv_counters_tab->setLayout(this->counters_plot_layout);
+    this->counters_plot_layout->addWidget(this->counters_plot);
+
+    if (perfcounter_names.empty() || accumulated.empty()) return;
+
+    this->counters_plot->setAutoLod(ui->lod_checkBox->isChecked());
+    this->counters_plot->setGeometry(0, 0, 300, this->counters_plot->size().width());
 
     UpdateCountersPlotSelection();
 
@@ -663,12 +681,7 @@ void MainWindow::CreateCountersPlot()
         return acc;
     };
 
-    summary_view->clearTableData();
-    summary_view->clearBarChartData();
-
-    bool bVisible = perfcounter_names.size() && accumulated.size();
-    ui->tabWidget_2->setTabEnabled(2, bVisible);
-    if (!bVisible) return;
+    ui->tabWidget_2->setTabEnabled(2, true);
 
     std::map<std::string, size_t> util_names{};
     QList<std::tuple<QString, float, QColor>> bar_chart_data;

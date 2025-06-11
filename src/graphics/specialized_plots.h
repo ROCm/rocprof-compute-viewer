@@ -85,6 +85,11 @@ public:
     DispatchPlotView(class QWidget* parent) : OccupancyPlotView(parent){};
     virtual void LoadOccupancyData(const std::string& filename) override;
     virtual void UpdateGraphTable(float timepos) override{};
+
+    const std::vector<int>& seList() const { return se_list; }
+
+private:
+    std::vector<int> se_list{};
 };
 
 //! Class for visualizing performance counters

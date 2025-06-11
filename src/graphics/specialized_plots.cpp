@@ -289,13 +289,14 @@ void DispatchPlotView::LoadOccupancyData(const std::string& filename)
     int num_dispatch_ids = kernel_names.size();
 
     std::vector<occupancy_data> occupancy{};
+    se_list.clear();
 
     for (auto& [SE, array] : file.data.items())
     {
         if (array.size() == 0) continue;
         try
         {
-            [[maybe_unused]] bool b = std::to_string(std::stoi(SE)) == "SE";
+            se_list.push_back(std::stoi(SE));
         }
         catch (...)
         {
