@@ -1,0 +1,3 @@
+#include "@LICENSE_HEADER_FILE@"
+
+const char* LICENSE::license = R"( @LICENSE_FILE_CONTENT@ )";

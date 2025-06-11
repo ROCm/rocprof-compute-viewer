@@ -28,6 +28,7 @@
 #include <QPainterPath>
 #include <QScrollArea>
 #include <QSpinBox>
+#include <QMessageBox>
 #include <fstream>
 #include <vector>
 #include "./ui_mainwindow.h"
@@ -49,6 +50,7 @@
 #include "wave/scroll.h"
 #include "wave/waveglobal.h"
 #include "wave/waveview.h"
+#include "collection/license.h"
 
 #if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
 #    include <QGuiApplication>
@@ -133,7 +135,7 @@ MainWindow::MainWindow(std::string uidir) : QMainWindow(nullptr), ui(new Ui::Mai
 
     this->graph_info_table = ui->graph_info_table;
     this->graph_info_table->setColumnCount(3);
-    this->graph_info_table->setRowCount(4);
+    this->graph_info_table->setRowCount(3);
     this->graph_info_table->setHorizontalHeaderLabels(QList<QString>({"Counter", "Value", "%/View"}));
     this->graph_info_table->setEditTriggers(QAbstractItemView::NoEditTriggers);
     this->graph_info_table->setSelectionMode(QAbstractItemView::NoSelection);
@@ -269,6 +271,9 @@ MainWindow::MainWindow(std::string uidir) : QMainWindow(nullptr), ui(new Ui::Mai
             this->update();
         }
     );
+
+    connect(ui->actionAbout_QT, &QAction::triggered, this, [this]() { QMessageBox::aboutQt(this, "About QT"); });
+    connect(ui->actionLicense, &QAction::triggered, this, []() { LICENSE license; license.exec(); });
 }
 
 int& MainWindow::font()
@@ -574,6 +579,14 @@ void MainWindow::ResetSelector()
     this->seSelector = nullptr;
     this->seSelector = new SESelector(*request);
 
+    if (history_table) history_table->setRowCount(0);
+
+    counter_values_tableitem.clear();
+    occupancy_values_tableitem.clear();
+
+    if (graph_info_table) graph_info_table->setRowCount(3);
+    if (ui->occ_info_table) ui->occ_info_table->setRowCount(0);
+
     try
     {
         updatePerfNames();
@@ -852,15 +865,14 @@ void MainWindow::UpdateCountersPlotSelection()
     if (perfcounter_names.empty()) return;
 
     this->counters_plot->UpdateDataSelection(perfcounter_names, GetSEMask(), GetCUMask(), disabled_counters);
-    graph_info_table->setRowCount(4 + perfcounter_names.size());
+    graph_info_table->setRowCount(3 + perfcounter_names.size());
 
     int i = 3;
     for (auto& name : perfcounter_names)
     {
         class QLabel* v_label = new QLabel("");
         class QLabel* i_label = new QLabel("");
-        counter_values_tableitem[name] = v_label;
-        counter_integral_tableitem[name] = i_label;
+        counter_values_tableitem[name] = {v_label, i_label};
 
         graph_info_table->setCellWidget(i, 0, new QLabel(name.c_str()));
         graph_info_table->setCellWidget(i, 1, v_label);
@@ -887,8 +899,7 @@ void MainWindow::CreateWavesPlot()
         class QLabel* v_label = new QLabel("");
         class QLabel* i_label = new QLabel("");
 
-        counter_values_tableitem[name] = v_label;
-        counter_integral_tableitem[name] = i_label;
+        counter_values_tableitem[name] = {v_label, i_label};
 
         graph_info_table->setCellWidget(i, 0, new QLabel(("Waves " + name).c_str()));
         graph_info_table->setCellWidget(i, 1, v_label);
@@ -942,29 +953,43 @@ void MainWindow::UpdateGraphInfo(const std::string& name, int value, float integ
 {
     QWARNING(graph_info_table, "No graph info", return );
 
-    QLabel* v_label = counter_values_tableitem[name];
-    if (v_label) v_label->setText(std::to_string(value).c_str());
+    QLabel *v_label, *i_label;
+    std::tie(v_label, i_label) = counter_values_tableitem[name];
+
+    if (!v_label || !i_label) return;
+
+    v_label->setText(std::to_string(value).c_str());
 
     std::stringstream ss;
     ss << std::setprecision(4) << integral;
-    QLabel* i_label = counter_integral_tableitem[name];
-    if (i_label) i_label->setText(ss.str().c_str());
+    i_label->setText(ss.str().c_str());
 }
 
 void MainWindow::UpdateOccupancyInfo(const std::vector<std::pair<std::string, int>>& values, float norm)
 {
     QWARNING(ui->occ_info_table, "No graph info", return );
-    ui->occ_info_table->setRowCount(values.size());
-    int cnt = 0;
+
     for (auto& [k, v] : values)
     {
         std::stringstream ss;
         ss << std::setprecision(4) << v / norm;
 
-        ui->occ_info_table->setCellWidget(cnt, 0, new QLabel(k.c_str()));
-        ui->occ_info_table->setCellWidget(cnt, 1, new QLabel(std::to_string(v).c_str()));
-        ui->occ_info_table->setCellWidget(cnt, 2, new QLabel(ss.str().c_str()));
-        cnt++;
+        auto& table_entry = occupancy_values_tableitem[k];
+        if (table_entry.first == nullptr || table_entry.second == nullptr)
+        {
+            int cnt = ui->occ_info_table->rowCount();
+            ui->occ_info_table->setRowCount(cnt + 1);
+
+            table_entry.first = new QLabel();
+            table_entry.second = new QLabel();
+
+            ui->occ_info_table->setCellWidget(cnt, 0, new QLabel(k.c_str()));
+            ui->occ_info_table->setCellWidget(cnt, 1, table_entry.first);
+            ui->occ_info_table->setCellWidget(cnt, 2, table_entry.second);
+        }
+
+        table_entry.first->setText(std::to_string(v).c_str());
+        table_entry.second->setText(ss.str().c_str());
     }
 }
 

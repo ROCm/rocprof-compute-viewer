@@ -157,11 +157,11 @@ private:
     class SESelector* seSelector = nullptr;
     std::string lastPath = "";
 
-    std::unordered_map<std::string, class QLabel*> counter_values_tableitem;
-    std::unordered_map<std::string, class QLabel*> counter_integral_tableitem;
+    std::unordered_map<std::string, std::pair<class QLabel*, class QLabel*>> counter_values_tableitem;
+    std::unordered_map<std::string, std::pair<class QLabel*, class QLabel*>> occupancy_values_tableitem;
 
     std::string ui_dir;
-    int hotspot_n_bins = 36;
+    int hotspot_n_bins = 32;
     int hotspot_begin = 0;
     int hotspot_end = 1000000;
     double hotspot_max_value = -1;

@@ -1049,14 +1049,13 @@
          <attribute name="title">
           <string>Summary</string>
          </attribute>
-	 <layout class="QGridLayout" name="gridLayout_4"/>
-	</widget>
+         <layout class="QGridLayout" name="gridLayout_4"/>
+        </widget>
         <widget class="QWidget" name="fileExplorer_tab">
          <attribute name="title">
           <string>Explorer</string>
          </attribute>
-         <layout class="QVBoxLayout" name="fileExplorerLayout">
-         </layout>
+         <layout class="QVBoxLayout" name="fileExplorerLayout"/>
         </widget>
        </widget>
       </widget>
@@ -1087,8 +1086,16 @@
     <addaction name="actionHotOptions"/>
     <addaction name="actionCounters_filter"/>
    </widget>
+   <widget class="QMenu" name="menuHelp">
+    <property name="title">
+     <string>Help</string>
+    </property>
+    <addaction name="actionAbout_QT"/>
+    <addaction name="actionLicense"/>
+   </widget>
    <addaction name="menuImport_2"/>
    <addaction name="menuEdit"/>
+   <addaction name="menuHelp"/>
   </widget>
   <action name="actionJsons_folder">
    <property name="text">
@@ -1103,6 +1110,16 @@
   <action name="actionCounters_filter">
    <property name="text">
     <string>Counters shown</string>
+   </property>
+  </action>
+  <action name="actionAbout_QT">
+   <property name="text">
+    <string>About QT</string>
+   </property>
+  </action>
+  <action name="actionLicense">
+   <property name="text">
+    <string>License</string>
    </property>
   </action>
  </widget>

@@ -1,5 +1,5 @@
 <RCC>
     <qresource prefix="/">
-        <file>amd.png</file>
+        <file>amd.ico</file>
     </qresource>
 </RCC>

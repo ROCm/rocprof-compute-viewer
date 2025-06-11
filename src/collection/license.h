@@ -1,6 +1,6 @@
 // MIT License
 //
-// Copyright (c) 2024-2025 Advanced Micro Devices, Inc. All rights reserved.
+// Copyright (c) 2025 Advanced Micro Devices, Inc. All rights reserved.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -20,27 +20,16 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-#include <QIcon>
-#include <QPixmap>
-#include "mainwindow.h"
+#pragma once
+#include <QDialog>
 
-int main(int argc, char* argv[])
+class LICENSE: public QDialog
 {
-    int res = 0;
-    {
-        QApplication a(argc, argv);
-        QIcon icon(QPixmap(":/amd.ico"));
-        a.setWindowIcon(icon);
+    Q_OBJECT
 
-#ifdef _WIN32
-        a.setStyle(QStyleFactory::create("Fusion"));
-#endif
+public:
+    LICENSE();
+    virtual ~LICENSE() = default;
 
-        MainWindow w((argc >= 2 && argv[1]) ? argv[1] : "");
-        w.setWindowIcon(icon);
-        w.show();
-        res = a.exec();
-    }
-    MemTracker::Dump();
-    return res;
-}
+    static const char* license;
+};
