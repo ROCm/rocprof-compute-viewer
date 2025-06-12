@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16...3.22)
-project(rocprof-compute-viewer VERSION 0.1.1 LANGUAGES CXX)
+project(rocprof-compute-viewer VERSION 0.1.0 LANGUAGES CXX)
 
 set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTOMOC ON)
@@ -63,24 +63,23 @@ file(GLOB RCVIEWER_SOURCE_FILES
 set(QT_V Qt${QT_VERSION_MAJOR})
 
 if(${QT_VERSION_MAJOR} EQUAL 6 AND ${QT_VERSION_MINOR} GREATER_EQUAL 8)
-
-if(WIN32)
-    list(APPEND RCVIEWER_SOURCE_FILES icon.rc)
-endif()
 qt_add_executable(${PROJECT_NAME} ${RCVIEWER_SOURCE_FILES})
 
-set(deploy_tool_options_arg "")
+set_target_properties(${PROJECT_NAME} PROPERTIES
+    WIN32_EXECUTABLE TRUE
+    MACOSX_BUNDLE TRUE
+)
 
+# App bundles on macOS have an .app suffix
 if(APPLE)
-    # App bundles on macOS have an .app suffix
     set(executable_path "$<TARGET_FILE_NAME:${PROJECT_NAME}>.app")
-    set_target_properties(${PROJECT_NAME} PROPERTIES MACOSX_BUNDLE TRUE)
-elseif(WIN32)
-    set(executable_path "$<TARGET_FILE:${PROJECT_NAME}>")
-    set_target_properties(${PROJECT_NAME} PROPERTIES WIN32_EXECUTABLE TRUE RC_FILE icon.rc)
-    set(deploy_tool_options_arg "--no-compiler-runtime --no-opengl-sw --no-system-d3d-compiler --release")
 else()
     set(executable_path "$<TARGET_FILE:${PROJECT_NAME}>")
+endif()
+
+set(deploy_tool_options_arg "")
+if(WIN32)
+    set(deploy_tool_options_arg "--no-compiler-runtime --no-opengl-sw --no-system-d3d-compiler --release")
 endif()
 
 # Generate a deployment script to be executed at install time
@@ -113,7 +112,6 @@ set(CPACK_PACKAGE_VERSION_MINOR "${PROJECT_VERSION_MINOR}")
 set(CPACK_PACKAGE_VERSION_PATCH "${PROJECT_VERSION_PATCH}")
 set(CPACK_PACKAGE_CONTACT "ROCm Profiler Support <dl.ROCm-Profiler.support@amd.com>")
 set(CPACK_RESOURCE_FILE_LICENSE "${PROJECT_SOURCE_DIR}/NOTICES")
-set(CPACK_PACKAGE_INSTALL_DIRECTORY "ROCprof-Compute-Viewer")
 
 if(DEFINED ENV{CPACK_PACKAGE_FILE_NAME})
     set(CPACK_PACKAGE_FILE_NAME $ENV{CPACK_PACKAGE_FILE_NAME})
@@ -124,8 +122,6 @@ if(WIN32)
     set(CPACK_NSIS_CREATE_ICONS_EXTRA "CreateShortCut '$DESKTOP\\\\ROCprof Compute Viewer.lnk' '$INSTDIR\\\\bin\\\\rocprof-compute-viewer.exe'")
     set(CPACK_NSIS_MUI_ICON "${CMAKE_CURRENT_SOURCE_DIR}\\\\amd.ico")
     set(CPACK_NSIS_INSTALLED_ICON_NAME "$INSTDIR\\\\bin\\\\rocprof-compute-viewer.exe")
-    set(CPACK_NSIS_PACKAGE_NAME "ROCprof-Compute-Viewer")
-    set(CPACK_NSIS_INSTALL_ROOT "$PROGRAMFILES")
 elseif(APPLE)
     set(CPACK_GENERATOR STGZ)
 else()
