@@ -12,6 +12,8 @@ ROCprof Compute Viewer (RCV) is a tool for visualizing and analyzing GPU thread 
 * Fixed windows installer not creating a shortcut
 * Token history now clears when switching to a different trace
 * Plot value info now clears properly when switching to a different trace
+* Fix windows installer including the package version in install directory
+* Fix icons not displaying on windows
 
 <!-- Release Description -->
 
