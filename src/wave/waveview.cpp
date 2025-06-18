@@ -503,8 +503,9 @@ void QUtilization::AddTokens(int simd, const TokenMap& tokens)
 
     try
     {
+        // Exclude immed, trap and msg
         for (auto& token : tokens)
-            if (token.type != immed_type) token_defs.at(token.type).at(simd)->Add(token);
+            if (token.type < immed_type || token.type > immed_type + 2) token_defs.at(token.type).at(simd)->Add(token);
     }
     catch (std::out_of_range&)
     {

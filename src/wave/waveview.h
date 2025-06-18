@@ -131,7 +131,7 @@ public:
     virtual void Compile();
 
     std::array<std::array<QUtilView*, 4>, 16> token_defs;
-    int immed_type = -1;
+    int immed_type = INT32_MIN;
 
     std::array<QUtilView*, 4> VALU{};
     std::array<QUtilView*, 4> VMEM{};
