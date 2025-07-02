@@ -152,29 +152,72 @@ void ASMCodeline::Populate(const std::vector<CodeData>& code)
         auto asmelement = newline->elements.at(Element::EASM).get();
         if (auto* casted = dynamic_cast<ASMLine*>(asmelement))
         {
-            if (auto lock = casted->line_ref.lock()) lock->refs.push_back(newline);
+            for (auto& ref : casted->line_ref)
+                if (auto lock = ref.lock()) lock->refs.push_back(newline);
         }
     }
+}
+
+std::vector<std::pair<std::string, std::string>> ASMLine::callstack() const
+{
+    std::vector<std::pair<std::string, std::string>> callstack{};
+
+    for (auto& ref : line_ref)
+    {
+        if (auto locked = ref.lock())
+        {
+            auto name = locked->parent ? locked->parent->filename : "Unknown";
+            auto pos = name.find_last_of('/');
+            if (pos != std::string::npos) name = name.substr(pos + 1);
+
+            auto text = name + ':' + std::to_string(locked->line_number + 1);
+            callstack.push_back({text, locked->getStdText()});
+        }
+    }
+
+    return callstack;
 }
 
 void ASMLine::setMouseHover(bool value)
 {
     bHovering = value;
-    if (auto ref = line_ref.lock()) ref->setRefHighlight(value, false);
+    for (auto& ref : line_ref)
+        if (auto locked = ref.lock()) locked->setRefHighlight(value, false);
 }
 
 ASMLine::ASMLine(int _line_number, const CodeData::Line& line) :
 TextLineElement(line.inst), line_number(_line_number), codeobj(line.codeobj_id), addr(line.addr)
 {
+    line_ref.clear();
+
+    size_t start = 0;
+    size_t end = std::string::npos;
+
+    std::string_view separator = " -> ";
+
     try
     {
-        auto shared = SourceLine::all_lines.at(line.cppline);
-        line_ref = shared;
-        shared->add_latency(line.type, line.latency_sum);
+        while (start != std::string::npos)
+        {
+            size_t end = line.cppline.find(separator, start);
+            auto substr = line.cppline.substr(start, end - start);
+            start = end;
+            if (start != std::string::npos) start += separator.size();
+
+            try
+            {
+                auto shared = SourceLine::all_lines.at(substr);
+                if (!shared) continue;
+                line_ref.push_back(shared);
+                shared->add_latency(line.type, line.latency_sum);
+            }
+            catch (std::exception&)
+            {}
+        }
     }
     catch (std::exception&)
     {
-        line_ref = {};
+        QWARNING(false, "Error parsing source reference in ASMLine", return );
     }
 }
 
@@ -186,5 +229,31 @@ void ASMLine::onMousePress()
     int64_t clock = WaveInstance::GetMainClock(line_number, iteration);
     if (clock >= 0) MainWindow::window->ScrollViewsTo(clock);
 
-    if (auto ref = line_ref.lock()) ref->scrollTo();
+    // First, we attempt to scroll to the current file being displayed
+    if (auto* sourcetab = MainWindow::window->source_filetab)
+    {
+        auto* source = dynamic_cast<QScrollArea*>(sourcetab->currentWidget());
+        if (source)
+        {
+            for (auto& ref : line_ref)
+            {
+                if (auto locked = ref.lock())
+                {
+                    if (locked->parent == source->widget())
+                    {
+                        locked->scrollTo();
+                        return;
+                    }
+                }
+            }
+        }
+    }
+
+    // If current widget is not one of our source files, we scroll to the first one
+    for (auto& ref : line_ref)
+        if (auto locked = ref.lock())
+        {
+            locked->scrollTo();
+            return;
+        }
 }

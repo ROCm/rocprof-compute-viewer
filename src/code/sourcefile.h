@@ -61,7 +61,6 @@ public:
     virtual void setMouseHover(bool value) override;
     virtual void setRefHighlight(bool value, bool click) override;
 
-    const QString& getText() const { return this->text; };
     void scrollTo();
 
     void add_latency(int type, int64_t amount);
@@ -131,6 +130,6 @@ public:
     void scrollTo(const std::string& filename, int number);
     static std::string getFilename(const std::string& linepath);
 
-    std::map<std::string, std::pair<class QScrollArea*, SourceFile*>> files{};
+    std::unordered_map<std::string, std::pair<class QScrollArea*, SourceFile*>> files{};
     std::unordered_map<std::string, std::string> snap_to_filename{};
 };

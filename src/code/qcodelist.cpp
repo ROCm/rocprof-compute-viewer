@@ -283,8 +283,15 @@ void QASMElementList::mouseMoveEvent(class QMouseEvent* event)
     if (!asm_elem) return;
 
     std::stringstream tooltip;
-    tooltip << "l:" << asm_elem->line_number << " cid:" << asm_elem->codeobj << " vaddr:0x" << std::hex
-            << asm_elem->addr << std::dec << " - " << asm_elem->getStdText();
+    tooltip << "<div style= \"white-space: nowrap;\"><table>\n<tr><th>"
+            << "l:" << asm_elem->line_number << " cid:" << asm_elem->codeobj << " vaddr:0x" << std::hex
+            << asm_elem->addr << std::dec << "</th>\n<th>&nbsp;|&nbsp;</th>\n<th>" << asm_elem->getStdText()
+            << "</th>\n</tr>";
 
+    auto callstack = asm_elem->callstack();
+    for (auto& [file, line] : callstack)
+        tooltip << "<tr>\n<td>" << file << "</td>\n<td>&nbsp;|&nbsp;</td>\n<td>" << line << "</td>\n</tr>\n";
+
+    tooltip << "</table></div>";
     this->setToolTip(tooltip.str().c_str());
 }

@@ -62,7 +62,7 @@ class QASMElementList : public QElementList
     using Super = QElementList;
 
 public:
-    QASMElementList() : Super(ASMCodeline::Element::EASM){};
+    QASMElementList() : Super(ASMCodeline::Element::EASM) { setAttribute(Qt::WA_AlwaysShowToolTips, true); };
     virtual void mouseMoveEvent(class QMouseEvent* event) override;
     virtual QSize sizeHint() const override;
     virtual QSize minimumSizeHint() const override;

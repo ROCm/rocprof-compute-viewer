@@ -88,6 +88,7 @@ public:
     virtual void paint(class QPainter& painter, int posx, int posy, int stepy, int overline) override;
     virtual int width(class QFontMetrics& fm) override;
 
+    const QString& getText() const { return this->text; };
     virtual const std::string& getStdText() const override { return stdtext; };
     virtual void InvalidateCache() const override { width_cache = -1; }
     virtual void setRefHighlight(bool value, bool click)

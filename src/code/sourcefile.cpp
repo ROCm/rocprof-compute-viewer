@@ -229,7 +229,6 @@ void SourceLine::onMousePress()
     for (auto& ref : refs)
         if (auto refptr = ref.lock()) refptr->setRefHighlight(true, true);
 
-    // for (size_t i=0; i<refs.size(); i++) if (auto refptr = refs.at((next_index++)%refs.size()).lock())
     for (auto& ref : refs)
         if (auto refptr = ref.lock())
         {

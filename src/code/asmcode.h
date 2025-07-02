@@ -80,10 +80,11 @@ public:
     // ASMLine(int line_number, const std::string& line, int64_t _codeobj, int64_t _addr, const std::string& sourceref);
     ASMLine(int line_number, const CodeData::Line& line);
 
-    virtual void setMouseHover(bool value) override;
-    virtual void onMousePress() override;
+    void setMouseHover(bool value) override;
+    void onMousePress() override;
+    std::vector<std::pair<std::string, std::string>> callstack() const;
 
-    std::weak_ptr<class SourceLine> line_ref{};
+    std::vector<std::weak_ptr<class SourceLine>> line_ref{};
 
     const int line_number;
     const int64_t codeobj;
