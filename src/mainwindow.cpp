@@ -403,12 +403,12 @@ void MainWindow::SetMainWave(int se, int simd, int sl, int wid)
 
     auto thread =
         std::async(std::launch::async, &ArrowCanvas::buildConnections, code_contents->connector, main_wave->waitcnt);
-    code_contents->Populate(*main_wave);
 
     ui->wview_range_min->setText(std::to_string(main_wave->wave_begin).c_str());
     ui->wview_range_max->setText(std::to_string(main_wave->wave_end + WAVE_END_ROOM).c_str());
 
     UpdateWaveViewRange();
+    code_contents->Populate(*main_wave);
 
     QWARNING(wave_info_table, "No wave info", return );
     int i = 0;
@@ -1183,6 +1183,7 @@ void MainWindow::GatherWaves()
 
     cuwaves_content->Clear();
     utilization_content->Clear();
+    CodeData::ResetCodeType();
 
     int vertical_size = WSTATE_HEIGHT() + WSTATE_POSY() + 4; // Padding
 

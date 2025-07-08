@@ -89,21 +89,23 @@ struct CodeData
         cppline(_cpp)
         {}
 
-        int index = -1;
-        int type = 0;
-        int hitcount = 0;
+        std::atomic<int> index{-1};
+        std::atomic<int> type{0};
+        const int hitcount = 0;
         std::atomic<int> custom_type{0};
-        int64_t addr = 0;
-        int64_t codeobj_id = 0;
-        int64_t latency_sum = 0;
-        int64_t idle_sum = 0;
-        int64_t stall_sum = 0;
-        std::string inst;
-        std::string cppline;
+        const int64_t addr = 0;
+        const int64_t codeobj_id = 0;
+        const int64_t latency_sum = 0;
+        const int64_t idle_sum = 0;
+        const int64_t stall_sum = 0;
+        const std::string inst;
+        const std::string cppline;
     };
 
     std::unique_ptr<Exec> exec{nullptr};
     std::shared_ptr<Line> line{nullptr};
+
+    static void ResetCodeType();
 };
 
 struct WaveInfo
