@@ -23,7 +23,7 @@
 #pragma once
 #include <QDialog>
 
-class LICENSE: public QDialog
+class LICENSE : public QDialog
 {
     Q_OBJECT
 

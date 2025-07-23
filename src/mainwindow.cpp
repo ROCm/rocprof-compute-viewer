@@ -25,10 +25,10 @@
 #include <sys/stat.h>
 #include <QFileDialog>
 #include <QFontDatabase>
+#include <QMessageBox>
 #include <QPainterPath>
 #include <QScrollArea>
 #include <QSpinBox>
-#include <QMessageBox>
 #include <fstream>
 #include <vector>
 #include "./ui_mainwindow.h"
@@ -38,6 +38,7 @@
 #include "code/sourcefile.h"
 #include "collection/histogramdelegate.h"
 #include "collection/jsonfilemodel.h"
+#include "collection/license.h"
 #include "collection/options.h"
 #include "config/appconfig.h"
 #include "config/config.hpp"
@@ -50,7 +51,6 @@
 #include "wave/scroll.h"
 #include "wave/waveglobal.h"
 #include "wave/waveview.h"
-#include "collection/license.h"
 
 #if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
 #    include <QGuiApplication>
@@ -273,7 +273,16 @@ MainWindow::MainWindow(std::string uidir) : QMainWindow(nullptr), ui(new Ui::Mai
     );
 
     connect(ui->actionAbout_QT, &QAction::triggered, this, [this]() { QMessageBox::aboutQt(this, "About QT"); });
-    connect(ui->actionLicense, &QAction::triggered, this, []() { LICENSE license; license.exec(); });
+    connect(
+        ui->actionLicense,
+        &QAction::triggered,
+        this,
+        []()
+        {
+            LICENSE license;
+            license.exec();
+        }
+    );
 }
 
 int& MainWindow::font()

@@ -62,7 +62,8 @@ void WaveInstance::InvalidadeCache()
 void CodeData::ResetCodeType()
 {
     std::unique_lock<std::mutex> lk(code_mutex);
-    for (auto& code : code_cache.second) if (code.line) code.line->type = 0;
+    for (auto& code : code_cache.second)
+        if (code.line) code.line->type = 0;
 }
 
 static int gettype(const std::array<int, 16>& partial_cycles)
@@ -334,9 +335,8 @@ WaveInstance::WaveInstance(const std::string& _path) : path(_path)
 
             if (_code.line->custom_type > 0) token.type = _code.line->custom_type;
 
-            auto exchange = [&](int exp) {
-                return _code.line->type.compare_exchange_strong(exp, token.type, std::memory_order_relaxed);
-            };
+            auto exchange = [&](int exp)
+            { return _code.line->type.compare_exchange_strong(exp, token.type, std::memory_order_relaxed); };
             if (!exchange(0) && token.type != 9) exchange(9);
         }
         catch (std::out_of_range& e)

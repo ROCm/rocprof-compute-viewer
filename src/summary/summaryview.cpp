@@ -283,11 +283,12 @@ tableContainer(nullptr)
     QWidget* chartContainer = new QWidget(this);
     QHBoxLayout* chartLayout = new QHBoxLayout(chartContainer);
     chartLayout->setContentsMargins(0, 0, 0, 0);
-    chartLayout->setSpacing(2);
+    chartLayout->setSpacing(1);
     layout->addWidget(chartContainer);
 
     barChartWidget = new BarChartWidget(this);
-    barChartWidget->setMinimumHeight(200); // Set a minimum height for the bar chart
+    barChartWidget->setMinimumHeight(180); // Set a minimum height for the bar chart
+    barChartWidget->setMaximumHeight(300);
     chartLayout->addWidget(barChartWidget);
 
     // Create a container for the pie chart and legend table
@@ -312,8 +313,8 @@ tableContainer(nullptr)
 
     // Create pie chart widget
     pieChartWidget = new PieChartWidget(this);
-    pieChartWidget->setMinimumHeight(100); // Set a minimum height for the pie chart
-    pieChartWidget->setMaximumHeight(250);
+    pieChartWidget->setMinimumHeight(140); // Set a minimum height for the pie chart
+    pieChartWidget->setMaximumHeight(240);
 
     pieChartLayout->addWidget(pieChartWidget, 1);
     pieChartLayout->addWidget(legendContainer, 0);
@@ -325,11 +326,10 @@ tableContainer(nullptr)
 
     tableContainer = new QWidget(this);
     auto* tableLayout = new QVBox(tableContainer);
-    tableLayout->addStretch();
     tableWidget = new QTableWidget(0, 0, this);
     tableWidget->setEditTriggers(QAbstractItemView::NoEditTriggers);
     tableWidget->setSelectionMode(QAbstractItemView::NoSelection);
-    tableWidget->setMinimumHeight(280);
+    tableWidget->setMinimumHeight(120);
     tableWidget->setToolTip(
         "Load balancing: Utilization for counter X is computed as X/BUSY_CU_CYCLES.\nPeak rates indicate maximum "
         "across any given cycle.\nPer-CU rates are averaged over the period in which any wave was present in the CU."

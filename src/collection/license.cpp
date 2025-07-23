@@ -21,10 +21,10 @@
 // SOFTWARE.
 
 #include "license.h"
-#include <QVBoxLayout>
 #include <QLabel>
-#include <QScrollArea>
 #include <QPushButton>
+#include <QScrollArea>
+#include <QVBoxLayout>
 
 LICENSE::LICENSE()
 {
@@ -65,6 +65,6 @@ LICENSE::LICENSE()
     mainLayout->addWidget(noticelabel);
     mainLayout->addWidget(scrollArea);
     mainLayout->addWidget(closeButton);
-    
+
     setLayout(mainLayout);
 }
