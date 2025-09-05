@@ -324,3 +324,17 @@ void SourceFileTab::clear()
     SourceLine::all_lines.clear();
     while (count()) removeTab(0);
 }
+
+void SourceFileTab::resetLatency()
+{
+    for (auto& [_, file] : files) if (file.second)
+    {
+        for (auto& line : file.second->lines)
+        if (line)
+            line->hotspot = HorizontalHotspot{};
+
+        file.second->latency = HorizontalHotspot{};
+        file.second->max_latency = 1;
+    }
+    SourceFile::global_max_latency = 1;
+}

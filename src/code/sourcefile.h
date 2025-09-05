@@ -123,6 +123,7 @@ class SourceFileTab : public QTabWidget
 public:
     virtual ~SourceFileTab() { clear(); }
 
+    void resetLatency();
     void clear();
     void addFile(const std::string& filename, const std::string& snappath);
     void setSnapFile(const std::string& snappath);

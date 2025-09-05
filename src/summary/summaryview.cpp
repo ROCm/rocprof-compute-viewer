@@ -332,7 +332,8 @@ tableContainer(nullptr)
     tableWidget->setMinimumHeight(120);
     tableWidget->setToolTip(
         "Load balancing: Utilization for counter X is computed as X/BUSY_CU_CYCLES.\nPeak rates indicate maximum "
-        "across any given cycle.\nPer-CU rates are averaged over the period in which any wave was present in the CU."
+        "across any given cycle.\nPer-CU rates are averaged over the period in which any wave was present in the CU.\n"
+        "Note: On Mi300, VALU Util can reach 200% due to dual VALU issue"
     );
     tableLayout->addWidget(tableWidget);
     layout->addWidget(tableContainer);
