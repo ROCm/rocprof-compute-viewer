@@ -101,6 +101,9 @@ public:
     static int lineheight();
     static int line_height;
     static QCodelist* singleton;
+
+private:
+    int scrollposy = 0;
 };
 
 class CycleModeSelector : public QComboBox

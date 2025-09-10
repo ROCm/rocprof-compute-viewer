@@ -143,6 +143,7 @@ void QCodelist::onScroll(int value)
     for (auto& elem : elements)
         if (elem) elem->setScroll(value);
     connector->setScroll(value);
+    this->scrollposy = value;
     update();
 }
 
@@ -181,6 +182,27 @@ void QCodelist::paintEvent(QPaintEvent* event)
 
         scheduleRedraw();
     }
+
+    const int heighty = lineheight();
+    auto elementpos = [this]()
+    {
+        for (auto& element : elements)
+            if (element) return element->pos();
+        return QPoint();
+    }();
+
+    Color color = WindowColors::StripeBackground();
+    color.setAlpha(254);
+
+    for (auto& line : ASMCodeline::line_vec)
+        if (line && line->line_index % 2)
+        {
+            int posy = heighty * (1 + line->line_index) - scrollposy + elementpos.y() + 1;
+            if (posy < -2 * heighty) continue;
+            if (posy > height() + heighty) break;
+
+            painter.fillRect(QRect(elementpos.x(), posy, width() - elementpos.x(), heighty), color);
+        }
 
     this->QWidget::paintEvent(event);
 }
@@ -244,16 +266,17 @@ void QElementList::paintEvent(QPaintEvent* event)
     painter.setPen(QPen(WindowColors::textColor(), 1));
 
     for (auto& line : ASMCodeline::line_vec)
+    {
+        int posy = heighty * (1 + line->line_index) - scrollposy;
+        if (posy < -2 * heighty) continue;
+        if (posy > height() + heighty) break;
+
         if (auto element = line->elements.at(elementtype).get())
         {
-            int posy = heighty * (1 + line->line_index) - scrollposy;
-            if (posy < -2 * heighty) continue;
-            if (posy > height() + heighty) break;
-
             int posx = isASM() ? 0 : std::max(0, width_cache - element->width(fm));
-
             element->paint(painter, posx, posy, heighty, overline);
         }
+    }
 }
 
 LineElement* QElementList::getelement(int index)

@@ -391,7 +391,7 @@ void MainWindow::UpdateWaveViewRange()
         cuwaves_h_scrollarea->updatebar(true);
         utilization_h_scrollarea->updatebar(true);
 
-        if(source_filetab) source_filetab->resetLatency();
+        if (source_filetab) source_filetab->resetLatency();
         if (WaveInstance::main_wave && code_contents) code_contents->Populate(*WaveInstance::main_wave);
     }
     catch (std::exception& e)
