@@ -241,7 +241,7 @@ void BarChartWidget::paintEvent(QPaintEvent* event)
         QString valueText = QString::number(value, 'f', 1) + "%";
         int textWidth = fm.horizontalAdvance(valueText);
         int textX = x + (barWidth - textWidth) / 2;
-        int textY = y - fm.height() - 5; // 5 pixels above the bar
+        int textY = y - fm.height()/2;
         painter.setPen(textColor);
         painter.drawText(textX, textY, valueText);
 
