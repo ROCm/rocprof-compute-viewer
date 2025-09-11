@@ -144,6 +144,12 @@ const QColor& Background()
     static QColor white(224, 224, 224);
     return bDarkTheme ? dark : white;
 }
+const Color& StripeBackground()
+{
+    static Color dark(QColor(27, 27, 27));
+    static Color white(QColor(210, 210, 210));
+    return bDarkTheme ? dark : white;
+}
 const QColor& TraceBackground()
 {
     static QColor dark(36, 36, 36);

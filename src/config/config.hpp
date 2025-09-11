@@ -25,6 +25,7 @@
 #include <filesystem>
 #include <map>
 #include <string>
+#include "util/highlight.h"
 
 namespace WindowColors
 {
@@ -39,6 +40,9 @@ const QColor& MeasureTool();
 const QColor& LatencyTextColor();
 const QColor& UtilizationBarColor();
 const QColor& UtilizationBarColorBg();
+
+const Color& StripeBackground();
+
 QColor textColor();
 QColor reverseTextColor();
 void setDark(bool bDark);

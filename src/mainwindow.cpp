@@ -390,6 +390,9 @@ void MainWindow::UpdateWaveViewRange()
 
         cuwaves_h_scrollarea->updatebar(true);
         utilization_h_scrollarea->updatebar(true);
+
+        if (source_filetab) source_filetab->resetLatency();
+        if (WaveInstance::main_wave && code_contents) code_contents->Populate(*WaveInstance::main_wave);
     }
     catch (std::exception& e)
     {
@@ -417,7 +420,6 @@ void MainWindow::SetMainWave(int se, int simd, int sl, int wid)
     ui->wview_range_max->setText(std::to_string(main_wave->wave_end + WAVE_END_ROOM).c_str());
 
     UpdateWaveViewRange();
-    code_contents->Populate(*main_wave);
 
     QWARNING(wave_info_table, "No wave info", return );
     int i = 0;
