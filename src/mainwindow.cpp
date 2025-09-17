@@ -1194,7 +1194,6 @@ void MainWindow::GatherWaves()
 
     cuwaves_content->Clear();
     utilization_content->Clear();
-    CodeData::ResetCodeType();
 
     int vertical_size = WSTATE_HEIGHT() + WSTATE_POSY() + 4; // Padding
 

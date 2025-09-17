@@ -416,8 +416,13 @@ void QUtilView::Compile(bool bVisible)
     std::array<int64_t, 4> slot_start{};
     std::array<int64_t, 4> slot_end{};
 
+    int64_t maxtime = 0;
+
     for (auto& token : wave0->tokens)
     {
+        token.setOverlapped(token.clock < maxtime);
+        maxtime = std::max(maxtime, token.clock + token.cycles);
+
         while (slot_start.at(token.slot) == token.clock && slot_end.at(token.slot) > token.clock && token.slot < 3)
             token.slot++;
 

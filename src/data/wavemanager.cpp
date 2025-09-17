@@ -59,13 +59,6 @@ void WaveInstance::InvalidadeCache()
     code_cache.second.clear();
 }
 
-void CodeData::ResetCodeType()
-{
-    std::unique_lock<std::mutex> lk(code_mutex);
-    for (auto& code : code_cache.second)
-        if (code.line) code.line->type = 0;
-}
-
 static int gettype(const std::array<int, 16>& partial_cycles)
 {
     int64_t max_cycles = -1;
@@ -320,7 +313,7 @@ WaveInstance::WaveInstance(const std::string& _path) : path(_path)
     for (auto& token : tokens)
     {
         token.setOverlapped(token.clock < maxtime);
-        maxtime = std::max(maxtime, token.clock);
+        maxtime = std::max(maxtime, token.clock + token.cycles);
 
         line_to_clock[token.code_line].push_back(token.clock);
         try
@@ -337,7 +330,7 @@ WaveInstance::WaveInstance(const std::string& _path) : path(_path)
 
             auto exchange = [&](int exp)
             { return _code.line->type.compare_exchange_strong(exp, token.type, std::memory_order_relaxed); };
-            if (!exchange(0) && token.type != 9) exchange(9);
+            if (!exchange(0) && _code.line->type == 9 && token.type != 9) exchange(9);
         }
         catch (std::out_of_range& e)
         {

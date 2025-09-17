@@ -2,48 +2,12 @@
 
 ROCprof Compute Viewer (RCV) is a tool for visualizing and analyzing GPU thread trace data collected with rocprofv3.
 
-## Release 0.1.2
+## Release 0.1.3
 
 ### Bug Fixes
-* Fixed s_endpgm showing in utilization bar
-* Potential thread safety fixes
-* Fixed an issue where the order of which wave was the main wave changed how the cycles were attributed to source
-
-### Changes
-* Renamed "CTXSW" -> "TRAP" to indicate time spent in the trap handler
+* Fixed display of overlapped executions
+* Fixed an issue where the latency attributed to source had no type
+* Fixed layout of summary widget
 
 ### Added
-* Proper handling of function inlining information (requires corresponding rocprofiler SDK fix)
-
-<!-- Release Description -->
-
-<!-- Uncomment only the parts that are needed for this release -->
-<!--
-### Upgrade Steps
-* [ACTION REQUIRED]
-*
--->
-
-<!--
-### Breaking Changes
-*
-*
--->
-
-<!--
-### New Features
-*
-*
--->
-
-<!--
-### Performance Improvements
-*
-*
--->
-
-<!--
-### Other Changes
-*
-*
--->
+* Added even/odd stripes for better visualization of instructions (GH issue #1)

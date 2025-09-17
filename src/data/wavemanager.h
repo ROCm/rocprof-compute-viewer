@@ -104,8 +104,6 @@ struct CodeData
 
     std::unique_ptr<Exec> exec{nullptr};
     std::shared_ptr<Line> line{nullptr};
-
-    static void ResetCodeType();
 };
 
 struct WaveInfo
