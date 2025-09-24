@@ -30,7 +30,7 @@
 #include "util/highlight.h"
 
 #define TOKEN_POSY()    2
-#define TOKEN_HEIGHT()  16
+#define TOKEN_HEIGHT()  15
 #define SLOT_OFFSET()   2
 #define WSTATE_POSY()   (TOKEN_POSY() + TOKEN_HEIGHT() + SLOT_OFFSET())
 #define WSTATE_HEIGHT() 4
@@ -82,7 +82,7 @@ struct Token
     bool inClock(int64_t _clock) const { return clock <= _clock && end_time() > _clock; }
 
     std::string ToolTip() const;
-    void DrawToken(class QPainter& painter, int64_t viewstart, int64_t viewend, int yoffset) const;
+    void DrawToken(class QPainter& painter, int64_t viewstart, int64_t viewend) const;
 
     const StyleColor& GetColor() const { return GetColor(type); }
     const QColor& GetQColor() const { return GetQColor(type); }
@@ -127,7 +127,7 @@ struct WaveState
     int64_t duration = 0;
     int state = 0;
 
-    void DrawState(class QPainter& painter, int64_t viewstart, int64_t viewend, int yoffset);
+    void DrawState(class QPainter& painter, int64_t viewstart, int64_t viewend);
 
     const QColor& GetColor() const { return GetStateColor(this->state); }
     const std::string& GetName() const { return GetStateName(this->state); }

@@ -62,7 +62,7 @@ const QColor& Token::GetToneColor(int i)
     return toned.at(i % toned.size());
 }
 
-void Token::DrawToken(QPainter& painter, int64_t viewstart, int64_t viewend, int yoffset) const
+void Token::DrawToken(QPainter& painter, int64_t viewstart, int64_t viewend) const
 {
     int pos = GetTokenSize(this->clock - viewstart);
     int width = GetTokenSize(this->cycles);
@@ -72,8 +72,9 @@ void Token::DrawToken(QPainter& painter, int64_t viewstart, int64_t viewend, int
         width = GetTokenSize(this->clock + this->cycles - viewstart);
     }
 
-    int height = TOKEN_HEIGHT() - SLOT_OFFSET() * std::max(0, 2 * slot - 1);
-    int posy = yoffset + TOKEN_POSY() - SLOT_OFFSET() * std::min<int>(1, slot);
+    const float scaling = MainWindow::getScaling();
+    int height = (TOKEN_HEIGHT() - SLOT_OFFSET() * std::max(0, 2 * slot - 1))/scaling;
+    int posy = (TOKEN_POSY() - SLOT_OFFSET() * std::min<int>(1, slot))/scaling;
 
     QBrush brush;
     if (WindowColors::isDark())
@@ -141,9 +142,11 @@ TokenMap::const_iterator TokenMap::get_token_in_clock(int64_t clock) const
     return std::prev(static_it);
 }
 
-void WaveState::DrawState(QPainter& painter, int64_t viewstart, int64_t viewend, int yoffset)
+void WaveState::DrawState(QPainter& painter, int64_t viewstart, int64_t viewend)
 {
-    const int wstate_posy = WSTATE_POSY();
+    const float scaling = MainWindow::getScaling();
+    const float wstate_posy = WSTATE_POSY() / scaling;
+    const float wstate_height = WSTATE_HEIGHT() / scaling;
 
     int pos = Token::GetTokenSize(this->clock - viewstart);
     int width = Token::GetTokenSize(this->duration);
@@ -155,9 +158,9 @@ void WaveState::DrawState(QPainter& painter, int64_t viewstart, int64_t viewend,
 
     QColor& color = STATE_COLORS[this->state % STATE_COLORS.size()];
     QPainterPath path;
-    path.addRoundedRect(QRectF(pos, wstate_posy, width, WSTATE_HEIGHT()), 1, 1);
+    path.addRoundedRect(QRectF(pos, wstate_posy, width, wstate_height), 1, 1);
 
-    QLinearGradient grad(0, wstate_posy, 0, wstate_posy + WSTATE_HEIGHT());
+    QLinearGradient grad(0, wstate_posy, 0, wstate_posy + wstate_height);
     grad.setColorAt(0.5, color);
     grad.setColorAt(0, whiter(color));
     QBrush brush(grad);

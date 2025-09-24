@@ -134,7 +134,7 @@ struct TokenGroup
     std::array<TokenMap, 9> token_mip;
     bool bInitialized = false;
 
-    void Draw(class QPainter& painter, int64_t viewstart, int64_t viewend, int posy);
+    void Draw(class QPainter& painter, int64_t viewstart, int64_t viewend);
     void SetMipN();
     void SetMipN(const std::vector<TokenArray>& array, size_t M);
 };

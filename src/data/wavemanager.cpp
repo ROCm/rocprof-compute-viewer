@@ -139,7 +139,7 @@ void TokenGroup::SetMipN()
     SetMipN(next, 0);
 }
 
-void TokenGroup::Draw(class QPainter& painter, int64_t viewstart, int64_t viewend, int posy)
+void TokenGroup::Draw(class QPainter& painter, int64_t viewstart, int64_t viewend)
 {
     if (viewstart > wave_end || viewend < wave_begin) return;
 
@@ -159,7 +159,7 @@ void TokenGroup::Draw(class QPainter& painter, int64_t viewstart, int64_t viewen
 
         while (it != timeline.end() && it->second.clock < viewend)
         {
-            it->second.DrawState(painter, viewstart, viewend, posy);
+            it->second.DrawState(painter, viewstart, viewend);
             it++;
         }
     }
@@ -179,15 +179,15 @@ void TokenGroup::Draw(class QPainter& painter, int64_t viewstart, int64_t viewen
     while (it != selected_mip.end() && it->clock < viewend)
     {
         blankToken.cycles = it->clock - blankToken.clock;
-        if (blankToken.cycles > blank_space_thresh) blankToken.DrawToken(painter, viewstart, viewend, posy);
+        if (blankToken.cycles > blank_space_thresh) blankToken.DrawToken(painter, viewstart, viewend);
 
-        it->DrawToken(painter, viewstart, viewend, posy);
+        it->DrawToken(painter, viewstart, viewend);
         blankToken.clock = std::max(it->end_time(), blankToken.clock);
         it++;
     }
 
     blankToken.cycles = wave_end - blankToken.clock;
-    if (blankToken.cycles > 0) blankToken.DrawToken(painter, viewstart, viewend, posy);
+    if (blankToken.cycles > 0) blankToken.DrawToken(painter, viewstart, viewend);
 }
 
 WaveInstance::WaveInstance(const std::string& _path) : path(_path)

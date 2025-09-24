@@ -57,7 +57,7 @@ void QWaveView::paintEvent(QPaintEvent* event)
     int64_t cutoff_start = QCustomScroll::clock_cutoff_start + view->start;
     int64_t cutoff_end = std::min(cutoff_start + (view->range << Token::mipmap_level), QCustomScroll::clock_cutoff_end);
 
-    for (auto& [_, wave] : waves) wave->Draw(painter, cutoff_start, cutoff_end, 0);
+    for (auto& [_, wave] : waves) wave->Draw(painter, cutoff_start, cutoff_end);
 }
 
 void QWaveView::mouseMoveEvent(QMouseEvent* event)
@@ -183,20 +183,18 @@ void QWaveSlots::Reset()
 
     QWidget* cuwaves_names = new QWidget(this);
     names_layout = new QVBox();
-    names_layout->setSpacing(3);
     names_layout->insertStretch(-1);
     cuwaves_names->setLayout(names_layout);
     hlayout->addWidget(cuwaves_names);
 
     cuwaves_content = new QWidget(this);
     content_layout = new QVBox();
-    content_layout->setSpacing(3);
     content_layout->insertStretch(-1);
     cuwaves_content->setLayout(content_layout);
     hlayout->addWidget(cuwaves_content);
 
-    content_layout->addSpacerItem(new QSpacerItem(0, 15, QSizePolicy::Minimum, QSizePolicy::Minimum));
-    names_layout->addSpacerItem(new QSpacerItem(0, 15, QSizePolicy::Minimum, QSizePolicy::Minimum));
+    content_layout->insertSpacing(0, 20);
+    names_layout->insertSpacing(0, 20);
 
     QPalette pal = QPalette();
     pal.setColor(QPalette::Window, WindowColors::TraceBackground());
