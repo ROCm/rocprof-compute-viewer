@@ -84,18 +84,30 @@ Token TokenGroup::TokenArray::finalize(int64_t res)
 
 void TokenGroup::SetMipN(const std::vector<TokenArray>& previous, size_t M)
 {
-    if (previous.size() <= 4 || M >= token_mip.size()) return;
+    const int64_t res = (1 << M) * WaveInstance::BaseClock();
+
+    if (M >= token_mip.size()) return;
+
+    if (previous.size() <= 16)
+    {
+        for (auto current : previous)
+        {
+            auto token = current.finalize(res);
+            if (token.type > 0)
+                token_mip.at(M).emplace_back(token);
+        }
+        token_mip.at(M).Compile();
+        return;
+    }
 
     std::vector<TokenArray> next{};
-
-    const int64_t res = (1 << M) * WaveInstance::BaseClock();
 
     TokenArray current{};
     int64_t current_cycle = current.token.clock = previous.at(0).token.clock;
 
     for (auto& prev : previous)
     {
-        if (current_cycle + res < prev.token.clock)
+        if (current_cycle + res/2 <= prev.token.clock)
         {
             if (current.token.cycles > 0)
             {
@@ -112,12 +124,16 @@ void TokenGroup::SetMipN(const std::vector<TokenArray>& previous, size_t M)
         {
             // add IDLE time
             current.cycles.at(0) += prev.token.clock - current_cycle;
+            current.token.cycles += prev.token.clock - current_cycle;
         }
 
         current += prev;
+        current_cycle = std::max(current_cycle, prev.token.clock + prev.token.cycles);
     }
 
-    token_mip.at(M).emplace_back(current.finalize(res));
+    auto finalized = current.finalize(res);
+    if (finalized.type > 0)
+        token_mip.at(M).emplace_back(finalized);
     next.emplace_back(std::move(current));
 
     token_mip.at(M).Compile();
