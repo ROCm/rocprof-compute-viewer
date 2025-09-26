@@ -130,12 +130,12 @@ public:
     virtual void Clear() override;
     virtual void Compile();
 
-    std::array<std::array<QUtilView*, 4>, 16> token_defs;
-    int immed_type = INT32_MIN;
+    std::array<std::array<QUtilView*, 4>, 16> token_defs{};
 
     std::array<QUtilView*, 4> VALU{};
     std::array<QUtilView*, 4> VMEM{};
     std::array<QUtilView*, 4> SCAL{};
+    QUtilView* OTHER{};
 
 signals:
 };

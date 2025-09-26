@@ -62,7 +62,7 @@ const QColor& Token::GetToneColor(int i)
     return toned.at(i % toned.size());
 }
 
-void Token::DrawToken(QPainter& painter, int64_t viewstart, int64_t viewend) const
+void Token::DrawToken(QPainter& painter, int64_t viewstart, int64_t viewend, float penwidth) const
 {
     int pos = GetTokenSize(this->clock - viewstart);
     int width = GetTokenSize(this->cycles);
@@ -93,6 +93,7 @@ void Token::DrawToken(QPainter& painter, int64_t viewstart, int64_t viewend) con
     }
 
     QRectF rect(pos, posy, width, height);
+    painter.setPen(QPen(Qt::black, penwidth));
 
     if (width > 2 && Token::mipmap_level == 0)
     {

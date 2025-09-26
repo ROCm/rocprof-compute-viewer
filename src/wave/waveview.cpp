@@ -169,7 +169,7 @@ QWaveSlots::QWaveSlots(QCustomScroll* parent)
 
     tool = std::make_shared<MeasureTool>();
     parent->tool = tool;
-    if (tool) tool->update_list.insert(this);
+    tool->update_list.insert(this);
 
     this->setAutoFillBackground(true);
 }
@@ -240,7 +240,14 @@ void QWaveSlots::wheelEvent(QWheelEvent* event)
         this->Super::wheelEvent(event);
         return;
     }
-    MainWindow::incrementWaveViewMipmap(event->angleDelta().y() > 0 ? 1 : -1);
+
+    if (!cuwaves_content) return;
+    IMPLEMENT_FPS_LIMITER();
+
+    int posx = cuwaves_content->pos().x();
+
+    float ratio = (event->position().x() - posx) / float(width() - posx + 0.5f);
+    if (ratio > 0) MainWindow::incrementWaveViewMipmap(event->angleDelta().y() > 0 ? 1 : -1, ratio);
 }
 
 void QWaveSlots::keyPressEvent(QKeyEvent* event)
@@ -409,6 +416,7 @@ void QUtilView::Compile(bool bVisible)
     setVisible(bVisible);
     if (label) label->setVisible(bVisible);
 
+    wave0->bInitialized = false;
     wave0->tokens.Compile();
 
     std::array<int64_t, 4> slot_start{};
@@ -451,8 +459,8 @@ QUtilization::QUtilization(QCustomScroll* parent) : QWaveSlots(parent)
         SCAL.at(i)->label = AddSlot(SCAL.at(i), "SCAL" + std::to_string(i) + ' ', vertical_size);
     }
 
-    content_layout->setSpacing(0);
-    names_layout->setSpacing(0);
+    OTHER = new QUtilView(parent);
+    OTHER->label = AddSlot(OTHER, "OTHER ", vertical_size);
 
     for (auto& token : token_defs)
         for (int simd = 0; simd < 4; simd++) token.at(simd) = SCAL.at(simd);
@@ -463,19 +471,26 @@ QUtilization::QUtilization(QCustomScroll* parent) : QWaveSlots(parent)
         return str;
     };
 
-    for (size_t i = 0; i < Config::TokenColors().size(); i++)
+    for (int i = 0; i < Config::TokenColors().size(); i++)
     {
         auto name = upper(Config::TokenColors().at(i).name);
 
         auto sfind = [&name](std::string_view match) { return name.find(match) != std::string::npos; };
 
-        if (sfind("IMMED")) immed_type = i;
+        if (sfind("IMMED") || sfind("MSG") || sfind("TRAP"))
+        {
+            for (size_t simd = 0; simd < 4; simd++) token_defs.at(i).at(simd) = OTHER;
+        }
 
         if (sfind("VALU") || sfind("MFMA") || sfind("MATRIX"))
+        {
             for (size_t simd = 0; simd < 4; simd++) token_defs.at(i).at(simd) = VALU.at(simd);
+        }
 
         if (sfind("FLAT") || sfind("VMEM") || sfind("LDS"))
+        {
             for (size_t simd = 0; simd < 4; simd++) token_defs.at(i).at(simd) = VMEM.at(simd);
+        }
     }
 }
 
@@ -484,6 +499,7 @@ void QUtilization::Clear()
     for (auto* view : VALU) view->wave0->tokens.clear();
     for (auto* view : VMEM) view->wave0->tokens.clear();
     for (auto* view : SCAL) view->wave0->tokens.clear();
+    if (OTHER) OTHER->wave0->tokens.clear();
 
     QPalette pal = QPalette();
     pal.setColor(QPalette::Window, WindowColors::TraceBackground());
@@ -498,17 +514,32 @@ void QUtilization::Compile()
         if (view) view->Compile(false);
     for (auto& view : SCAL)
         if (view) view->Compile(false);
+
+    if (OTHER) OTHER->Compile(false);
 }
 
 void QUtilization::AddTokens(int simd, const TokenMap& tokens)
 {
     QWARNING(simd < 4, "Invalid simd " << simd, return );
 
+    // Use base here as some decoder versions don't consider stalls for MSG
+    // We dont want to show full cycles to avoid clutter in the timeline display
+    int base = WaveInstance::BaseClock();
+
     try
     {
         // Exclude immed, trap and msg
         for (auto& token : tokens)
-            if (token.type < immed_type || token.type > immed_type + 2) token_defs.at(token.type).at(simd)->Add(token);
+        {
+            if (auto* def = token_defs.at(token.type).at(simd))
+            {
+                Token _token = token;
+                if (def == OTHER)
+                    _token.stall = std::max(0, _token.cycles - base);
+
+                def->Add(_token);
+            }
+        }
     }
     catch (std::out_of_range&)
     {

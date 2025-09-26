@@ -88,7 +88,7 @@ void TokenGroup::SetMipN(const std::vector<TokenArray>& previous, size_t M)
 
     std::vector<TokenArray> next{};
 
-    const int64_t res = (2 << M) * WaveInstance::BaseClock();
+    const int64_t res = (1 << M) * WaveInstance::BaseClock();
 
     TokenArray current{};
     int64_t current_cycle = current.token.clock = previous.at(0).token.clock;
@@ -99,12 +99,19 @@ void TokenGroup::SetMipN(const std::vector<TokenArray>& previous, size_t M)
         {
             if (current.token.cycles > 0)
             {
-                token_mip.at(M).emplace_back(current.finalize(res));
+                auto finalized = current.finalize(res);
                 next.emplace_back(std::move(current));
+
+                if (finalized.type > 0) token_mip.at(M).emplace_back(finalized);
             }
 
             current = {};
             current_cycle = current.token.clock = prev.token.clock;
+        }
+        else if (current_cycle != prev.token.clock)
+        {
+            // add IDLE time
+            current.cycles.at(0) += prev.token.clock - current_cycle;
         }
 
         current += prev;
@@ -145,7 +152,6 @@ void TokenGroup::Draw(class QPainter& painter, int64_t viewstart, int64_t viewen
 
     if (!bInitialized) SetMipN();
 
-    Token blankToken{};
     int blank_space_thresh = (WaveInstance::BaseClock() << Token::mipmap_level) / 3;
 
     painter.setPen(QPen(Qt::black, 0.9));
@@ -164,6 +170,14 @@ void TokenGroup::Draw(class QPainter& painter, int64_t viewstart, int64_t viewen
         }
     }
 
+    auto pen = painter.pen();
+    {
+        Token blankToken{};
+        blankToken.clock = wave_begin;
+        blankToken.cycles = wave_end - wave_begin;
+        blankToken.DrawToken(painter, viewstart, viewend, 1.0f);
+    }
+
     // Lower bound would only sometimes put us past this value, while upper bound does it consistently
     auto& selected_mip = (Token::mipmap_level <= 1) ? tokens : token_mip.at(Token::mipmap_level - 2);
     auto it = selected_mip.upper_bound(viewstart);
@@ -174,20 +188,15 @@ void TokenGroup::Draw(class QPainter& painter, int64_t viewstart, int64_t viewen
         if (it->clock + it->cycles <= viewstart && !it->overlapped()) break;
     }
 
-    blankToken.clock = wave_begin;
+    const float penwidth = 0.5f*std::max(3 - Token::mipmap_level, 1);
 
     while (it != selected_mip.end() && it->clock < viewend)
     {
-        blankToken.cycles = it->clock - blankToken.clock;
-        if (blankToken.cycles > blank_space_thresh) blankToken.DrawToken(painter, viewstart, viewend);
-
-        it->DrawToken(painter, viewstart, viewend);
-        blankToken.clock = std::max(it->end_time(), blankToken.clock);
+        it->DrawToken(painter, viewstart, viewend, penwidth);
         it++;
     }
 
-    blankToken.cycles = wave_end - blankToken.clock;
-    if (blankToken.cycles > 0) blankToken.DrawToken(painter, viewstart, viewend);
+    painter.setPen(pen);
 }
 
 WaveInstance::WaveInstance(const std::string& _path) : path(_path)

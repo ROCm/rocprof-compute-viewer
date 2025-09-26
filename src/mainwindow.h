@@ -138,7 +138,7 @@ public:
     static double getScaling();
     void setScaling(int scale);
 
-    static void incrementWaveViewMipmap(int value);
+    static void incrementWaveViewMipmap(int value, float position);
     static std::shared_ptr<class ScrollValue> getCUScroll();
 
     static int& font();

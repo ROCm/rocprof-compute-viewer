@@ -272,7 +272,7 @@ const std::vector<StyleColor>& TokenColors()
                 addpair(def_token, "JUMP", "#5038ff");
                 addpair(def_token, "NEXT", "#8020ff");
                 addpair(def_token, "IMMED", "#404040");
-                addpair(def_token, "TRAP", "#000000");
+                addpair(def_token, "TRAP", "#ff0804");
                 addpair(def_token, "MSG", "#101010");
                 addpair(def_token, "BVH", "#ff0804");
                 addpair(def_token, "MATRIX", "#006000");

@@ -1012,7 +1012,7 @@ void MainWindow::UpdateGraphAutoLod(int bAutoLod)
     if (dispatch_plot) dispatch_plot->setAutoLod((bool) bAutoLod);
 }
 
-void MainWindow::incrementWaveViewMipmap(int inc)
+void MainWindow::incrementWaveViewMipmap(int inc, float position)
 {
     auto view = getCUScroll();
     QWARNING(view, "Widget not found", return );
@@ -1023,9 +1023,9 @@ void MainWindow::incrementWaveViewMipmap(int inc)
     if (value > 10 || value < 0) return;
 
     if (inc < 0)
-        view->start -= view->range / 2;
+        view->start -= view->range * position;
     else if (inc > 0)
-        view->start += view->range / 4;
+        view->start += view->range / 2 * position;
 
     view->notify();
     ui->waveview_spin->setValue(value);
