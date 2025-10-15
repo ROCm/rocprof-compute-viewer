@@ -8,7 +8,7 @@
 Visualize and analyze GPU thread trace data
 ********************************************
 
-ROCprof Compute Viewer interprets the output of ui_output_agent_{agent_id}_dispatch_{dispatch_id} file for visualization. The visualization includes:
+ROCprof Compute Viewer interprets the output of `ui_output_agent_{agent_id}_dispatch_{dispatch_id} <https://rocm.docs.amd.com/projects/rocprofiler-sdk/en/latest/how-to/using-thread-trace.html#rocprofv3-output-files>`_ file for visualization. The visualization includes:
 
 - Source visualization (go to Trace -> ISA)
 - Hotspot analysis
@@ -33,18 +33,22 @@ Requirements
 To ensure that ``rocprofv3`` generates the thread trace data correctly, install the following components:
 
 * AQL profile:
-  * Available with ROCm 7.0 or later, or `build from source <https://github.com/rocm/aqlprofile>`_.
-  * `Build from source <https://github.com/rocm/aqlprofile>`_
+
+  * Available with ROCm 7.0 or later, or `build from source <https://github.com/ROCm/rocm-systems/tree/develop/projects/aqlprofile>`_.
+
   * If ``rocprofv3`` throws INVALID_SHADER_DATA error, the AQL profile and Trace Decoder versions are incompatible.
 
 * ROCprofiler-SDK:
-  * Available with ROCm 7.0 or later, or `build from source <https://github.com/rocm/rocprofiler-sdk>`_
+
+  * Available with ROCm 7.0 or later, or `build from source <https://github.com/ROCm/rocm-systems/tree/develop/projects/rocprofiler-sdk>`_.
 
 * ROCprof Trace Decoder:
-  * `Repository <https://github.com/ROCm/rocprof-trace-decoder>`_
-  * `Binary releases <https://github.com/ROCm/rocprof-trace-decoder/releases>`_
 
-For instructions on how to run ``rocprofv3`` to collect thread trace data, see `using rocprofv3 to collect thread trace <https://rocm.docs.amd.com/projects/rocprofiler-sdk/en/amd-mainline/how-to/using-thread-trace.html>`_.
+  * `Repository <https://github.com/ROCm/rocprof-trace-decoder>`_.
+
+  * `Binary releases <https://github.com/ROCm/rocprof-trace-decoder/releases>`_.
+
+For instructions on how to run ``rocprofv3`` to collect thread trace data, see `using rocprofv3 to collect thread trace <https://rocm.docs.amd.com/projects/rocprofiler-sdk/en/latest/how-to/using-thread-trace.html>`_.
 
 Hotspot view
 ==============
@@ -308,3 +312,11 @@ The Explorer view is tightly integrated with the rest of the application:
 - Only leaf nodes (files) display hotspot bars. Folders don't show bars.
 
 This view helps you to quickly locate and focus on the most performance-critical files in your application.
+
+Troubleshooting
+================
+
+**Issue:** RCV doesn't display anything except "Occupancy" and the `stats_*.csv <https://rocm.docs.amd.com/projects/rocprofiler-sdk/en/latest/how-to/using-thread-trace.html#stats-csv>`_ file is empty.
+
+**Solution:** Thread trace receives detailed information from the ``target_cu``. If the application doesn't populate the ``target_cu``, then nothing will be traced.
+For possible solutions, see `thread trace documentation <https://rocm.docs.amd.com/projects/rocprofiler-sdk/en/latest/how-to/using-thread-trace.html#troubleshooting>`_.

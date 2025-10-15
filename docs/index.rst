@@ -20,7 +20,7 @@ The documentation is structured as follows:
 
   .. grid-item-card:: Install
 
-    * :ref:`Build from source <install-viewer>`
+    * :ref:`Building from source <install-viewer>`
 
   .. grid-item-card:: How to
 

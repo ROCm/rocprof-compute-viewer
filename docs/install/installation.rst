@@ -4,16 +4,13 @@
 
 .. _install-viewer:
 
-************************************
-ROCprof Compute Viewer installation
-************************************
+********************************************
+Building ROCprof Compute Viewer from source
+********************************************
 
 This topic explains how to build ROCprof Compute Viewer (RCV) from source on various Operating Systems.
 
 For prebuild binaries, see the `RCV release <https://github.com/ROCm/rocprof-compute-viewer/releases>`_.
-
-Building from source
-=====================
 
 By default, the project builds with Qt 6.8. To build with Qt 5, use:
 
@@ -27,8 +24,8 @@ For Qt 6.4, use:
 
     cmake -DQT_VERSION_MINOR=4 ..
 
-Build on macOS Homebrew
-------------------------
+Building on macOS Homebrew
+---------------------------
 
 1. Install Qt 5 or Qt 6:
 
@@ -50,8 +47,8 @@ Build on macOS Homebrew
 
 .. _linux-build:
 
-Build on Linux
----------------
+Building on Linux
+------------------
 
 1. Install Qt 5 or Qt 6:
 
@@ -80,8 +77,8 @@ Build on Linux
     # cmake .. -DQT_VERSION_MAJOR=6 -DQT_VERSION_MINOR=4
     make -j
 
-Build on Windows Subsystem for Linux (WSL)
--------------------------------------------
+Building on Windows Subsystem for Linux (WSL)
+----------------------------------------------
 
 - Requires Ubuntu 22+
 
@@ -89,8 +86,8 @@ Build on Windows Subsystem for Linux (WSL)
 
 - Recommended to use Qt 5.15
 
-Build on Windows Native
-------------------------
+Building on Windows Native
+---------------------------
 
 To build on Windows, use Qt Tools with Qt 6.8 (or later). See `Installing Qt on Windows <https://wiki.qt.io/Quick_Start:_Installing_Qt_on_Windows>`_ for details.
 
