@@ -651,7 +651,7 @@ void MainWindow::CreateCountersPlot()
     se_enable_list = {};
     std::vector<CounterPlotView::CounterAccum> accumulated{};
     CounterPlotView::CounterList peak_rates{};
-    bool load_perf_counters = !perfcounter_names.empty();
+    bool load_perf_counters = !perfcounter_names.empty() && perfcounter_names.size() <= peak_rates.size();
 
     auto* traceplot = new TraceCounterPlotView(this);
     this->counters_plot = traceplot;
@@ -672,7 +672,7 @@ void MainWindow::CreateCountersPlot()
         {
             std::string filename = GetUIDir() + "se" + std::to_string(se_num) + "_perfcounter.json";
             JsonRequest file(filename, false);
-            if (!file.bValid) return;
+            if (!file.bValid) continue;
 
             if (accumulated.size() <= se_num) accumulated.resize(se_num + 1);
             accumulated.at(se_num) = traceplot->LoadCounterData(file, se_num);
