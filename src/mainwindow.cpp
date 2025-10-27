@@ -512,8 +512,9 @@ void recursive_load(
 {
     for (auto& [key, value] : data.items())
     {
-        std::string newpath = path + '/' + key;
-        if (newpath == "//") newpath = "";
+        std::string newpath = path;
+        if (!path.empty() && path.back() != '/') newpath += '/';
+        newpath += key;
 
         if (value.is_string()) { widgets.push_back({newpath, std::string(value)}); }
         else { recursive_load(newpath, value, widgets); }

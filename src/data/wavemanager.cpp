@@ -93,8 +93,7 @@ void TokenGroup::SetMipN(const std::vector<TokenArray>& previous, size_t M)
         for (auto current : previous)
         {
             auto token = current.finalize(res);
-            if (token.type > 0)
-                token_mip.at(M).emplace_back(token);
+            if (token.type > 0) token_mip.at(M).emplace_back(token);
         }
         token_mip.at(M).Compile();
         return;
@@ -107,7 +106,7 @@ void TokenGroup::SetMipN(const std::vector<TokenArray>& previous, size_t M)
 
     for (auto& prev : previous)
     {
-        if (current_cycle + res/2 <= prev.token.clock)
+        if (current_cycle + res / 2 <= prev.token.clock)
         {
             if (current.token.cycles > 0)
             {
@@ -132,8 +131,7 @@ void TokenGroup::SetMipN(const std::vector<TokenArray>& previous, size_t M)
     }
 
     auto finalized = current.finalize(res);
-    if (finalized.type > 0)
-        token_mip.at(M).emplace_back(finalized);
+    if (finalized.type > 0) token_mip.at(M).emplace_back(finalized);
     next.emplace_back(std::move(current));
 
     token_mip.at(M).Compile();
@@ -204,7 +202,7 @@ void TokenGroup::Draw(class QPainter& painter, int64_t viewstart, int64_t viewen
         if (it->clock + it->cycles <= viewstart && !it->overlapped()) break;
     }
 
-    const float penwidth = 0.5f*std::max(3 - Token::mipmap_level, 1);
+    const float penwidth = 0.5f * std::max(3 - Token::mipmap_level, 1);
 
     while (it != selected_mip.end() && it->clock < viewend)
     {
