@@ -73,8 +73,8 @@ void Token::DrawToken(QPainter& painter, int64_t viewstart, int64_t viewend, flo
     }
 
     const float scaling = MainWindow::getScaling();
-    int height = (TOKEN_HEIGHT() - SLOT_OFFSET() * std::max(0, 2 * slot - 1))/scaling;
-    int posy = (TOKEN_POSY() - SLOT_OFFSET() * std::min<int>(1, slot))/scaling;
+    int height = (TOKEN_HEIGHT() - SLOT_OFFSET() * std::max(0, 2 * slot - 1)) / scaling;
+    int posy = (TOKEN_POSY() - SLOT_OFFSET() * std::min<int>(1, slot)) / scaling;
 
     QBrush brush;
     if (WindowColors::isDark())

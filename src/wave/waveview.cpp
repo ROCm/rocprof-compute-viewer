@@ -534,8 +534,7 @@ void QUtilization::AddTokens(int simd, const TokenMap& tokens)
             if (auto* def = token_defs.at(token.type).at(simd))
             {
                 Token _token = token;
-                if (def == OTHER)
-                    _token.stall = std::max(0, _token.cycles - base);
+                if (def == OTHER) _token.stall = std::max(0, _token.cycles - base);
 
                 def->Add(_token);
             }
