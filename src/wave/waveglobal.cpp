@@ -79,7 +79,7 @@ QGlobalView::QGlobalView(const std::string& filename)
         {
             occupancy_data data = occupancy_data::build(v);
 
-            int traceID = data.slot + 32 * (data.simd + 4 * (data.cu + 16 * stoi(SE)));
+            int traceID = data.slot + 32 * (data.simd + 4 * (data.cu + 256 * stoi(SE)));
             if (traces.find(traceID) == traces.end()) { traces[traceID] = std::vector<WaveTraceData>{}; }
 
             auto& trace = traces.at(traceID);
@@ -109,11 +109,13 @@ QGlobalView::QGlobalView(const std::string& filename)
             traceID /= 32;
             int simd = traceID & 0x3;
             traceID /= 4;
-            int cu = traceID & 0xF;
-            traceID /= 16;
+            int cu = traceID & 0x7F;
+            traceID /= 128;
+            int sa = traceID & 0x1;
+            traceID /= 2;
             int se = traceID;
 
-            views.push_back(new QOutsideWaveView(se, cu, simd, slot, trace, tool));
+            views.push_back(new QOutsideWaveView(se, sa, cu, simd, slot, trace, tool));
             layout->addWidget(views.back());
         }
         layout->addStretch();
@@ -137,9 +139,15 @@ void QGlobalView::paintEvent(QPaintEvent* event)
 }
 
 QOutsideWaveView::QOutsideWaveView(
-    int _se, int _cu, int _simd, int _slot, std::vector<WaveTraceData>& _waves, std::shared_ptr<MeasureTool>& _tool
+    int _se,
+    int _sa,
+    int _cu,
+    int _simd,
+    int _slot,
+    std::vector<WaveTraceData>& _waves,
+    std::shared_ptr<MeasureTool>& _tool
 ) :
-se(_se), cu(_cu), simd(_simd), slot(_slot), waves(_waves), tool(_tool)
+se(_se), sa(_sa), cu(_cu), simd(_simd), slot(_slot), waves(_waves), tool(_tool)
 {
     setMouseTracking(true);
     this->setAttribute(Qt::WA_AlwaysShowToolTips, true);
@@ -248,8 +256,9 @@ void QOutsideWaveView::mouseMoveEvent(QMouseEvent* event)
     if (wave.begin > clock_pos) return;
 
     std::stringstream tooltip;
-    tooltip << "SE:" << se << "  CU:" << cu << "  SIMD:" << simd << "  SLOT:" << slot << "  ID:" << index
-            << "\nBegin: " << wave.begin << "  End: " << wave.end << "  Dur: " << (wave.end - wave.begin) << " cycles";
+    tooltip << "SE:" << se << "  SA:" << sa << "  CU:" << cu << "  SIMD:" << simd << "  SLOT:" << slot
+            << "  ID:" << index << "\nBegin: " << wave.begin << "  End: " << wave.end
+            << "  Dur: " << (wave.end - wave.begin) << " cycles";
     try
     {
         auto& name = QGlobalView::kernel_names.at(wave.kid);

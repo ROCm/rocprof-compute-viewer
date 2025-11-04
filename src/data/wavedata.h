@@ -62,7 +62,7 @@ public:
 struct occupancy_data
 {
     int64_t time{0};
-    int8_t cu{0};
+    uint8_t cu{0};
     int8_t simd{0};
     int8_t slot{0};
     int8_t enable{0};
@@ -74,7 +74,7 @@ struct occupancy_data
     {
         occupancy_data occ;
         occ.time = (int64_t) v[0];
-        occ.cu = (int8_t) v[1];
+        occ.cu = (uint8_t) v[1];
         occ.simd = (int8_t) v[2];
         occ.slot = (int8_t) v[3];
         occ.enable = (int8_t) v[4];

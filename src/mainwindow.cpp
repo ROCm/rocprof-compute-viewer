@@ -386,7 +386,7 @@ void MainWindow::UpdateWaveViewRange()
         QCustomScroll::clock_cutoff_start = vmin;
         QCustomScroll::clock_cutoff_end = std::max(vmax, vmin + 128);
 
-        if (vmin < current_loaded_clk_start || vmax > current_loaded_clk_end) GatherWaves();
+        if (force_gather || vmin < current_loaded_clk_start || vmax > current_loaded_clk_end) GatherWaves();
 
         cuwaves_h_scrollarea->updatebar(true);
         utilization_h_scrollarea->updatebar(true);
@@ -403,6 +403,9 @@ void MainWindow::UpdateWaveViewRange()
 void MainWindow::SetMainWave(int se, int simd, int sl, int wid)
 {
     constexpr int64_t WAVE_END_ROOM = 20000;
+
+    force_gather = current_wave_coord_se != se || WaveInstance::main_wave == nullptr;
+
     current_wave_coord_se = se;
     current_wave_coord_sm = simd;
     current_wave_coord_sl = sl;
@@ -420,6 +423,7 @@ void MainWindow::SetMainWave(int se, int simd, int sl, int wid)
     ui->wview_range_max->setText(std::to_string(main_wave->wave_end + WAVE_END_ROOM).c_str());
 
     UpdateWaveViewRange();
+    force_gather = false;
 
     QWARNING(wave_info_table, "No wave info", return );
     int i = 0;

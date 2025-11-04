@@ -45,7 +45,13 @@ class QOutsideWaveView : public QWidget
 
 public:
     QOutsideWaveView(
-        int se, int cu, int simd, int slot, std::vector<WaveTraceData>& waves, std::shared_ptr<MeasureTool>& tool
+        int se,
+        int sa,
+        int cu,
+        int simd,
+        int slot,
+        std::vector<WaveTraceData>& waves,
+        std::shared_ptr<MeasureTool>& tool
     );
     virtual ~QOutsideWaveView()
     {
@@ -67,6 +73,7 @@ public:
 protected:
     float height_multiplier;
     const int se;
+    const int sa;
     const int cu;
     const int simd;
     const int slot;

@@ -179,6 +179,7 @@ private:
     int current_wave_coord_se = 0;
     int current_wave_coord_sm = 0;
     int current_wave_coord_sl = 0;
+    bool force_gather = false;
 
     int64_t current_loaded_clk_start = 0;
     int64_t current_loaded_clk_end = 0;
