@@ -286,18 +286,7 @@ const std::vector<StyleColor>& TokenColors()
         {
             nlohmann::json def_token;
 
-            try
-            {
-                std::ifstream ifs("token_def.json");
-                if (!ifs.is_open()) throw std::exception();
-
-                nlohmann::json new_token;
-                ifs >> new_token;
-
-                for (auto& token : new_token["tokens"])
-                    addpair(def_token, std::string(token[0]).c_str(), std::string(token[1]).c_str());
-            }
-            catch (const std::exception& e)
+            auto add_original = [&]()
             {
                 addpair(def_token, "NONE", "#707070");
                 addpair(def_token, "SMEM", "#e0f000");
@@ -313,7 +302,34 @@ const std::vector<StyleColor>& TokenColors()
                 addpair(def_token, "MSG", "#080000");
                 addpair(def_token, "BVH", "#f00804");
                 addpair(def_token, "MATRIX", "#006000");
+            };
+
+            bool keep_original = true;
+
+            try
+            {
+                std::ifstream ifs("token_def.json");
+                if (ifs.is_open())
+                {
+                    nlohmann::json new_token;
+                    ifs >> new_token;
+
+                    try {
+                        keep_original = bool(new_token["keep_original"]);
+                    } catch(std::exception&) {}
+
+                    if (keep_original) add_original();
+                    keep_original = false;
+
+                    for (auto& token : new_token["tokens"])
+                        addpair(def_token, std::string(token[0]).c_str(), std::string(token[1]).c_str());
+                }
             }
+            catch (const std::exception& e) {
+                std::cout << e.what() << std::endl;
+            }
+
+            if (keep_original) add_original();
             return def_token;
         }()
     );
@@ -328,6 +344,11 @@ const std::vector<std::pair<std::string, int>> CustomTokens()
         std::vector<std::pair<std::string, int>> ret;
         nlohmann::json key;
 
+        key["v_mfma"] = "MATRIX";
+        key["v_smfma"] = "MATRIX";
+        key["v_wmma"] = "MATRIX";
+        key["v_swmma"] = "MATRIX";
+
         try
         {
             std::ifstream ifs("token_def.json");
@@ -336,15 +357,9 @@ const std::vector<std::pair<std::string, int>> CustomTokens()
             nlohmann::json new_asm;
             ifs >> new_asm;
 
-            for (auto& token : new_asm["asmkeys"]) key[token[0]] = token[1];
+            for (auto& [isa, value] : new_asm["asmkeys"].items()) key[isa] = value;
         }
-        catch (const std::exception& e)
-        {
-            key["v_mfma"] = "MATRIX";
-            key["v_smfma"] = "MATRIX";
-            key["v_wmma"] = "MATRIX";
-            key["v_swmma"] = "MATRIX";
-        }
+        catch (const std::exception& e) {}
 
         for (auto& [match, inst] : key.items())
         {

@@ -1,0 +1,8 @@
+{
+    "tokens": [
+        ["CUSTOM", "#ff0000"]
+    ],
+    "asmkeys": {
+        "ds_write_b128": "CUSTOM"
+    }
+}
