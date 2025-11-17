@@ -42,7 +42,7 @@ std::unordered_map<std::string, std::shared_ptr<SourceLine>> SourceLine::all_lin
 int64_t SourceFile::global_max_sqtt_latency = 1;
 int64_t SourceFile::global_max_pcs_latency = 1;
 
-HorizontalHotspot::DrawFormat SourceLine::drawformat = HorizontalHotspot::DrawFormat::DRAWSTALL;
+HorizontalHotspot::DrawFormat SourceLine::drawformat = HorizontalHotspot::DrawFormat::DRAWTYPE;
 
 void SourceLine::scrollTo()
 {
