@@ -28,11 +28,10 @@
 #include "util/version.h"
 #include "wave/scroll.h"
 #include "wavedata.h"
+#include "util/jsonrequest.hpp"
 
 std::shared_mutex wave_mutex;
-std::mutex code_mutex;
 std::unordered_map<std::string, std::shared_ptr<WaveInstance>> reader_cache;
-std::pair<std::string, std::vector<CodeData>> code_cache;
 
 std::shared_ptr<WaveInstance> WaveInstance::main_wave{nullptr};
 
@@ -52,11 +51,9 @@ std::shared_ptr<WaveInstance> WaveInstance::Get(const std::string& path)
 
 void WaveInstance::InvalidadeCache()
 {
+    CodeData::InvalidadeCache();
     std::unique_lock<std::shared_mutex> lk1(wave_mutex);
-    std::unique_lock<std::mutex> lk2(code_mutex);
     reader_cache.clear();
-    code_cache.first = "";
-    code_cache.second.clear();
 }
 
 static int gettype(const std::array<int, 16>& partial_cycles)
@@ -229,69 +226,8 @@ WaveInstance::WaveInstance(const std::string& _path) : path(_path)
     catch (...)
     {}
 
-    bool bIsV2 = Version::Get().tool_major == 0;
     bool isIdleInfo = true;
-
-    {
-        std::string code_path = path.substr(0, path.rfind("se")) + "code.json";
-        std::unique_lock<std::mutex> lk(code_mutex);
-        if (code_cache.first != code_path)
-        {
-            JsonRequest coderequest(code_path);
-            try
-            {
-                if (coderequest.fail() || coderequest.bad()) throw std::exception{};
-                auto& code_cache_json = coderequest.data["code"];
-                code_cache.first = code_path;
-                code_cache.second.clear();
-
-                int i = 0;
-                for (auto& c : code_cache_json)
-                {
-                    std::string cppline;
-                    try
-                    {
-                        cppline = c[3].is_null() ? "" : std::string(c[3]);
-                    }
-                    catch (...)
-                    {}
-
-                    int64_t idle = 0;
-                    int64_t stall = 0;
-                    if (isIdleInfo) try
-                        {
-                            idle = int64_t(c[9]);
-                            stall = int64_t(c[8]);
-                        }
-                        catch (...)
-                        {
-                            isIdleInfo = false;
-                        }
-                    code_cache.second.push_back(
-                        {bIsV2 ? i : int(c[2]),
-                         int(c[6]),
-                         int64_t(c[5]),
-                         int64_t(c[4]),
-                         int64_t(c[7]),
-                         idle,
-                         stall,
-                         std::string(c[0]),
-                         cppline}
-                    );
-
-                    for (auto& [custom_token, custom_type] : Config::CustomTokens())
-                        if (code_cache.second.back().line->inst.find(custom_token) == 0)
-                            code_cache.second.back().line->custom_type = custom_type;
-                    i += 1;
-                }
-            }
-            catch (std::exception& e)
-            {
-                QWARNING(false, "Could not parse " << code_path, (void) 0);
-            }
-        }
-        code = code_cache.second;
-    }
+    code = CodeData::LoadCode(path.substr(0, path.rfind("se")) + "code.json");
 
     std::array<int64_t, 4> prev_clock{};
     std::array<int64_t, 4> last_clock{};
@@ -386,7 +322,7 @@ WaveInstance::WaveInstance(const std::string& _path) : path(_path)
 
     for (auto& array : data["wave"]["waitcnt"])
     {
-        WaitList list = {array[0], {}};
+        Canvas::WaitList list = {array[0], {}};
         for (auto& pair : array[1]) list.sources.push_back({int(pair[0]), int(pair[1])});
         waitcnt.push_back(std::move(list));
     }
@@ -439,3 +375,55 @@ int64_t WaveInstance::GetMainClock(int code_line, int iteration)
 }
 
 WaveInstance::~WaveInstance() {}
+
+std::vector<Canvas::WaitList> WaveInstance::get_branch_targets() const
+{
+    int JUMP = -1;
+
+    for (size_t i=0; i<Config::TokenColors().size(); i++)
+        if (Config::TokenColors().at(i).name == "JUMP")
+            JUMP = i;
+
+    QWARNING(JUMP > 0, "Could not find jump!", return {});
+
+    std::vector<int> code_line_map{};
+    for (size_t i = 0; i < code.size(); i++)
+    {
+        int index = code.at(i).line->index;
+
+        if (code_line_map.size() <= index) code_line_map.resize(index + 1);
+        code_line_map.at(index) = i;
+    }
+
+    std::unordered_map<int, std::unordered_set<int>> list;
+    for (size_t i=0; i+1<tokens.size(); i++)
+    {
+        auto& token = tokens.at(i);
+
+        if (token.type == JUMP)
+        {
+            list[token.code_line].insert(tokens.at(i+1).code_line);
+            continue;
+        }
+
+        if (token.code_line <= 0 || token.code_line >= code_line_map.size()) continue;
+
+        int mapped = code_line_map.at(token.code_line);
+        if (mapped == 0 || mapped >= code.size()) continue;
+        auto& inst = code.at(mapped).line->inst;
+
+        if ((inst.find("s_set") == 0 || inst.find("s_swap") == 0) && inst.find("pc") != std::string::npos)
+            list[token.code_line].insert(tokens.at(i+1).code_line);
+    }
+
+    std::vector<Canvas::WaitList> ret{};
+
+    for (auto& [line, entry] : list)
+    {
+        auto& branch = ret.emplace_back(Canvas::WaitList{});
+        branch.code_line = line;
+        for (auto& target : entry) branch.sources.push_back({target, 0});
+    }
+
+    return ret;
+}

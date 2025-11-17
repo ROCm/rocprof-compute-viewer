@@ -35,14 +35,14 @@
 
 #define ARROW_SPACING 5
 
-std::vector<ArrowCanvas::arrow_t> ArrowCanvas::arrows;
+Canvas::DrawType Canvas::drawtype = Canvas::DrawType::DrawArrows;
 
 struct PairHash
 {
     size_t operator()(const std::pair<int, int>& x) const { return (size_t(x.first) << 32) | size_t(x.second); }
 };
 
-std::vector<QColor> ArrowCanvas::arrow_colors = {
+std::vector<QColor> Canvas::arrow_colors = {
     {  0, 200,   0},
     {  0,   0, 255},
     {255,   0,   0},
@@ -60,9 +60,7 @@ std::vector<QColor> ArrowCanvas::arrow_colors = {
     { 16, 220, 255},
 };
 
-QSize ArrowCanvas::sizeHint() const { return QSize(std::max(1, ARROW_SPACING * (2 + max_slot_alloc)), 1); };
-
-void ArrowCanvas::paintEvent(QPaintEvent* event)
+void Canvas::paintArrows()
 {
     QPainter painter(this);
     MainWindow::getScaling(painter);
@@ -83,8 +81,10 @@ void ArrowCanvas::paintEvent(QPaintEvent* event)
     }
 }
 
-bool ArrowCanvas::checkConnectionsCache(const std::vector<WaitList>& waitcnt)
+bool Canvas::checkConnectionsCache(const std::vector<WaitList>& waitcnt)
 {
+    auto _lk = std::unique_lock{mut};
+
     std::unordered_map<std::pair<int, int>, bool, PairHash> arrow_cache_check;
     for (auto& arrow : arrows) arrow_cache_check[{arrow.wait_number, arrow.mem_line}] = false;
 
@@ -107,12 +107,9 @@ bool ArrowCanvas::checkConnectionsCache(const std::vector<WaitList>& waitcnt)
     return true;
 }
 
-void ArrowCanvas::buildConnections(const std::vector<WaitList>& waitcnt)
+std::pair<int, std::vector<Canvas::arrow_t>> buildConnections(const std::vector<Canvas::WaitList>& waitcnt)
 {
-    // First check if we already have the answer
-    if (checkConnectionsCache(waitcnt)) return;
-
-    arrows.clear();
+    auto output = std::vector<Canvas::arrow_t>();
     // list of connections jumping over a waitcnt
     std::unordered_set<std::pair<int, int>, PairHash> crossed_connections;
     // list of all connections per waitcnt, key = waitcnt linenumber
@@ -122,7 +119,7 @@ void ArrowCanvas::buildConnections(const std::vector<WaitList>& waitcnt)
     std::map<int, std::unordered_set<int>> slots_map;
 
     // Make list of all connections
-    for (const WaitList& w : waitcnt)
+    for (const auto& w : waitcnt)
     {
         if (connections_map.find(w.code_line) == connections_map.end())
         {
@@ -139,7 +136,7 @@ void ArrowCanvas::buildConnections(const std::vector<WaitList>& waitcnt)
         }
     }
 
-    max_slot_alloc = 0;
+    int max_slot_alloc = 0;
 
     // Draw connections on which there is no waitcnt in between src (memory op) and dst (waitcnt)
     int prev_wait = -1;
@@ -158,7 +155,7 @@ void ArrowCanvas::buildConnections(const std::vector<WaitList>& waitcnt)
             if (mem_line <= prev_wait) { crossed_connections.insert({wait_number, mem_line}); }
             else
             {
-                arrows.push_back({wait_number, mem_line, prev_slot_n, true});
+                output.push_back({wait_number, mem_line, prev_slot_n, true});
                 prev_slot_n++;
                 max_slot_alloc = std::max(max_slot_alloc, prev_slot_n);
                 for (int ml = 1; ml <= prev_slot_n; ml++) slots_map[mem_line].insert(ml);
@@ -170,7 +167,7 @@ void ArrowCanvas::buildConnections(const std::vector<WaitList>& waitcnt)
             if (*mem_iter >= next_wait) { crossed_connections.insert({wait_number, *mem_iter}); }
             else
             {
-                arrows.push_back({wait_number, *mem_iter, next_slot_n, true});
+                output.push_back({wait_number, *mem_iter, next_slot_n, true});
                 next_slot_n++;
                 for (int ml = 1; ml <= next_slot_n; ml++) slots_map[*mem_iter].insert(ml);
             }
@@ -214,7 +211,7 @@ void ArrowCanvas::buildConnections(const std::vector<WaitList>& waitcnt)
         while (used_slots.find(slot) != used_slots.end()) slot++;
 
         max_slot_alloc = std::max(slot, max_slot_alloc);
-        arrows.push_back({conn.first, conn.second, slot, false});
+        output.push_back({conn.first, conn.second, slot, false});
 
         if (conn.first < conn.second)
         {
@@ -230,11 +227,60 @@ void ArrowCanvas::buildConnections(const std::vector<WaitList>& waitcnt)
         }
     }
 
+    return {max_slot_alloc, std::move(output)};
+};
+
+QSize Canvas::sizeHint() const
+{
+    int _size = HorizontalHotspot::HISTOGRAM_WIDTH + 1;
+    if (drawtype == DrawType::DrawArrows)
+        _size = std::max(_size, ARROW_SPACING * (2 + max_wait_alloc));
+    else if (drawtype == DrawType::DrawBranch)
+        _size = std::max(_size, ARROW_SPACING * (2 + max_branch_alloc));
+
+    return QSize(_size, 1);
+};
+
+void Canvas::paintEvent(QPaintEvent* event)
+{
+    if (drawtype == DrawType::DrawArrows)
+        paintArrows();
+    else if (drawtype == DrawType::DrawStall)
+        paintStalls();
+    else
+        paintBranch();
+
+    QWidget::paintEvent(event);
+}
+
+void Canvas::buildWaitConnections(const std::vector<WaitList>& waitcnt)
+{
+    // First check if we already have the answer
+    if (checkConnectionsCache(waitcnt)) return;
+
+    auto result = buildConnections(waitcnt);
+
+    auto _lk = std::unique_lock{mut};
+    max_wait_alloc = result.first;
+    arrows = std::move(result.second);
+
     updateGeometry();
     update();
 };
 
-bool ArrowCanvas::Connect(QPainter& painter, int l1, int l2, int xslot, QColor& color)
+void Canvas::buildBranchConnections(const std::vector<WaitList>& waitcnt)
+{
+    auto result = buildConnections(waitcnt);
+
+    auto _lk = std::unique_lock{mut};
+    max_branch_alloc = result.first;
+    branches = std::move(result.second);
+
+    updateGeometry();
+    update();
+};
+
+bool Canvas::Connect(QPainter& painter, int l1, int l2, int xslot, QColor& color)
 {
     const double width = this->width() - 8;
     const double lineheight = QCodelist::lineheight();
@@ -305,3 +351,61 @@ bool ArrowCanvas::Connect(QPainter& painter, int l1, int l2, int xslot, QColor& 
 
     return false;
 };
+
+void Canvas::paintStalls()
+{
+    QWARNING(MainWindow::window && MainWindow::window->code_contents, "no contents", return);
+    auto* contents = MainWindow::window->code_contents;
+
+    const int padding = 2;
+
+    QPainter painter(this);
+    MainWindow::getScaling(painter);
+    QPen pen;
+    pen.setColor(WindowColors::HotspotOutline());
+    painter.setPen(Qt::NoPen);  // Set to NoPen initially since HorizontalHotspot will manage pen state
+    painter.setBrush(Qt::NoBrush);
+
+    const int lineheight = QCodelist::lineheight();
+
+    // Binary search for first visible line (ypos >= 0)
+    int target_index = std::max(0, (scrollposy - padding) / lineheight);
+    auto start_it = std::lower_bound(
+        ASMCodeline::line_vec.begin(),
+        ASMCodeline::line_vec.end(),
+        target_index,
+        [](const auto& line, int idx) { return line && line->line_index < idx; }
+    );
+
+    for (auto it = start_it; it != ASMCodeline::line_vec.end(); ++it)
+    {
+        auto line = *it;
+        if (!line) continue;
+
+        auto ypos = lineheight * line->line_index + padding - scrollposy;
+        if (ypos > this->height()) break;
+
+        line->hotspot.paint(painter, 0, ypos, lineheight - 2*padding, contents->max_sqtt_latency, contents->max_pcs_latency, HorizontalHotspot::DrawFormat::DRAWSTALL, false);
+    }
+}
+
+void Canvas::paintBranch()
+{
+    QPainter painter(this);
+    MainWindow::getScaling(painter);
+    painter.setRenderHint(QPainter::Antialiasing);
+    painter.setPen(Qt::NoPen);
+
+    int colorstate = 0;
+    std::unordered_map<int, int> waitcnt_colors_map;
+
+    // Every waitcnt is one color
+    for (auto& arrow : branches)
+    {
+        auto it = waitcnt_colors_map.find(arrow.wait_number);
+        if (it == waitcnt_colors_map.end()) it = waitcnt_colors_map.insert({arrow.wait_number, colorstate++}).first;
+
+        QColor& color = arrow_colors.at(it->second % arrow_colors.size()); // pick color & increment
+        Connect(painter, arrow.wait_number, arrow.mem_line, arrow.prev_slot_n, color);
+    }
+}

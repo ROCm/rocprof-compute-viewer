@@ -39,8 +39,6 @@
 
 using namespace std;
 
-static float sq(float x) { return x * x; }
-
 std::map<int, std::shared_ptr<ASMCodeline>> ASMCodeline::line_map{};
 std::vector<std::shared_ptr<ASMCodeline>> ASMCodeline::line_vec{};
 
@@ -57,7 +55,7 @@ line_index(line_vec.size()), line_number(_line_number)
     auto& idle = codedata.exec ? codedata.exec->idle : empty;
 
     elements.at(Element::EASM) = std::make_unique<ASMLine>(_line_number, line);
-    elements.at(Element::EHIT) = std::make_unique<HitcountLabel>(line.hitcount);
+    elements.at(Element::EHIT) = std::make_unique<CyclesLabel>(std::vector<int>{(int)latency.size()}, line.hitcount, 1);
     if (line.idle_sum) elements.at(Element::EIDLE) = std::make_unique<CyclesLabel>(idle, line.idle_sum, line.hitcount);
     elements.at(Element::ELATENCY) = std::make_unique<CyclesLabel>(latency, line.latency_sum, line.hitcount);
 
@@ -66,6 +64,11 @@ line_index(line_vec.size()), line_number(_line_number)
         cppline = "[...]" + cppline.substr(cppline.size() - SHORT_CPPLINE_MAXCHARS);
 
     elements.at(Element::ESOURCEREF) = std::make_unique<TextLineElement>(cppline);
+
+    hotspot.add_latency(line.type, {line.latency_sum, line.stall_sum}, {line.pcsamples, line.pcstalls});
+
+    for (size_t i=0; i<line.stallreasons.size(); i++)
+        hotspot.stall_reason.at(i) = line.stallreasons.at(i);
 }
 
 ASMCodeline::~ASMCodeline() {}
@@ -203,13 +206,14 @@ TextLineElement(line.inst), line_number(_line_number), codeobj(line.codeobj_id),
             auto substr = line.cppline.substr(start, end - start);
             start = end;
             if (start != std::string::npos) start += separator.size();
+            if (substr.empty()) continue;
 
             try
             {
                 auto shared = SourceLine::all_lines.at(substr);
                 if (!shared) continue;
                 line_ref.push_back(shared);
-                shared->add_latency(line.type, line.latency_sum);
+                shared->add_latency(line.type, {line.latency_sum, line.stall_sum}, {line.pcsamples, line.pcstalls});
             }
             catch (std::exception&)
             {}

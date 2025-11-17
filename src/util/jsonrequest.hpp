@@ -21,52 +21,40 @@
 // SOFTWARE.
 
 #pragma once
-#include <QColor>
-#include <filesystem>
-#include <map>
+
+#include <QObject>
+#include <iostream>
+#include <sstream>
 #include <string>
-#include "util/highlight.h"
+#include <vector>
+#include "json/include/nlohmann/json.hpp"
+#include "memtracker.h"
 
-namespace WindowColors
+//! Class containing a string to be parsed by WaveReader. Can be requested by disk or network.
+class StreamRequest : public QObject,
+                      public std::stringstream
 {
-const QColor& Background();
-const QColor& TraceBackground();
-const QColor& LineSlowHighlight();
-const QColor& LineRefHighlight(bool bClick);
-const QColor& GraphBkg();
-const QColor& HotspotBkg();
-const QColor& HotspotOutline();
-const QColor& MeasureTool();
-const QColor& LatencyTextColor();
-const QColor& UtilizationBarColor();
-const QColor& UtilizationBarColorBg();
+    Q_OBJECT
+    set_tracked();
 
-const Color& StripeBackground();
+public:
+    StreamRequest(const std::string& path);
 
-QColor textColor();
-QColor reverseTextColor();
-void setDark(bool bDark);
-bool isDark();
-}; // namespace WindowColors
-
-struct StyleColor
-{
-    StyleColor(const std::string& _name, const std::string& _style) :
-    name(_name), style(_style), qcolor(ToColor(_style)){};
-    std::string name;
-    std::string style;
-    QColor qcolor;
-
-    static QColor ToColor(const std::string& style);
+protected:
+    class QNetworkAccessManager* manager = nullptr;
+    void ReadFromFile(const std::string& path);
+    void ReadFromNetwork(const std::string& path);
+    void replyFinished(class QNetworkReply* reply);
 };
 
-namespace Config
+//! Requests a json file by disk or network, depending on path
+class JsonRequest : public StreamRequest
 {
-const std::vector<StyleColor>& StateColors();
-const std::vector<StyleColor>& TokenColors();
-const std::vector<std::pair<std::string, int>> CustomTokens();
-const QColor& PlotColors(int index);
+    Q_OBJECT
+    set_tracked();
 
-const QColor& StallColor();
-const QColor& IssueColor();
-}; // namespace Config
+public:
+    JsonRequest(const std::string& path, bool bWarn = true);
+    bool bValid = false;
+    nlohmann::json data;
+};

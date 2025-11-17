@@ -22,43 +22,6 @@
 
 #pragma once
 
-#include <QObject>
-#include <iostream>
-#include <sstream>
-#include <string>
-#include <vector>
-#include "json/include/nlohmann/json.hpp"
-#include "wavemanager.h"
-
-//! Class containing a string to be parsed by WaveReader. Can be requested by disk or network.
-class StreamRequest : public QObject,
-                      public std::stringstream
-{
-    Q_OBJECT
-    set_tracked();
-
-public:
-    StreamRequest(const std::string& path);
-
-protected:
-    class QNetworkAccessManager* manager = nullptr;
-    void ReadFromFile(const std::string& path);
-    void ReadFromNetwork(const std::string& path);
-    void replyFinished(class QNetworkReply* reply);
-};
-
-//! Requests a json file by disk or network, depending on path
-class JsonRequest : public StreamRequest
-{
-    Q_OBJECT
-    set_tracked();
-
-public:
-    JsonRequest(const std::string& path, bool bWarn = true);
-    bool bValid = false;
-    nlohmann::json data;
-};
-
 struct occupancy_data
 {
     int64_t time{0};

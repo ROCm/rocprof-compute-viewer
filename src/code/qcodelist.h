@@ -26,6 +26,7 @@
 #include <QWidget>
 #include "asmcode.h"
 #include "util/highlight.h"
+#include "graphics/canvas.h"
 
 class QElementList : public QTextElement
 {
@@ -83,7 +84,7 @@ public:
     virtual void paintEvent(QPaintEvent* event) override;
     virtual void wheelEvent(QWheelEvent* event) override;
     virtual void resizeEvent(QResizeEvent* event) override;
-    void Populate(WaveInstance& wave);
+    void Populate(const std::vector<CodeData>& code);
 
     void onScroll(int value);
     void scheduleRedraw();
@@ -93,15 +94,16 @@ public:
     std::array<QElementList*, Element::ENUMTYPES> elements{};
 
     class QScrollBar* scrollbar = nullptr;
-
     class QGridLayout* layout_main = nullptr;
-    class ArrowCanvas* connector = nullptr;
-    std::vector<struct WaitList> waitcnt{};
+    class Canvas* connector = nullptr;
+    std::vector<Canvas::WaitList> waitcnt{};
 
     static int lineheight();
     static int line_height;
     static QCodelist* singleton;
 
+    int64_t max_sqtt_latency = 1;
+    int64_t max_pcs_latency = 1;
 private:
     int scrollposy = 0;
 };

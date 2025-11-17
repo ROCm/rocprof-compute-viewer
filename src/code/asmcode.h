@@ -29,6 +29,7 @@
 #include <vector>
 #include "data/wavemanager.h"
 #include "textelement.h"
+#include "hotspot.hpp"
 #include "util/custom_layouts.h"
 
 /**
@@ -67,6 +68,8 @@ public:
         line_vec.clear();
     };
 
+    HorizontalHotspot hotspot{};
+
     static std::map<int, std::shared_ptr<ASMCodeline>> line_map;
     static std::vector<std::shared_ptr<ASMCodeline>> line_vec;
 };
@@ -92,12 +95,23 @@ public:
 };
 
 //! A text widget containing the number of hits a instruction received
-class HitcountLabel : public TextLineElement
+class NumberLabel : public TextLineElement
 {
     using Super = TextLineElement;
 
 public:
-    HitcountLabel(size_t num) : Super(num ? std::to_string(num) : "") {}
+    NumberLabel(int64_t num) : Super(num ? std::to_string(num) : ""), number(num) {}
+
+    const size_t number;
+};
+
+//! A text widget containing the number of hits a instruction received
+class HitcountLabel : public NumberLabel
+{
+    using Super = NumberLabel;
+
+public:
+    HitcountLabel(int64_t num) : Super(num) {}
 };
 
 //! A text widget containing the cycles used for a particular instruction.
@@ -137,5 +151,5 @@ public:
 private:
     std::vector<int> cycles;
     int64_t all_cycles_sum;
-    int all_hitcount;
+    int64_t all_hitcount;
 };

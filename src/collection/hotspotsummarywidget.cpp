@@ -6,6 +6,8 @@
 #include "config/config.hpp"
 #include "mainwindow.h"
 
+constexpr size_t MAX_HOTSPOT_LINES = 10;
+
 HotspotSummaryWidget::HotspotSummaryWidget(QWidget* parent) : QWidget(parent)
 {
     setMinimumWidth(400);
@@ -30,7 +32,7 @@ void HotspotSummaryWidget::setFile(const std::string& filePath, const std::strin
     hotspotLines.clear();
 
     // Collection for hotspot data
-    std::vector<std::pair<int, int64_t>> lineLatencies;
+    std::vector<std::pair<int, HorizontalHotspot>> lineLatencies;
     std::map<int, std::shared_ptr<SourceLine>> foundLines;
 
     for (const auto& [key, linePtr] : SourceLine::all_lines)
@@ -41,9 +43,9 @@ void HotspotSummaryWidget::setFile(const std::string& filePath, const std::strin
         if (colonPos != std::string::npos) { keyPath = keyPath.substr(0, colonPos); }
 
         // Compare exact paths
-        if (keyPath == filePath && linePtr && linePtr->hotspot.total_latency > 0)
+        if (keyPath == filePath && linePtr && linePtr->hotspot.combined() > 0)
         {
-            lineLatencies.push_back({linePtr->line_number, linePtr->hotspot.total_latency});
+            lineLatencies.push_back({linePtr->line_number, linePtr->hotspot});
             foundLines[linePtr->line_number] = linePtr;
         }
     }
@@ -53,25 +55,21 @@ void HotspotSummaryWidget::setFile(const std::string& filePath, const std::strin
 
     // Sort and take top hotspots
     std::sort(
-        lineLatencies.begin(), lineLatencies.end(), [](const auto& a, const auto& b) { return a.second > b.second; }
+        lineLatencies.begin(), lineLatencies.end(), [](const auto& a, const auto& b) { return a.second.combined() > b.second.combined(); }
     );
 
-    const size_t MAX_HOTSPOT_LINES = 5;
-    maxLatency = lineLatencies.empty() ? 1 : lineLatencies[0].second;
+    maxLatency = lineLatencies.empty() ? 1 : lineLatencies[0].second.combined();
 
     // Create hotspot lines
     size_t numLines = std::min(lineLatencies.size(), MAX_HOTSPOT_LINES);
     for (size_t i = 0; i < numLines; i++)
     {
         int lineNumber = lineLatencies[i].first;
-        int64_t latency = lineLatencies[i].second;
+        HorizontalHotspot latency = lineLatencies[i].second;
 
-        HotspotLine hotspotLine;
+        HotspotLine hotspotLine{};
         hotspotLine.lineNumber = lineNumber;
-        hotspotLine.latency = latency;
-
-        // Initialize latency by type array
-        std::fill(hotspotLine.latencyByType.begin(), hotspotLine.latencyByType.end(), 0);
+        hotspotLine.content = "[Line content not available]";
 
         // Use the already found SourceLine if available
         auto lineIt = foundLines.find(lineNumber);
@@ -79,18 +77,10 @@ void HotspotSummaryWidget::setFile(const std::string& filePath, const std::strin
         {
             auto& linePtr = lineIt->second;
             hotspotLine.content = linePtr->getText();
-
-            // Copy latency by type
-            for (int typeIdx = 0;
-                 typeIdx < linePtr->hotspot.latency.size() && typeIdx < hotspotLine.latencyByType.size();
-                 typeIdx++)
-            {
-                hotspotLine.latencyByType[typeIdx] = linePtr->hotspot.latency[typeIdx];
-            }
+            latency = linePtr->hotspot;
         }
-        else { hotspotLine.content = "[Line content not available]"; }
 
-        hotspotLines.push_back(hotspotLine);
+        hotspotLines.push_back({hotspotLine, latency});
     }
 
     update();
@@ -159,32 +149,28 @@ void HotspotSummaryWidget::paintEvent(QPaintEvent* event)
     yPos += padding + lineHeight / 2;
 
     // Draw hotspot lines
-    for (const auto& line : hotspotLines)
+    for (const auto& [line, latency] : hotspotLines)
     {
-        // Draw hotspot bar first
-        HorizontalHotspot hotspot;
-        hotspot.total_latency = line.latency;
-
-        // Copy latency data by type
-        for (int c = 0; c < line.latencyByType.size() && c < hotspot.latency.size(); c++)
-        {
-            hotspot.latency[c] = line.latencyByType[c];
-        }
-
+        // TODO: PC sampling
         float value_to_pixel_ratio = hotspotBarWidth / static_cast<float>(maxLatency);
-        hotspot.paint(
+        latency.paint(
             painter,
             hotspotColumnX,
             yPos - lineHeight + contentFm.descent() + 1,
             lineHeight - contentFm.descent(),
-            value_to_pixel_ratio
+            value_to_pixel_ratio,
+            value_to_pixel_ratio,
+            HorizontalHotspot::DrawFormat::DRAWSTALL,
+            false
         );
 
         // Draw cycles count
         QString latencyText;
-        if (line.latency > 1000000) { latencyText = QString("%1M").arg(line.latency / 1000000.0, 0, 'f', 1); }
-        else if (line.latency > 1000) { latencyText = QString("%1K").arg(line.latency / 1000.0, 0, 'f', 1); }
-        else { latencyText = QString::number(line.latency); }
+        // TODO: not true
+        int64_t lat = latency.combined();
+        if (lat > 1000000) { latencyText = QString("%1M").arg(lat / 1000000.0, 0, 'f', 1); }
+        else if (lat > 1000) { latencyText = QString("%1K").arg(lat / 1000.0, 0, 'f', 1); }
+        else { latencyText = QString::number(lat); }
 
         painter.setFont(latencyFont);
         painter.setPen(QPen(WindowColors::LatencyTextColor(), 1));

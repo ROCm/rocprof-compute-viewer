@@ -29,82 +29,7 @@
 #include "graphics/canvas.h"
 #include "util/custom_layouts.h"
 #include "wave/token.h"
-
-struct CodeData
-{
-    CodeData(
-        int index,
-        int hitcount,
-        int64_t addr,
-        int64_t codeobj_id,
-        int64_t latency_sum,
-        int64_t idle_sum,
-        int64_t stall_sum,
-        const std::string& line,
-        const std::string& cppline
-    ) :
-    exec(nullptr)
-    {
-        this->line =
-            std::make_shared<Line>(index, hitcount, addr, codeobj_id, latency_sum, idle_sum, stall_sum, line, cppline);
-    };
-    CodeData(const CodeData& other) { *this = other; }
-    CodeData& operator=(const CodeData& other)
-    {
-        exec = nullptr;
-        line = other.line;
-        return *this;
-    }
-
-    struct Exec
-    {
-        Exec(int _wave_id) : wave_id(_wave_id){};
-        int wave_id = -1;
-        std::vector<int64_t> clock{};
-        std::vector<int> latency{};
-        std::vector<int> idle{};
-    };
-    struct Line
-    {
-        Line(
-            int _index,
-            int _hitcount,
-            int64_t _addr,
-            int64_t _codeobj_id,
-            int64_t _latency_sum,
-            int64_t _idle_sum,
-            int64_t _stall_sum,
-            const std::string& _inst,
-            const std::string& _cpp
-        ) :
-        index(_index),
-        hitcount(_hitcount),
-        custom_type(0),
-        addr(_addr),
-        codeobj_id(_codeobj_id),
-        latency_sum(_latency_sum),
-        idle_sum(_idle_sum),
-        stall_sum(_stall_sum),
-        inst(_inst),
-        cppline(_cpp)
-        {}
-
-        std::atomic<int> index{-1};
-        std::atomic<int> type{0};
-        const int hitcount = 0;
-        std::atomic<int> custom_type{0};
-        const int64_t addr = 0;
-        const int64_t codeobj_id = 0;
-        const int64_t latency_sum = 0;
-        const int64_t idle_sum = 0;
-        const int64_t stall_sum = 0;
-        const std::string inst;
-        const std::string cppline;
-    };
-
-    std::unique_ptr<Exec> exec{nullptr};
-    std::shared_ptr<Line> line{nullptr};
-};
+#include "code/codeload.hpp"
 
 struct WaveInfo
 {
@@ -145,7 +70,7 @@ struct WaveInstance : public TokenGroup
     virtual ~WaveInstance();
 
     std::vector<CodeData> code;
-    std::vector<WaitList> waitcnt;
+    std::vector<Canvas::WaitList> waitcnt;
     std::vector<WaveInfo> wave_info;
     std::string path;
 
@@ -153,6 +78,8 @@ struct WaveInstance : public TokenGroup
 
     int64_t WaveBegin() const { return wave_begin; }
     int64_t WaveEnd() const { return wave_end; }
+
+    std::vector<Canvas::WaitList> get_branch_targets() const;
 
     static int64_t GetMainClock(int code_line, int iteration);
 

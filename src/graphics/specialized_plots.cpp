@@ -27,6 +27,7 @@
 #include "data/wavedata.h"
 #include "mainwindow.h"
 #include "util/version.h"
+#include "util/jsonrequest.hpp"
 
 using namespace std;
 

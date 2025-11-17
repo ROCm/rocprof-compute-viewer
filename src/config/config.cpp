@@ -184,7 +184,7 @@ const QColor& HotspotBkg()
 }
 const QColor& HotspotOutline()
 {
-    static QColor dark(255, 255, 255);
+    static QColor dark(120, 120, 120);
     static QColor light(0, 0, 0);
     return bDarkTheme ? dark : light;
 }
@@ -212,6 +212,18 @@ QColor reverseTextColor() { return bDarkTheme ? Qt::black : Qt::white; }
 
 namespace Config
 {
+const QColor& StallColor()
+{
+    static auto color = QColor(192,0,0);
+    return color;
+}
+
+const QColor& IssueColor()
+{
+    static auto color = QColor(0,160,0);
+    return color;
+}
+
 const std::vector<StyleColor>& StateColors()
 {
     static ColorSet colorset_light(

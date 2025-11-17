@@ -24,19 +24,15 @@
 #include <QWidget>
 #include "util/custom_layouts.h"
 
-struct WaitList
-{
-    int code_line;
-    std::vector<std::pair<int, int>> sources;
-};
-
 // This class will paint arrows on top of a QCodelist
-class ArrowCanvas : public QWidget
+class Canvas: public QWidget
 {
     Q_OBJECT
     set_tracked();
 
 public:
+    Canvas() { setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Ignored); };
+
     struct arrow_t
     {
         int wait_number;
@@ -45,27 +41,48 @@ public:
         bool bIsInterior;
     };
 
-    ArrowCanvas() { setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Ignored); };
+    struct WaitList
+    {
+        int code_line;
+        std::vector<std::pair<int, int>> sources;
+    };
 
-    virtual void paintEvent(class QPaintEvent* event) override;
-    void buildConnections(const std::vector<WaitList>& waitcnt);
-    bool checkConnectionsCache(const std::vector<WaitList>& waitcnt);
+    enum class DrawType
+    {
+        DrawArrows,
+        DrawStall,
+        DrawBranch,
+        DrawLast
+    };
 
     virtual QSize sizeHint() const override;
+    virtual void paintEvent(class QPaintEvent* event) override;
+    void buildBranchConnections(const std::vector<WaitList>& waitcnt);
+    void buildWaitConnections(const std::vector<WaitList>& waitcnt);
+    bool checkConnectionsCache(const std::vector<WaitList>& waitcnt);
+
+    bool Connect(QPainter& painter, int l1, int l2, int xslot, QColor& color);
+
     void setScroll(int posy)
     {
         scrollposy = posy;
         update();
     }
 
-protected:
-    bool Connect(QPainter& painter, int l1, int l2, int xslot, QColor& color);
-
 private:
-    int max_slot_alloc = 0;
+    int max_wait_alloc = 0;
+    int max_branch_alloc = 0;
     int scrollposy = 0;
 
+    void paintArrows();
+    void paintStalls();
+    void paintBranch();
+
+    std::vector<arrow_t> branches{};
+    std::vector<arrow_t> arrows{};
+    std::mutex mut{};
+
 public:
-    static std::vector<QColor> arrow_colors;
-    static std::vector<arrow_t> arrows;
+    static std::vector<QColor>  arrow_colors;
+    static DrawType             drawtype;
 };

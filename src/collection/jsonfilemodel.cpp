@@ -49,7 +49,7 @@ float JsonFileModel::calculateMaximumLatency() const
     std::function<void(std::shared_ptr<Node>)> findMaxLatency = [&](std::shared_ptr<Node> node)
     {
         if (!node) return;
-        maxLatency = std::max(maxLatency, static_cast<float>(node->hotspot.total_latency));
+        maxLatency = std::max(maxLatency, static_cast<float>(node->hotspot.combined()));
         for (auto& child : node->children) { findMaxLatency(child); }
     };
     findMaxLatency(rootNode);
@@ -145,11 +145,11 @@ void JsonFileModel::updateAllHotspotsAndLatencies(std::shared_ptr<Node> node) co
 {
     if (!node) return;
 
-    int64_t acc_latency = 0;
+    HorizontalHotspot acc_latency{};
     for (auto& child : node->children)
     {
         updateAllHotspotsAndLatencies(child);
-        acc_latency += child->hotspot.total_latency;
+        acc_latency += child->hotspot;
     }
 
     QWARNING(MainWindow::window && MainWindow::window->source_filetab, "No source file tab", return );
@@ -162,11 +162,11 @@ void JsonFileModel::updateAllHotspotsAndLatencies(std::shared_ptr<Node> node) co
         if (it2 != tab->files.end())
         {
             node->hotspot = it2->second.second->latency; // Initialize the hotspot
-            acc_latency += it2->second.second->latency.total_latency;
+            acc_latency += it2->second.second->latency;
         }
     }
 
-    node->hotspot.total_latency = acc_latency;
+    node->hotspot = acc_latency;
 }
 
 QVariant JsonFileModel::data(const QModelIndex& index, int role) const

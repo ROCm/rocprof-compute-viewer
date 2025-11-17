@@ -26,6 +26,7 @@
 #include <QPainterPath>
 #include <QScrollArea>
 #include <QToolTip>
+#include "util/jsonrequest.hpp"
 #include "code/qcodelist.h"
 #include "config/config.hpp"
 #include "data/wavedata.h"

@@ -23,13 +23,11 @@ public:
 private:
     struct HotspotLine
     {
-        int lineNumber;
-        QString content;
-        int64_t latency;
-        std::array<int64_t, 16> latencyByType{};
+        int lineNumber{};
+        QString content{};
     };
 
-    std::vector<HotspotLine> hotspotLines;
+    std::vector<std::pair<HotspotLine, HorizontalHotspot>> hotspotLines;
     QString fileDisplayName;
     int maxLatency = 1; // Start at 1 to avoid division by zero
 };

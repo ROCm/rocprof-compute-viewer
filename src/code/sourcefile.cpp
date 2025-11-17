@@ -34,13 +34,15 @@
 #include "qcodelist.h"
 #include "util/custom_layouts.h"
 
-int SourceLine::HISTOGRAM_WIDTH = 100;
 bool SourceLine::bDisplayLineNumber = true;
 
 SourceLine* SourceLine::last_pressed_line = nullptr;
 
 std::unordered_map<std::string, std::shared_ptr<SourceLine>> SourceLine::all_lines{};
-int64_t SourceFile::global_max_latency = 1;
+int64_t SourceFile::global_max_sqtt_latency = 1;
+int64_t SourceFile::global_max_pcs_latency = 1;
+
+HorizontalHotspot::DrawFormat SourceLine::drawformat = HorizontalHotspot::DrawFormat::DRAWSTALL;
 
 void SourceLine::scrollTo()
 {
@@ -78,7 +80,7 @@ parent(_parent), filename(_filename)
 
 void SourceFile::paintEvent(class QPaintEvent* event)
 {
-    int HISTOGRAM_WIDTH = SourceLine::HISTOGRAM_WIDTH;
+    int HISTOGRAM_WIDTH = HorizontalHotspot::HISTOGRAM_WIDTH;
 
     QPainter painter(this);
 
@@ -132,78 +134,24 @@ void SourceFile::scrollTo(int number)
     parent->scrollTo(this->filename, number);
 }
 
-void SourceLine::add_latency(int type, int64_t amount)
+void SourceLine::add_latency(int type, Latency sqtt, Latency pcs)
 {
-    QWARNING(type >= 0 && type < hotspot.latency.size(), "Invalid latency type" << type, return );
+    hotspot.add_latency(type, sqtt, pcs);
+    parent->latency.add_latency(type, sqtt, pcs);
 
-    hotspot.add_latency(type, amount);
-    parent->latency.add_latency(type, amount);
-
-    parent->max_latency = std::max(parent->max_latency, hotspot.total_latency);
+    parent->max_sqtt_latency = std::max(parent->max_sqtt_latency, hotspot.sqtt.latency);
+    parent->max_pcs_latency = std::max(parent->max_pcs_latency, hotspot.pcs.latency);
     // TODO: Reset this when reloading code
-    SourceFile::global_max_latency = std::max(SourceFile::global_max_latency, parent->latency.total_latency);
-}
-
-void HorizontalHotspot::add_latency(int type, int64_t amount)
-{
-    QWARNING(type >= 0 && type < latency.size(), "Invalid latency type" << type, return );
-    total_latency += amount;
-    latency[type] += amount;
-}
-
-void HorizontalHotspot::paint(
-    QPainter& painter, int posx, int posy, int sizey, float value_to_pixel_ratio, bool rightToLeft
-)
-{
-    const int padding = 2;
-    int reducedHeight = sizey - 2 * padding;
-
-    painter.save();
-    painter.setPen(Qt::NoPen);
-
-    int xstart = posx;
-    float pos = posx;
-    float dir = rightToLeft ? -1 : 1;
-    int totalWidth = 0;
-
-    for (int c = 0; c < latency.size(); c++)
-    {
-        float barWidth = latency[c] * value_to_pixel_ratio;
-        pos += dir * barWidth;
-        if (std::abs(xstart - pos) >= 1.0f)
-        {
-            int start = std::min(xstart, static_cast<int>(pos));
-            int end = std::max(xstart, static_cast<int>(pos));
-            painter.setBrush(QBrush(Config::TokenColors().at(c).qcolor));
-
-            painter.drawRect(start, posy + padding, end - start, reducedHeight);
-
-            xstart = pos;
-            totalWidth = std::max(totalWidth, std::abs(static_cast<int>(pos) - posx));
-        }
-    }
-
-    // Draw single border around entire hotspot
-    if (total_latency > 0 && totalWidth > 0)
-    {
-        QPen pen;
-        pen.setColor(WindowColors::HotspotOutline());
-        painter.setPen(pen);
-        painter.setBrush(Qt::NoBrush);
-
-        int x = rightToLeft ? posx - totalWidth : posx;
-        painter.drawRect(x, posy + padding, totalWidth, reducedHeight);
-    }
-
-    painter.restore();
+    SourceFile::global_max_sqtt_latency = std::max(SourceFile::global_max_sqtt_latency, parent->latency.sqtt.latency);
+    SourceFile::global_max_pcs_latency = std::max(SourceFile::global_max_pcs_latency, parent->latency.pcs.latency);
 }
 
 void SourceLine::paint(QPainter& painter, int posx, int posy, int sizey, int overline, int numlines_width)
 {
+    int HISTOGRAM_WIDTH = HorizontalHotspot::HISTOGRAM_WIDTH;
     if (width_cache <= 1) width_cache = painter.fontMetrics().horizontalAdvance(text);
 
-    if (hotspot.total_latency > 0)
-        hotspot.paint(painter, 0, posy - sizey, sizey, HISTOGRAM_WIDTH / (float) parent->max_latency);
+    hotspot.paint(painter, 0, posy - sizey, sizey, parent->max_sqtt_latency, parent->max_pcs_latency, drawformat, false);
 
     posx += HISTOGRAM_WIDTH;
 
@@ -334,7 +282,9 @@ void SourceFileTab::resetLatency()
                 if (line) line->hotspot = HorizontalHotspot{};
 
             file.second->latency = HorizontalHotspot{};
-            file.second->max_latency = 1;
+            file.second->max_sqtt_latency = 1;
+            file.second->max_pcs_latency = 1;
         }
-    SourceFile::global_max_latency = 1;
+    SourceFile::global_max_sqtt_latency = 1;
+    SourceFile::global_max_pcs_latency = 1;
 }

@@ -51,6 +51,7 @@
 #include "wave/scroll.h"
 #include "wave/waveglobal.h"
 #include "wave/waveview.h"
+#include "util/jsonrequest.hpp"
 
 #if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
 #    include <QGuiApplication>
@@ -344,7 +345,7 @@ void MainWindow::SourceHotspotSizeEdited()
 {
     try
     {
-        SourceLine::HISTOGRAM_WIDTH = std::max(0, std::stoi(ui->source_hotspot_size_edit->displayText().toStdString()));
+        HorizontalHotspot::HISTOGRAM_WIDTH = std::max(0, std::stoi(ui->source_hotspot_size_edit->displayText().toStdString()));
     }
     catch (...)
     {}
@@ -392,7 +393,7 @@ void MainWindow::UpdateWaveViewRange()
         utilization_h_scrollarea->updatebar(true);
 
         if (source_filetab) source_filetab->resetLatency();
-        if (WaveInstance::main_wave && code_contents) code_contents->Populate(*WaveInstance::main_wave);
+        if (WaveInstance::main_wave && code_contents) code_contents->Populate(WaveInstance::main_wave->code);
     }
     catch (std::exception& e)
     {
@@ -416,8 +417,10 @@ void MainWindow::SetMainWave(int se, int simd, int sl, int wid)
     auto main_wave = WaveInstance::Get(wave_name.str());
     WaveInstance::main_wave = main_wave;
 
-    auto thread =
-        std::async(std::launch::async, &ArrowCanvas::buildConnections, code_contents->connector, main_wave->waitcnt);
+    auto thread1 = std::async(std::launch::async, &Canvas::buildWaitConnections, code_contents->connector, main_wave->waitcnt);
+    auto thread2 = std::async(std::launch::async, [&]() {
+        code_contents->connector->buildBranchConnections(main_wave->get_branch_targets());
+    });
 
     ui->wview_range_min->setText(std::to_string(main_wave->wave_begin).c_str());
     ui->wview_range_max->setText(std::to_string(main_wave->wave_end + WAVE_END_ROOM).c_str());
@@ -435,7 +438,8 @@ void MainWindow::SetMainWave(int se, int simd, int sl, int wid)
         i++;
     }
 
-    thread.get();
+    thread1.get();
+    thread2.get();
 
     QTimer* timer = new QTimer(this);
     timer->setSingleShot(true);
@@ -1435,7 +1439,7 @@ void MainWindow::loadConfigSettings()
     WindowColors::setDark(config.getDarkTheme());
     _scaling_var = config.getDisplayScaling() ? 1 : 0;
     SourceLine::bDisplayLineNumber = config.getDisplayLineNumber();
-    SourceLine::HISTOGRAM_WIDTH = config.getSourceHotspotSize();
+    HorizontalHotspot::HISTOGRAM_WIDTH = config.getSourceHotspotSize();
 }
 
 void MainWindow::setupConfigConnections()

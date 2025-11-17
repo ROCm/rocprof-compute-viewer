@@ -40,6 +40,19 @@
 int QCodelist::line_height = 20;
 QCodelist* QCodelist::singleton = nullptr;
 
+class DrawTypeSelector : public QComboBox
+{
+    Q_OBJECT;
+    set_tracked();
+    using Super = QComboBox;
+
+public:
+    DrawTypeSelector(QCodelist* _parent);
+    void changeDrawType(const QString& text);
+
+    QCodelist* parent = nullptr;
+};
+
 std::array<std::string, (int) CyclesLabel::Strategy::LAST> strategy_names = {
     "Latency: Sum all",
     "Latency: Mean all",
@@ -47,6 +60,36 @@ std::array<std::string, (int) CyclesLabel::Strategy::LAST> strategy_names = {
     "Latency: Sum Wave",
     "Latency: Mean Wave",
     "Latency: Max Wave"};
+
+std::array<std::string, (int)Canvas::DrawType::DrawLast> drawtype_names = {
+    "View: Waitcnt",
+    "All Latency",
+    "Branch targets"};
+
+DrawTypeSelector::DrawTypeSelector(QCodelist* _parent) : parent(_parent)
+{
+    for (auto& name : drawtype_names) addItem(QString(name.c_str()));
+
+    setCurrentIndex((int)Canvas::DrawType::DrawArrows);
+    
+    setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Fixed);
+
+    QObject::connect(this, &QComboBox::currentTextChanged, this, &DrawTypeSelector::changeDrawType);
+}
+
+void DrawTypeSelector::changeDrawType(const QString& text)
+{
+    for (int i = 0; i < (int)drawtype_names.size(); i++)
+        if (drawtype_names.at(i) == text.toStdString())
+        {
+            Canvas::drawtype = Canvas::DrawType(i);
+            if (parent && parent->connector)
+            {
+                parent->connector->updateGeometry();
+                parent->connector->update();
+            }
+        }
+}
 
 CycleModeSelector::CycleModeSelector(QCodelist* _parent) : parent(_parent)
 {
@@ -88,14 +131,14 @@ QCodelist::QCodelist(QWidget* parent)
     layout_main = new QBox(this);
     this->setLayout(layout_main);
 
-    layout_main->addWidget(new QLabel("Instruction"), 0, 1);
-    layout_main->addWidget(new QLabel("Hitcount "), 0, 2);
-    layout_main->addWidget(new CycleModeSelector(this), 0, 3);
-    layout_main->addWidget(new QLabel(" Idle "), 0, 4);
+    layout_main->addWidget(new QLabel("Instruction"), 0, Element::EASM + 1);
+    layout_main->addWidget(new QLabel("Hitcount "), 0, Element::EHIT + 1);
+    layout_main->addWidget(new CycleModeSelector(this), 0, Element::ELATENCY + 1);
+    layout_main->addWidget(new QLabel(" Idle "), 0, Element::EIDLE + 1);
 
-    connector = new ArrowCanvas();
-
+    connector = new Canvas();
     layout_main->addWidget(connector, 1, 0);
+    layout_main->addWidget(new DrawTypeSelector(this), 0, 0);
 
     elements.at(Element::EASM) = new QASMElementList();
     for (int e = 0; e < Element::ENUMTYPES; e++)
@@ -103,6 +146,13 @@ QCodelist::QCodelist(QWidget* parent)
         if (e != Element::EASM) elements.at(e) = new QElementList(Element(e));
         layout_main->addWidget(elements.at(e), 1, e + 1);
     }
+
+    // Set column stretch factors - column 0 can shrink, others get more stretch
+    layout_main->setColumnStretch(0, 0);
+    layout_main->setColumnStretch(Element::EASM + 1, 3);
+    layout_main->setColumnStretch(Element::EHIT + 1, 0);
+    layout_main->setColumnStretch(Element::ELATENCY + 1, 1);
+    layout_main->setColumnStretch(Element::EIDLE + 1, 0);
 
     scrollbar = new QScrollBar(Qt::Vertical);
     // layout_main->addWidget(scrollbar, 1, (int)Element::ENUMTYPES+1);
@@ -119,13 +169,21 @@ QCodelist::~QCodelist()
     if (layout_main) delete layout_main;
 }
 
-void QCodelist::Populate(WaveInstance& wave)
+void QCodelist::Populate(const std::vector<CodeData>& code)
 {
     QPalette pal = QPalette();
     pal.setColor(QPalette::Window, WindowColors::Background());
     this->setPalette(pal);
 
-    ASMCodeline::Populate(wave.code);
+    ASMCodeline::Populate(code);
+
+    max_sqtt_latency = 1;
+    max_pcs_latency = 1;
+    for (auto& codeline : code)
+    {
+        max_sqtt_latency = std::max(max_sqtt_latency, codeline.line->latency_sum);
+        max_pcs_latency = std::max(max_pcs_latency, codeline.line->pcsamples);
+    }
 
     scheduleRedraw();
 }
@@ -142,7 +200,7 @@ void QCodelist::onScroll(int value)
 {
     for (auto& elem : elements)
         if (elem) elem->setScroll(value);
-    connector->setScroll(value);
+    if (connector) connector->setScroll(value);
     this->scrollposy = value;
     update();
 }
@@ -318,3 +376,5 @@ void QASMElementList::mouseMoveEvent(class QMouseEvent* event)
     tooltip << "</table></div>";
     this->setToolTip(tooltip.str().c_str());
 }
+
+#include "qcodelist.moc"

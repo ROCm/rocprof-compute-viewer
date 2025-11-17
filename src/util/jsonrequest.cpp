@@ -20,7 +20,6 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-#include "wavedata.h"
 #include <vector>
 #include "json/include/nlohmann/json.hpp"
 #ifndef _WIN32
@@ -31,10 +30,9 @@
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QNetworkRequest>
+#include <QTimer>
 #include <fstream>
-
-#define MFMA_TOKEN_TYPE 10
-#define MFMA_CODE_TYPE  255
+#include "jsonrequest.hpp"
 
 using namespace std;
 

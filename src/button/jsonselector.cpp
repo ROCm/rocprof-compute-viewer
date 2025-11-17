@@ -28,6 +28,7 @@
 #include "data/wavedata.h"
 #include "mainwindow.h"
 #include "util/version.h"
+#include "util/jsonrequest.hpp"
 #include "wave/waveview.h"
 
 static void sort_by_id(std::vector<std::string>& names)

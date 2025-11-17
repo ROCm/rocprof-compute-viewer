@@ -27,21 +27,9 @@
 #include <QTabWidget>
 #include <QWidget>
 #include <vector>
+#include "hotspot.hpp"
 #include "textelement.h"
 #include "util/custom_layouts.h"
-
-class HorizontalHotspot
-{
-public:
-    std::array<int64_t, 16> latency{};
-    int64_t total_latency = 0;
-
-    void add_latency(int type, int64_t amount);
-    void paint(
-        class QPainter& painter, int posx, int posy, int sizey, float value_to_pixel_ratio, bool rightToLeft = false
-    );
-};
-Q_DECLARE_METATYPE(HorizontalHotspot)
 
 class SourceLine : public TextLineElement
 {
@@ -63,18 +51,18 @@ public:
 
     void scrollTo();
 
-    void add_latency(int type, int64_t amount);
+    void add_latency(int type, Latency sqtt, Latency pcs);
 
     const int line_number;
     SourceFile* const parent;
 
+    std::vector<std::weak_ptr<class ASMCodeline>> refs{};
+    HorizontalHotspot hotspot{};
+
     static SourceLine* last_pressed_line;
     static std::unordered_map<std::string, std::shared_ptr<SourceLine>> all_lines;
-    std::vector<std::weak_ptr<class ASMCodeline>> refs{};
-
-    static int HISTOGRAM_WIDTH;
+    static HorizontalHotspot::DrawFormat drawformat;
     static bool bDisplayLineNumber;
-    HorizontalHotspot hotspot{};
 
 private:
     int next_index = 0;
@@ -104,8 +92,10 @@ public:
     const std::string filename;
 
     HorizontalHotspot latency{};
-    int64_t max_latency = 1; // Start at one to avoid division by zero
-    static int64_t global_max_latency;
+    int64_t max_sqtt_latency = 1; // Start at one to avoid division by zero
+    int64_t max_pcs_latency = 1; // Start at one to avoid division by zero
+    static int64_t global_max_sqtt_latency;
+    static int64_t global_max_pcs_latency;
 
 private:
     int sizex = 0;
