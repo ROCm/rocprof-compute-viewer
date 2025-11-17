@@ -26,8 +26,8 @@
 #include "container/datanode.h"
 #include "data/wavedata.h"
 #include "mainwindow.h"
-#include "util/version.h"
 #include "util/jsonrequest.hpp"
+#include "util/version.h"
 
 using namespace std;
 

@@ -26,12 +26,12 @@
 #include <QPainterPath>
 #include <QScrollArea>
 #include <QToolTip>
-#include "util/jsonrequest.hpp"
 #include "code/qcodelist.h"
 #include "config/config.hpp"
 #include "data/wavedata.h"
 #include "data/wavemanager.h"
 #include "mainwindow.h"
+#include "util/jsonrequest.hpp"
 
 int64_t QGlobalView::begintime = 0;
 int64_t QGlobalView::maxtime = 0;

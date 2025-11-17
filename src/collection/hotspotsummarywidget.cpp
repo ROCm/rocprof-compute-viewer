@@ -55,7 +55,9 @@ void HotspotSummaryWidget::setFile(const std::string& filePath, const std::strin
 
     // Sort and take top hotspots
     std::sort(
-        lineLatencies.begin(), lineLatencies.end(), [](const auto& a, const auto& b) { return a.second.combined() > b.second.combined(); }
+        lineLatencies.begin(),
+        lineLatencies.end(),
+        [](const auto& a, const auto& b) { return a.second.combined() > b.second.combined(); }
     );
 
     maxLatency = lineLatencies.empty() ? 1 : lineLatencies[0].second.combined();

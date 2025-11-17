@@ -47,8 +47,20 @@ struct CodeData
     ) :
     exec(nullptr)
     {
-        this->line =
-            std::make_shared<Line>(index, hitcount, addr, codeobj_id, latency_sum, idle_sum, stall_sum, pcsamples, pcstalls, line, cppline, stallreasons);
+        this->line = std::make_shared<Line>(
+            index,
+            hitcount,
+            addr,
+            codeobj_id,
+            latency_sum,
+            idle_sum,
+            stall_sum,
+            pcsamples,
+            pcstalls,
+            line,
+            cppline,
+            stallreasons
+        );
     };
 
     CodeData(const CodeData& other) { *this = other; }

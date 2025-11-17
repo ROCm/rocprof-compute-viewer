@@ -60,7 +60,16 @@ void HistogramDelegate::paint(QPainter* painter, const QStyleOptionViewItem& opt
     float pxratio = maximum_latency;
 
     painter->save();
-    hotspot.paint(*painter, rect.right(), rect.top() + verticalOffset, barHeight, pxratio, pxratio, HorizontalHotspot::DrawFormat::DRAWTYPE, true);
+    hotspot.paint(
+        *painter,
+        rect.right(),
+        rect.top() + verticalOffset,
+        barHeight,
+        pxratio,
+        pxratio,
+        HorizontalHotspot::DrawFormat::DRAWTYPE,
+        true
+    );
     painter->restore();
 }
 

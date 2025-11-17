@@ -55,7 +55,8 @@ line_index(line_vec.size()), line_number(_line_number)
     auto& idle = codedata.exec ? codedata.exec->idle : empty;
 
     elements.at(Element::EASM) = std::make_unique<ASMLine>(_line_number, line);
-    elements.at(Element::EHIT) = std::make_unique<CyclesLabel>(std::vector<int>{(int)latency.size()}, line.hitcount, 1);
+    elements.at(Element::EHIT) =
+        std::make_unique<CyclesLabel>(std::vector<int>{(int) latency.size()}, line.hitcount, 1);
     if (line.idle_sum) elements.at(Element::EIDLE) = std::make_unique<CyclesLabel>(idle, line.idle_sum, line.hitcount);
     elements.at(Element::ELATENCY) = std::make_unique<CyclesLabel>(latency, line.latency_sum, line.hitcount);
 
@@ -67,8 +68,7 @@ line_index(line_vec.size()), line_number(_line_number)
 
     hotspot.add_latency(line.type, {line.latency_sum, line.stall_sum}, {line.pcsamples, line.pcstalls});
 
-    for (size_t i=0; i<line.stallreasons.size(); i++)
-        hotspot.stall_reason.at(i) = line.stallreasons.at(i);
+    for (size_t i = 0; i < line.stallreasons.size(); i++) hotspot.stall_reason.at(i) = line.stallreasons.at(i);
 }
 
 ASMCodeline::~ASMCodeline() {}

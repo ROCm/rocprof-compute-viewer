@@ -28,8 +28,8 @@
 #include <map>
 #include <vector>
 #include "data/wavemanager.h"
-#include "textelement.h"
 #include "hotspot.hpp"
+#include "textelement.h"
 #include "util/custom_layouts.h"
 
 /**

@@ -48,10 +48,10 @@
 #include "graphics/hotspot.h"
 #include "graphics/specialized_plots.h"
 #include "summary/summaryview.h"
+#include "util/jsonrequest.hpp"
 #include "wave/scroll.h"
 #include "wave/waveglobal.h"
 #include "wave/waveview.h"
-#include "util/jsonrequest.hpp"
 
 #if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
 #    include <QGuiApplication>
@@ -345,7 +345,8 @@ void MainWindow::SourceHotspotSizeEdited()
 {
     try
     {
-        HorizontalHotspot::HISTOGRAM_WIDTH = std::max(0, std::stoi(ui->source_hotspot_size_edit->displayText().toStdString()));
+        HorizontalHotspot::HISTOGRAM_WIDTH =
+            std::max(0, std::stoi(ui->source_hotspot_size_edit->displayText().toStdString()));
     }
     catch (...)
     {}
@@ -417,10 +418,11 @@ void MainWindow::SetMainWave(int se, int simd, int sl, int wid)
     auto main_wave = WaveInstance::Get(wave_name.str());
     WaveInstance::main_wave = main_wave;
 
-    auto thread1 = std::async(std::launch::async, &Canvas::buildWaitConnections, code_contents->connector, main_wave->waitcnt);
-    auto thread2 = std::async(std::launch::async, [&]() {
-        code_contents->connector->buildBranchConnections(main_wave->get_branch_targets());
-    });
+    auto thread1 =
+        std::async(std::launch::async, &Canvas::buildWaitConnections, code_contents->connector, main_wave->waitcnt);
+    auto thread2 = std::async(
+        std::launch::async, [&]() { code_contents->connector->buildBranchConnections(main_wave->get_branch_targets()); }
+    );
 
     ui->wview_range_min->setText(std::to_string(main_wave->wave_begin).c_str());
     ui->wview_range_max->setText(std::to_string(main_wave->wave_end + WAVE_END_ROOM).c_str());

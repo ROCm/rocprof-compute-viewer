@@ -93,7 +93,7 @@ public:
 
     HorizontalHotspot latency{};
     int64_t max_sqtt_latency = 1; // Start at one to avoid division by zero
-    int64_t max_pcs_latency = 1; // Start at one to avoid division by zero
+    int64_t max_pcs_latency = 1;  // Start at one to avoid division by zero
     static int64_t global_max_sqtt_latency;
     static int64_t global_max_pcs_latency;
 

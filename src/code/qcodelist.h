@@ -25,8 +25,8 @@
 #include <QComboBox>
 #include <QWidget>
 #include "asmcode.h"
-#include "util/highlight.h"
 #include "graphics/canvas.h"
+#include "util/highlight.h"
 
 class QElementList : public QTextElement
 {
@@ -104,6 +104,7 @@ public:
 
     int64_t max_sqtt_latency = 1;
     int64_t max_pcs_latency = 1;
+
 private:
     int scrollposy = 0;
 };

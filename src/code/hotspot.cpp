@@ -20,22 +20,25 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-#include "sourcefile.h"
 #include <QPaintEvent>
 #include <QPainter>
 #include <QPainterPath>
 #include <QScrollArea>
 #include <QScrollBar>
 #include <fstream>
+#include <iomanip>
+#include <sstream>
 #include <string>
+#include <vector>
 #include "../config/config.hpp"
 #include "asmcode.h"
 #include "mainwindow.h"
 #include "qcodelist.h"
+#include "sourcefile.h"
 #include "util/custom_layouts.h"
 
 bool HorizontalHotspot::is_pcs_enabled = false;
-int  HorizontalHotspot::HISTOGRAM_WIDTH = 100;
+int HorizontalHotspot::HISTOGRAM_WIDTH = 100;
 
 void HorizontalHotspot::add_latency(int type, Latency _sqtt, Latency _pcs)
 {
@@ -47,7 +50,15 @@ void HorizontalHotspot::add_latency(int type, Latency _sqtt, Latency _pcs)
 }
 
 void HorizontalHotspot::paint(
-    QPainter& painter, const int posx, const int posy, const int sizey, const float sqtt_maxvalue, const float pcs_maxvalue, DrawFormat format, bool rightToLeft
+    QPainter& painter,
+    const int posx,
+    const int posy,
+    const int sizey,
+    const float sqtt_maxvalue,
+    const float pcs_maxvalue,
+    DrawFormat format,
+    bool rightToLeft,
+    bool highlighted
 ) const
 {
     const int padding = 2;
@@ -90,7 +101,7 @@ void HorizontalHotspot::paint(
         Draw(issuewidth, Config::IssueColor(), _posy, _height);
     };
 
-    auto drawType = [&] (const std::array<int64_t, 16>& array, int _posy, int _height)
+    auto drawType = [&](const std::array<int64_t, 16>& array, int _posy, int _height)
     {
         float barWidth = 0;
         for (int c = 0; c < array.size(); c++)
@@ -115,18 +126,49 @@ void HorizontalHotspot::paint(
         if (format & DrawFormat::DRAWTYPE) drawType(is_pcs_enabled ? stall_reason : typed_latency, _posy, _height);
     }
 
-    // Draw single border around entire hotspot
+    // Draw border around entire hotspot area (thicker when highlighted)
+    // Always draw at full HISTOGRAM_WIDTH when highlighted to show the full interactive area
     if (totalWidth > 0)
     {
         QPen pen;
         pen.setColor(WindowColors::HotspotOutline());
+        pen.setWidth(1);
         painter.setPen(pen);
         painter.setBrush(Qt::NoBrush);
 
-        int x = rightToLeft ? posx - totalWidth : posx;
-        painter.drawRect(x, posy + padding, totalWidth, reducedHeight);
+        painter.drawRect(rightToLeft ? (posx - totalWidth) : posx, posy + padding, totalWidth, reducedHeight);
+    }
+
+    if (highlighted)
+    {
+        QPen pen;
+        pen.setColor(WindowColors::HotspotOutline());
+        pen.setWidth(2);
+        painter.setPen(pen);
+        painter.setBrush(Qt::NoBrush);
+
+        painter.drawRect(posx + 1, posy + padding, HISTOGRAM_WIDTH - 1, reducedHeight);
     }
 
     painter.setPen(savedPen);
     painter.setBrush(savedBrush);
+}
+
+std::string HorizontalHotspot::getTooltip() const
+{
+    // Build tooltip with all information from this line
+    std::stringstream ss;
+
+    const Latency& latency = is_pcs_enabled ? pcs : sqtt;
+
+    if (latency.latency > 0)
+    {
+        int64_t issue = latency.latency - latency.stalled;
+        double total = static_cast<double>(latency.latency) / 100.0;
+
+        ss << "Stall:  " << std::fixed << std::setprecision(0) << latency.stalled / total << "%\n";
+        ss << "Issue: " << std::fixed << std::setprecision(0) << issue / total << "%";
+    }
+
+    return ss.str();
 }

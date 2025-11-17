@@ -25,10 +25,10 @@
 #include <set>
 #include <shared_mutex>
 #include "json/include/nlohmann/json.hpp"
+#include "util/jsonrequest.hpp"
 #include "util/version.h"
 #include "wave/scroll.h"
 #include "wavedata.h"
-#include "util/jsonrequest.hpp"
 
 std::shared_mutex wave_mutex;
 std::unordered_map<std::string, std::shared_ptr<WaveInstance>> reader_cache;
@@ -380,9 +380,8 @@ std::vector<Canvas::WaitList> WaveInstance::get_branch_targets() const
 {
     int JUMP = -1;
 
-    for (size_t i=0; i<Config::TokenColors().size(); i++)
-        if (Config::TokenColors().at(i).name == "JUMP")
-            JUMP = i;
+    for (size_t i = 0; i < Config::TokenColors().size(); i++)
+        if (Config::TokenColors().at(i).name == "JUMP") JUMP = i;
 
     QWARNING(JUMP > 0, "Could not find jump!", return {});
 
@@ -396,13 +395,13 @@ std::vector<Canvas::WaitList> WaveInstance::get_branch_targets() const
     }
 
     std::unordered_map<int, std::unordered_set<int>> list;
-    for (size_t i=0; i+1<tokens.size(); i++)
+    for (size_t i = 0; i + 1 < tokens.size(); i++)
     {
         auto& token = tokens.at(i);
 
         if (token.type == JUMP)
         {
-            list[token.code_line].insert(tokens.at(i+1).code_line);
+            list[token.code_line].insert(tokens.at(i + 1).code_line);
             continue;
         }
 
@@ -413,7 +412,7 @@ std::vector<Canvas::WaitList> WaveInstance::get_branch_targets() const
         auto& inst = code.at(mapped).line->inst;
 
         if ((inst.find("s_set") == 0 || inst.find("s_swap") == 0) && inst.find("pc") != std::string::npos)
-            list[token.code_line].insert(tokens.at(i+1).code_line);
+            list[token.code_line].insert(tokens.at(i + 1).code_line);
     }
 
     std::vector<Canvas::WaitList> ret{};

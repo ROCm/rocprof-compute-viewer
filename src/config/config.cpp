@@ -214,13 +214,13 @@ namespace Config
 {
 const QColor& StallColor()
 {
-    static auto color = QColor(192,0,0);
+    static auto color = QColor(192, 0, 0);
     return color;
 }
 
 const QColor& IssueColor()
 {
-    static auto color = QColor(0,160,0);
+    static auto color = QColor(0, 160, 0);
     return color;
 }
 
@@ -326,9 +326,12 @@ const std::vector<StyleColor>& TokenColors()
                     nlohmann::json new_token;
                     ifs >> new_token;
 
-                    try {
+                    try
+                    {
                         keep_original = bool(new_token["keep_original"]);
-                    } catch(std::exception&) {}
+                    }
+                    catch (std::exception&)
+                    {}
 
                     if (keep_original) add_original();
                     keep_original = false;
@@ -337,7 +340,8 @@ const std::vector<StyleColor>& TokenColors()
                         addpair(def_token, std::string(token[0]).c_str(), std::string(token[1]).c_str());
                 }
             }
-            catch (const std::exception& e) {
+            catch (const std::exception& e)
+            {
                 std::cout << e.what() << std::endl;
             }
 
@@ -371,7 +375,8 @@ const std::vector<std::pair<std::string, int>> CustomTokens()
 
             for (auto& [isa, value] : new_asm["asmkeys"].items()) key[isa] = value;
         }
-        catch (const std::exception& e) {}
+        catch (const std::exception& e)
+        {}
 
         for (auto& [match, inst] : key.items())
         {

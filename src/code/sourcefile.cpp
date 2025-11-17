@@ -26,6 +26,7 @@
 #include <QPainterPath>
 #include <QScrollArea>
 #include <QScrollBar>
+#include <QToolTip>
 #include <fstream>
 #include <string>
 #include "../config/config.hpp"
@@ -76,6 +77,8 @@ parent(_parent), filename(_filename)
     QPalette pal = QPalette();
     pal.setColor(QPalette::Window, WindowColors::Background());
     this->setPalette(pal);
+
+    setMouseTracking(true);
 }
 
 void SourceFile::paintEvent(class QPaintEvent* event)
@@ -151,7 +154,9 @@ void SourceLine::paint(QPainter& painter, int posx, int posy, int sizey, int ove
     int HISTOGRAM_WIDTH = HorizontalHotspot::HISTOGRAM_WIDTH;
     if (width_cache <= 1) width_cache = painter.fontMetrics().horizontalAdvance(text);
 
-    hotspot.paint(painter, 0, posy - sizey, sizey, parent->max_sqtt_latency, parent->max_pcs_latency, drawformat, false);
+    hotspot.paint(
+        painter, 0, posy - sizey, sizey, parent->max_sqtt_latency, parent->max_pcs_latency, drawformat, false, false
+    );
 
     posx += HISTOGRAM_WIDTH;
 
@@ -187,7 +192,6 @@ void SourceLine::onMousePress()
 
 void SourceLine::setMouseHover(bool value)
 {
-    // next_index = 0;
     bHovering = value;
     parent->update();
 

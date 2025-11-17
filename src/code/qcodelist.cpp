@@ -61,17 +61,15 @@ std::array<std::string, (int) CyclesLabel::Strategy::LAST> strategy_names = {
     "Latency: Mean Wave",
     "Latency: Max Wave"};
 
-std::array<std::string, (int)Canvas::DrawType::DrawLast> drawtype_names = {
-    "View: Waitcnt",
-    "All Latency",
-    "Branch targets"};
+std::array<std::string, (int) Canvas::DrawType::DrawLast> drawtype_names = {
+    "View: Waitcnt", "All Latency", "Branch targets"};
 
 DrawTypeSelector::DrawTypeSelector(QCodelist* _parent) : parent(_parent)
 {
     for (auto& name : drawtype_names) addItem(QString(name.c_str()));
 
-    setCurrentIndex((int)Canvas::DrawType::DrawArrows);
-    
+    setCurrentIndex((int) Canvas::DrawType::DrawArrows);
+
     setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Fixed);
 
     QObject::connect(this, &QComboBox::currentTextChanged, this, &DrawTypeSelector::changeDrawType);
@@ -79,7 +77,7 @@ DrawTypeSelector::DrawTypeSelector(QCodelist* _parent) : parent(_parent)
 
 void DrawTypeSelector::changeDrawType(const QString& text)
 {
-    for (int i = 0; i < (int)drawtype_names.size(); i++)
+    for (int i = 0; i < (int) drawtype_names.size(); i++)
         if (drawtype_names.at(i) == text.toStdString())
         {
             Canvas::drawtype = Canvas::DrawType(i);

@@ -25,13 +25,17 @@
 #include "util/custom_layouts.h"
 
 // This class will paint arrows on top of a QCodelist
-class Canvas: public QWidget
+class Canvas : public QWidget
 {
     Q_OBJECT
     set_tracked();
 
 public:
-    Canvas() { setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Ignored); };
+    Canvas()
+    {
+        setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Ignored);
+        setMouseTracking(true);
+    };
 
     struct arrow_t
     {
@@ -57,6 +61,8 @@ public:
 
     virtual QSize sizeHint() const override;
     virtual void paintEvent(class QPaintEvent* event) override;
+    virtual void mouseMoveEvent(QMouseEvent* event) override;
+    virtual void leaveEvent(QEvent* event) override;
     void buildBranchConnections(const std::vector<WaitList>& waitcnt);
     void buildWaitConnections(const std::vector<WaitList>& waitcnt);
     bool checkConnectionsCache(const std::vector<WaitList>& waitcnt);
@@ -73,7 +79,10 @@ private:
     int max_wait_alloc = 0;
     int max_branch_alloc = 0;
     int scrollposy = 0;
+    int hovered_line_index = -1;
 
+    void handleHotspotHover(QMouseEvent* event);
+    void setHoveredLine(int line_index);
     void paintArrows();
     void paintStalls();
     void paintBranch();
@@ -83,6 +92,6 @@ private:
     std::mutex mut{};
 
 public:
-    static std::vector<QColor>  arrow_colors;
-    static DrawType             drawtype;
+    static std::vector<QColor> arrow_colors;
+    static DrawType drawtype;
 };

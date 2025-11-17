@@ -26,10 +26,10 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include "code/codeload.hpp"
 #include "graphics/canvas.h"
 #include "util/custom_layouts.h"
 #include "wave/token.h"
-#include "code/codeload.hpp"
 
 struct WaveInfo
 {

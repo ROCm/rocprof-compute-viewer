@@ -25,9 +25,9 @@
 #include <set>
 #include <shared_mutex>
 #include "json/include/nlohmann/json.hpp"
+#include "util/jsonrequest.hpp"
 #include "util/version.h"
 #include "wave/scroll.h"
-#include "util/jsonrequest.hpp"
 
 std::mutex code_mutex;
 std::string loaded_cache = "";
@@ -40,10 +40,7 @@ void CodeData::InvalidadeCache()
     cache.clear();
 }
 
-std::vector<CodeData> CodeData::GetCode()
-{
-    return cache;
-}
+std::vector<CodeData> CodeData::GetCode() { return cache; }
 
 std::vector<CodeData> CodeData::LoadCode(const std::string& path)
 {
@@ -71,22 +68,21 @@ std::vector<CodeData> CodeData::LoadCode(const std::string& path)
 
         cache.push_back(
             {int(c[2]),
-            int(c[6]),
-            int64_t(c[5]),
-            int64_t(c[4]),
-            int64_t(c[7]),
-            idle,
-            stall,
-            pcissues + pcstalls,
-            pcstalls,
-            std::string(c[0]),
-            cppline,
-            {}}
+             int(c[6]),
+             int64_t(c[5]),
+             int64_t(c[4]),
+             int64_t(c[7]),
+             idle,
+             stall,
+             pcissues + pcstalls,
+             pcstalls,
+             std::string(c[0]),
+             cppline,
+             {}}
         );
 
         for (auto& [custom_token, custom_type] : Config::CustomTokens())
-            if (cache.back().line->inst.find(custom_token) == 0)
-                cache.back().line->custom_type = custom_type;
+            if (cache.back().line->inst.find(custom_token) == 0) cache.back().line->custom_type = custom_type;
         i += 1;
     }
 

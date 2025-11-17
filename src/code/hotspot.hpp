@@ -59,18 +59,29 @@ public:
 
     void add_latency(int type, Latency sqtt, Latency pcs);
     void paint(
-        class QPainter& painter, const int posx, const int posy, const int sizey, const float sqtt_maxvalue, const float pcs_maxvalue, DrawFormat format, bool rightToLeft
+        class QPainter& painter,
+        const int posx,
+        const int posy,
+        const int sizey,
+        const float sqtt_maxvalue,
+        const float pcs_maxvalue,
+        DrawFormat format,
+        bool rightToLeft,
+        bool highlighted = false
     ) const;
 
+    // Get tooltip text for a given mouse position relative to the hotspot
+    std::string getTooltip() const;
+
     static bool is_pcs_enabled;
-    static int  HISTOGRAM_WIDTH;
+    static int HISTOGRAM_WIDTH;
 
     HorizontalHotspot& operator+=(const HorizontalHotspot& other)
     {
         sqtt += other.sqtt;
         pcs += other.pcs;
-        for (size_t i=0; i<typed_latency.size(); i++) typed_latency[i] += other.typed_latency[i];
-        for (size_t i=0; i<stall_reason.size(); i++) stall_reason[i] += other.stall_reason[i];
+        for (size_t i = 0; i < typed_latency.size(); i++) typed_latency[i] += other.typed_latency[i];
+        for (size_t i = 0; i < stall_reason.size(); i++) stall_reason[i] += other.stall_reason[i];
         return *this;
     }
 

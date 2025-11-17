@@ -22,8 +22,10 @@
 
 #include "canvas.h"
 #include <QBrush>
+#include <QMouseEvent>
 #include <QPainter>
 #include <QPainterPath>
+#include <QToolTip>
 #include <chrono>
 #include <map>
 #include <set>
@@ -354,7 +356,7 @@ bool Canvas::Connect(QPainter& painter, int l1, int l2, int xslot, QColor& color
 
 void Canvas::paintStalls()
 {
-    QWARNING(MainWindow::window && MainWindow::window->code_contents, "no contents", return);
+    QWARNING(MainWindow::window && MainWindow::window->code_contents, "no contents", return );
     auto* contents = MainWindow::window->code_contents;
 
     const int padding = 2;
@@ -363,7 +365,7 @@ void Canvas::paintStalls()
     MainWindow::getScaling(painter);
     QPen pen;
     pen.setColor(WindowColors::HotspotOutline());
-    painter.setPen(Qt::NoPen);  // Set to NoPen initially since HorizontalHotspot will manage pen state
+    painter.setPen(Qt::NoPen); // Set to NoPen initially since HorizontalHotspot will manage pen state
     painter.setBrush(Qt::NoBrush);
 
     const int lineheight = QCodelist::lineheight();
@@ -385,8 +387,83 @@ void Canvas::paintStalls()
         auto ypos = lineheight * line->line_index + padding - scrollposy;
         if (ypos > this->height()) break;
 
-        line->hotspot.paint(painter, 0, ypos, lineheight - 2*padding, contents->max_sqtt_latency, contents->max_pcs_latency, HorizontalHotspot::DrawFormat::DRAWSTALL, false);
+        bool highlighted = (hovered_line_index == line->line_index);
+        line->hotspot.paint(
+            painter,
+            0,
+            ypos,
+            lineheight - 2 * padding,
+            contents->max_sqtt_latency,
+            contents->max_pcs_latency,
+            HorizontalHotspot::DrawFormat::DRAWSTALL,
+            false,
+            highlighted
+        );
     }
+}
+
+// Helper method for handling hotspot hover interactions
+void Canvas::setHoveredLine(int line_index)
+{
+    if (hovered_line_index != line_index)
+    {
+        hovered_line_index = line_index;
+        update();
+    }
+}
+
+void Canvas::handleHotspotHover(QMouseEvent* event)
+{
+    QWARNING(MainWindow::window && MainWindow::window->code_contents, "no contents", return );
+    auto* contents = MainWindow::window->code_contents;
+
+    const int padding = 2;
+    const int lineheight = QCodelist::lineheight();
+    const int mouse_y = event->pos().y();
+
+    // Binary search for first visible line
+    int target_index = std::max(0, (scrollposy - padding) / lineheight);
+    auto start_it = std::lower_bound(
+        ASMCodeline::line_vec.begin(),
+        ASMCodeline::line_vec.end(),
+        target_index,
+        [](const auto& line, int idx) { return line && line->line_index < idx; }
+    );
+
+    for (auto it = start_it; it != ASMCodeline::line_vec.end(); ++it)
+    {
+        auto line = *it;
+        if (!line) continue;
+
+        auto ypos = lineheight * line->line_index + padding - scrollposy;
+        if (ypos > this->height()) break;
+
+        // Check if mouse is vertically within this line's bounds
+        if (mouse_y < ypos || mouse_y > ypos + lineheight - 2 * padding) continue;
+
+        std::string tooltip = line->hotspot.getTooltip();
+
+        if (!tooltip.empty())
+        {
+            setHoveredLine(line->line_index);
+            QToolTip::showText(event->globalPos(), QString::fromStdString(tooltip), this);
+            return;
+        }
+    }
+
+    setHoveredLine(-1);
+}
+
+void Canvas::mouseMoveEvent(QMouseEvent* event)
+{
+    if (drawtype == DrawType::DrawStall) handleHotspotHover(event);
+    QWidget::mouseMoveEvent(event);
+}
+
+void Canvas::leaveEvent(QEvent* event)
+{
+    setHoveredLine(-1);
+    QWidget::leaveEvent(event);
 }
 
 void Canvas::paintBranch()
