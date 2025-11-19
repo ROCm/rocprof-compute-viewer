@@ -29,9 +29,11 @@
 #    include <QMainWindow>
 #endif
 #include <QApplication>
+#include <QLineEdit>
 #include <QMetaObject>
 #include <QStyleFactory>
 #include <QTreeView>
+#include <optional>
 #include <string_view>
 #include <vector>
 #include "collection/hotspotsummarywidget.h"
@@ -200,6 +202,9 @@ private:
     void saveDisplayScalingSetting(int state);
 
     class HotspotSummaryWidget* hotspotSummary = nullptr;
+
+    static std::optional<int> parseLineEditInt(const QLineEdit* edit);
+    static std::optional<int64_t> parseLineEditInt64(const QLineEdit* edit);
 
 private slots:
     void onFileClicked(const QModelIndex& index);

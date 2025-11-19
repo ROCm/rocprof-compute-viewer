@@ -37,6 +37,7 @@ QAbstractItemModel(parent), view(view), rootNode(std::make_shared<Node>("root", 
 
 void JsonFileModel::setJson(const QJsonObject& json)
 {
+    beginResetModel();
     rootNode->children.clear();
     parseJson(json, rootNode);
     updateAllHotspotsAndLatencies(rootNode);

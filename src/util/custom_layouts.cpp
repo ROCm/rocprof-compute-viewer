@@ -22,31 +22,29 @@
 
 #include "custom_layouts.h"
 
-QVBox::~QVBox()
+namespace
 {
-    while (QLayoutItem* child = this->takeAt(0))
-    {
-        delete child->widget();
-        delete child;
-    }
-}
-QHBox::~QHBox()
+void clearLayout(QLayout* layout)
 {
-    while (QLayoutItem* child = this->takeAt(0))
-    {
-        delete child->widget();
-        delete child;
-    }
-}
+    if (!layout) return;
 
-QBox::~QBox()
-{
-    while (QLayoutItem* child = this->takeAt(0))
+    while (QLayoutItem* child = layout->takeAt(0))
     {
-        delete child->widget();
+        if (auto* child_layout = child->layout()) clearLayout(child_layout);
+        if (auto* widget = child->widget())
+        {
+            widget->setParent(nullptr);
+            delete widget;
+        }
         delete child;
     }
 }
+} // namespace
+
+QVBox::~QVBox() { clearLayout(this); }
+QHBox::~QHBox() { clearLayout(this); }
+
+QBox::~QBox() { clearLayout(this); }
 
 int MemTracker::count = 0;
 std::unordered_map<std::string, int> MemTracker::classes;

@@ -22,9 +22,11 @@
 
 #include "canvas.h"
 #include <QBrush>
+#include <QMetaObject>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPainterPath>
+#include <QThread>
 #include <QToolTip>
 #include <chrono>
 #include <map>
@@ -262,24 +264,38 @@ void Canvas::buildWaitConnections(const std::vector<WaitList>& waitcnt)
 
     auto result = buildConnections(waitcnt);
 
-    auto _lk = std::unique_lock{mut};
-    max_wait_alloc = result.first;
-    arrows = std::move(result.second);
+    auto applyResult = [this, result = std::move(result)]() mutable
+    {
+        auto _lk = std::unique_lock{mut};
+        max_wait_alloc = result.first;
+        arrows = std::move(result.second);
+        updateGeometry();
+        update();
+    };
 
-    updateGeometry();
-    update();
+    if (QThread::currentThread() == thread())
+        applyResult();
+    else
+        QMetaObject::invokeMethod(this, std::move(applyResult), Qt::QueuedConnection);
 };
 
 void Canvas::buildBranchConnections(const std::vector<WaitList>& waitcnt)
 {
     auto result = buildConnections(waitcnt);
 
-    auto _lk = std::unique_lock{mut};
-    max_branch_alloc = result.first;
-    branches = std::move(result.second);
+    auto applyResult = [this, result = std::move(result)]() mutable
+    {
+        auto _lk = std::unique_lock{mut};
+        max_branch_alloc = result.first;
+        branches = std::move(result.second);
+        updateGeometry();
+        update();
+    };
 
-    updateGeometry();
-    update();
+    if (QThread::currentThread() == thread())
+        applyResult();
+    else
+        QMetaObject::invokeMethod(this, std::move(applyResult), Qt::QueuedConnection);
 };
 
 bool Canvas::Connect(QPainter& painter, int l1, int l2, int xslot, QColor& color)

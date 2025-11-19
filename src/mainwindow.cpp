@@ -23,13 +23,16 @@
 #include "mainwindow.h"
 #include <stdlib.h>
 #include <sys/stat.h>
+#include <QDir>
 #include <QFileDialog>
 #include <QFontDatabase>
 #include <QMessageBox>
 #include <QPainterPath>
 #include <QScrollArea>
 #include <QSpinBox>
+#include <algorithm>
 #include <fstream>
+#include <future>
 #include <vector>
 #include "./ui_mainwindow.h"
 #include "button/historyentry.h"
@@ -294,12 +297,7 @@ int& MainWindow::font()
 
 void MainWindow::updateFont()
 {
-    try
-    {
-        font() = std::min(std::max(5, std::stoi(ui->fontedit->displayText().toStdString())), 19);
-    }
-    catch (...)
-    {}
+    if (auto newFontValue = parseLineEditInt(ui->fontedit)) { font() = std::clamp(*newFontValue, 5, 19); }
 
     update();
     updateGeometry();
@@ -343,13 +341,10 @@ void MainWindow::setScaling(int scale)
 
 void MainWindow::SourceHotspotSizeEdited()
 {
-    try
+    if (auto hotspotWidth = parseLineEditInt(ui->source_hotspot_size_edit))
     {
-        HorizontalHotspot::HISTOGRAM_WIDTH =
-            std::max(0, std::stoi(ui->source_hotspot_size_edit->displayText().toStdString()));
+        HorizontalHotspot::HISTOGRAM_WIDTH = std::max(0, *hotspotWidth);
     }
-    catch (...)
-    {}
 
     if (!source_filetab) return;
 
@@ -368,7 +363,7 @@ void MainWindow::ToggleDisplayLineNumber(int display)
     source_filetab->setVisible(true);
 }
 
-std::string MainWindow::GetDisplayDir() { return ui->ConfigNameEdit->displayText().toStdString() + '/'; }
+std::string MainWindow::GetDisplayDir() { return QDir::cleanPath(ui->ConfigNameEdit->displayText()).toStdString(); }
 std::string MainWindow::GetUIDir()
 {
     QASSERT(window, "");
@@ -377,29 +372,20 @@ std::string MainWindow::GetUIDir()
 
 void MainWindow::UpdateWaveViewRange()
 {
-    try
-    {
-        std::string str_vmin = ui->wview_range_min->displayText().toStdString();
-        std::string str_vmax = ui->wview_range_max->displayText().toStdString();
+    auto vmin = parseLineEditInt64(ui->wview_range_min);
+    auto vmax = parseLineEditInt64(ui->wview_range_max);
+    QWARNING(vmin && vmax, "Could not set range values.", return );
 
-        int64_t vmin = stol(str_vmin);
-        int64_t vmax = stol(str_vmax);
+    QCustomScroll::clock_cutoff_start = *vmin;
+    QCustomScroll::clock_cutoff_end = std::max(*vmax, *vmin + int64_t(128));
 
-        QCustomScroll::clock_cutoff_start = vmin;
-        QCustomScroll::clock_cutoff_end = std::max(vmax, vmin + 128);
+    if (force_gather || *vmin < current_loaded_clk_start || *vmax > current_loaded_clk_end) GatherWaves();
 
-        if (force_gather || vmin < current_loaded_clk_start || vmax > current_loaded_clk_end) GatherWaves();
+    cuwaves_h_scrollarea->updatebar(true);
+    utilization_h_scrollarea->updatebar(true);
 
-        cuwaves_h_scrollarea->updatebar(true);
-        utilization_h_scrollarea->updatebar(true);
-
-        if (source_filetab) source_filetab->resetLatency();
-        if (WaveInstance::main_wave && code_contents) code_contents->Populate(WaveInstance::main_wave->code);
-    }
-    catch (std::exception& e)
-    {
-        QWARNING(false, "Could not set range values.", return );
-    }
+    if (source_filetab) source_filetab->resetLatency();
+    if (WaveInstance::main_wave && code_contents) code_contents->Populate(WaveInstance::main_wave->code);
 }
 
 void MainWindow::SetMainWave(int se, int simd, int sl, int wid)
@@ -418,10 +404,16 @@ void MainWindow::SetMainWave(int se, int simd, int sl, int wid)
     auto main_wave = WaveInstance::Get(wave_name.str());
     WaveInstance::main_wave = main_wave;
 
-    auto thread1 =
-        std::async(std::launch::async, &Canvas::buildWaitConnections, code_contents->connector, main_wave->waitcnt);
-    auto thread2 = std::async(
-        std::launch::async, [&]() { code_contents->connector->buildBranchConnections(main_wave->get_branch_targets()); }
+    QWARNING(main_wave && code_contents && code_contents->connector, "invalid code_contents", return );
+
+    auto thread_wait = std::async(
+        std::launch::async,
+        [this, main_wave]() { this->code_contents->connector->buildWaitConnections(main_wave->waitcnt); }
+    );
+    auto thread_branch = std::async(
+        std::launch::async,
+        [this, main_wave]() mutable
+        { this->code_contents->connector->buildBranchConnections(main_wave->get_branch_targets()); }
     );
 
     ui->wview_range_min->setText(std::to_string(main_wave->wave_begin).c_str());
@@ -440,8 +432,8 @@ void MainWindow::SetMainWave(int se, int simd, int sl, int wid)
         i++;
     }
 
-    thread1.get();
-    thread2.get();
+    if (thread_wait.valid()) thread_wait.get();
+    if (thread_branch.valid()) thread_branch.get();
 
     QTimer* timer = new QTimer(this);
     timer->setSingleShot(true);
@@ -510,12 +502,6 @@ void MainWindow::SetJsonsFolder()
     ResetSelector();
 }
 
-inline static std::string remove_slash(std::string in)
-{
-    while (in.size() && in.back() == '/') in = in.substr(0, in.size() - 1);
-    return in;
-}
-
 void recursive_load(
     const std::string& path, nlohmann::json& data, std::vector<std::pair<std::string, std::string>>& widgets
 )
@@ -570,7 +556,11 @@ void MainWindow::LoadSourceFiles()
 
 void MainWindow::ResetSelector()
 {
-    std::string newpath = remove_slash(GetDisplayDir()) + "/filenames.json";
+    const QString displayDir = QString::fromStdString(GetDisplayDir());
+    if (displayDir.isEmpty()) return;
+
+    QDir dir(displayDir);
+    const std::string newpath = dir.filePath("filenames.json").toStdString();
     if (newpath == lastPath) return;
 
     std::shared_ptr<JsonRequest> request{nullptr};
@@ -581,10 +571,12 @@ void MainWindow::ResetSelector()
     }
     catch (std::exception& e)
     {
-        ui->ConfigNameEdit->setText(ui_dir.c_str());
+        ui->ConfigNameEdit->setText(QString::fromStdString(ui_dir));
         QWARNING(false, "Invalid filename " << newpath, return );
     }
-    ui_dir = remove_slash(GetDisplayDir()) + '/';
+
+    ui_dir = dir.path().toStdString();
+    if (!ui_dir.empty() && ui_dir.back() != '/') ui_dir.push_back('/');
     lastPath = newpath;
 
     current_loaded_clk_start = -1;
@@ -1183,7 +1175,11 @@ void MainWindow::SetIteration(int code_line, int iteration)
 
 void MainWindow::SetIterationCallback()
 {
-    iteration_current.second = std::stoi(ui->iteration_edit->displayText().toStdString());
+    bool ok = false;
+    const int next_iteration = ui->iteration_edit->text().toInt(&ok);
+    if (!ok) return; // Ignore incomplete or invalid input instead of crashing.
+
+    iteration_current.second = next_iteration;
     int64_t clock = WaveInstance::GetMainClock(iteration_current.first, iteration_current.second);
     if (clock >= 0) ScrollViewsTo(clock);
 }
@@ -1480,3 +1476,19 @@ void MainWindow::saveFontSizeSetting()
 void MainWindow::saveDarkThemeSetting(int state) { AppConfig::getInstance().setDarkTheme(state != 0); }
 
 void MainWindow::saveDisplayScalingSetting(int state) { AppConfig::getInstance().setDisplayScaling(state != 0); }
+
+std::optional<int> MainWindow::parseLineEditInt(const QLineEdit* edit)
+{
+    if (!edit) return std::nullopt;
+    bool ok = false;
+    const int value = edit->text().toInt(&ok);
+    return ok ? std::optional<int>(value) : std::nullopt;
+}
+
+std::optional<int64_t> MainWindow::parseLineEditInt64(const QLineEdit* edit)
+{
+    if (!edit) return std::nullopt;
+    bool ok = false;
+    const qlonglong value = edit->text().toLongLong(&ok);
+    return ok ? std::optional<int64_t>(value) : std::nullopt;
+}
