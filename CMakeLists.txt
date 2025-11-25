@@ -36,11 +36,15 @@ if(CMAKE_BUILD_TYPE STREQUAL "")
 endif()
 
 include_directories(src)
+include_directories(${CMAKE_CURRENT_BINARY_DIR}/src)
 
 file(READ "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE" LICENSE_FILE_CONTENT)
 set(LICENSE_HEADER_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/collection/license.h")
 configure_file("src/collection/license_data.cpp.in" "src/collection/license_data.cpp" @ONLY)
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS src/collection/license_data.cpp)
+
+# Configure version header
+configure_file("src/util/version.h.in" "src/util/version.h" @ONLY)
 
 file(GLOB RCVIEWER_SOURCE_FILES
     src/main.cpp

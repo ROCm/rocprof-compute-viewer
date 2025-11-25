@@ -1092,6 +1092,7 @@
     </property>
     <addaction name="actionAbout_QT"/>
     <addaction name="actionLicense"/>
+    <addaction name="actionVersion"/>
    </widget>
    <addaction name="menuImport_2"/>
    <addaction name="menuEdit"/>
@@ -1120,6 +1121,11 @@
   <action name="actionLicense">
    <property name="text">
     <string>License</string>
+   </property>
+  </action>
+  <action name="actionVersion">
+   <property name="text">
+    <string>Version</string>
    </property>
   </action>
  </widget>

@@ -95,21 +95,8 @@ void Token::DrawToken(QPainter& painter, int64_t viewstart, int64_t viewend, flo
     QRectF rect(pos, posy, width, height);
     painter.setPen(QPen(Qt::black, penwidth));
 
-    if (width > 2 && Token::mipmap_level == 0)
-    {
-        QPainterPath path;
-        QRectF rect(pos, posy, width, height);
-        int corner = 1 + (this->cycles > 2 * WaveInstance::BaseClock());
-        path.addRoundedRect(rect, corner, corner);
-
-        painter.fillPath(path, brush);
-        painter.drawPath(path);
-    }
-    else
-    {
-        painter.fillRect(rect, brush);
-        painter.drawRect(rect);
-    }
+    painter.fillRect(rect, brush);
+    painter.drawRect(rect);
 }
 
 std::string Token::ToolTip() const
@@ -159,7 +146,7 @@ void WaveState::DrawState(QPainter& painter, int64_t viewstart, int64_t viewend)
 
     QColor& color = STATE_COLORS[this->state % STATE_COLORS.size()];
     QPainterPath path;
-    path.addRoundedRect(QRectF(pos, wstate_posy, width, wstate_height), 1, 1);
+    path.addRect(QRectF(pos, wstate_posy, width, wstate_height));
 
     QLinearGradient grad(0, wstate_posy, 0, wstate_posy + wstate_height);
     grad.setColorAt(0.5, color);

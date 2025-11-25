@@ -48,6 +48,32 @@ QWaveView::QWaveView(QCustomScroll* parent) : view(parent->view), tool(parent->t
 
 void QWaveView::Reset() { waves.clear(); }
 
+void QWaveView::setLineHover(int line_index, bool hover)
+{
+    auto line_it = ASMCodeline::line_map.find(line_index);
+    if (line_it == ASMCodeline::line_map.end() || line_it->second == nullptr) return;
+
+    try
+    {
+        if (auto asm_line = line_it->second->elements.at(ASMCodeline::Element::EASM).get())
+        {
+            asm_line->setMouseHover(hover);
+            if (QCodelist::singleton) QCodelist::singleton->update();
+        }
+    }
+    catch (...)
+    {}
+}
+
+void QWaveView::clearLineHover()
+{
+    if (hovering_line_index >= 0)
+    {
+        setLineHover(hovering_line_index, false);
+        hovering_line_index = -1;
+    }
+}
+
 void QWaveView::paintEvent(QPaintEvent* event)
 {
     QPainter painter(this);
@@ -77,7 +103,11 @@ void QWaveView::mouseMoveEvent(QMouseEvent* event)
     int posy = event->pos().y();
 
     auto wave_it = waves.upper_bound(clock);
-    if (wave_it == waves.begin()) return;
+    if (wave_it == waves.begin())
+    {
+        clearLineHover();
+        return;
+    }
 
     auto& container_wave = *(std::prev(wave_it)->second);
 
@@ -85,11 +115,21 @@ void QWaveView::mouseMoveEvent(QMouseEvent* event)
     if (posy < WSTATE_POSY())
     {
         auto it = container_wave.tokens.get_token_in_clock(clock);
-        if (it == container_wave.tokens.end()) return;
+        if (it == container_wave.tokens.end())
+        {
+            clearLineHover();
+            return;
+        }
 
         auto& token = *it;
 
-        if (token.end_time() > clock) { tooltip = token.ToolTip(); }
+        // Update hover highlight on corresponding assembly line
+        int new_hover_index = -1;
+        if (token.end_time() > clock)
+        {
+            tooltip = token.ToolTip();
+            new_hover_index = token.code_line;
+        }
         else
         {
             Token blankToken{};
@@ -100,9 +140,21 @@ void QWaveView::mouseMoveEvent(QMouseEvent* event)
                 blankToken.cycles = container_wave.wave_end - blankToken.clock;
             tooltip = blankToken.ToolTip();
         }
+
+        // Update hover state
+        if (new_hover_index != hovering_line_index)
+        {
+            clearLineHover();
+            if (new_hover_index >= 0)
+            {
+                hovering_line_index = new_hover_index;
+                setLineHover(hovering_line_index, true);
+            }
+        }
     }
     else
     {
+        clearLineHover();
         auto it = container_wave.timeline.upper_bound(clock);
         if (it == container_wave.timeline.begin()) return;
 
@@ -114,6 +166,12 @@ void QWaveView::mouseMoveEvent(QMouseEvent* event)
 void QWaveView::mouseReleaseEvent(QMouseEvent* event)
 {
     if (tool && event->button() & Qt::RightButton) tool->mousePressEvent(false, event->pos().x(), event->pos().y());
+}
+
+void QWaveView::leaveEvent(QEvent* event)
+{
+    Super::leaveEvent(event);
+    clearLineHover();
 }
 
 void QWaveView::mousePressEvent(QMouseEvent* event)

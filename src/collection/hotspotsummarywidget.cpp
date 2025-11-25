@@ -51,7 +51,7 @@ void HotspotSummaryWidget::setFile(const std::string& filePath, const std::strin
     }
 
     // If no matches, log error
-    if (lineLatencies.empty()) { qDebug() << "ERROR: No hotspots found for path:" << QString::fromStdString(filePath); }
+    QWARNING(!lineLatencies.empty(), "ERROR: No hotspots found for path:" << filePath, return );
 
     // Sort and take top hotspots
     std::sort(
