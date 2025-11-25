@@ -81,6 +81,9 @@ public:
     // Notify all active PlotGraph widgets to update
     void notifyPlotsUpdate();
 
+    // Update button styles to reflect current theme
+    void updateButtonStyles();
+
     QSize sizeHint() const override;
 
 public slots:
@@ -89,6 +92,7 @@ public slots:
 
 private:
     void updateLayoutStretches();
+    QString createButtonStyleSheet() const;
 
     bool removeSectionInternal(CollapsibleSection* section);
 

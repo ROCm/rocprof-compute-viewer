@@ -91,7 +91,14 @@ void HotspotView::mousePressEvent(QMouseEvent* ev)
 
         int begin = bin.center_line - step / 2;
         int end = bin.center_line + step / 2;
-        int start_success = 100;
+
+        try
+        {
+            begin = ASMCodeline::line_map.at(begin)->line_index;
+            end = ASMCodeline::line_map.at(end)->line_index;
+        }
+        catch (...)
+        {}
 
         QASSERT(QCodelist::singleton, "Invalid codelist");
         QCodelist::singleton->Highlight(begin, end, true);

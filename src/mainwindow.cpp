@@ -306,6 +306,9 @@ MainWindow::MainWindow(std::string uidir) : QMainWindow(nullptr), ui(new Ui::Mai
             WindowColors::setDark(box);
             this->lastPath = "";
             this->ResetSelector();
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+            if (accordion) accordion->updateButtonStyles();
+#endif
             this->update();
         }
     );
@@ -1477,9 +1480,9 @@ void MainWindow::showEvent(QShowEvent* event)
 #else
         auto rect = QApplication::desktop()->availableGeometry(this);
 #endif
-        int width = rect.width() / pixelRatio;
-        int height = rect.height() / pixelRatio;
-        this->setGeometry(width / 12, height / 12, width, height);
+        int _width = std::min<int>(rect.width() / pixelRatio, width());
+        int _height = std::min<int>(rect.height() / pixelRatio, height());
+        this->setGeometry(_width / 12, _height / 12, _width, _height);
     }
 }
 

@@ -2,9 +2,13 @@
 #include <QApplication>
 #include <QGraphicsDropShadowEffect>
 #include <QLabel>
+#include <QStyle>
 #include "config/config.hpp"
 #include "graphics/plot.h"
 #include "memtracker.h"
+
+const char* PANEL_STYLESHEET =
+    "#AccordionButtonPanel { background-color: palette(Window); padding: 0px; margin: 0px; }";
 
 CollapsibleSection::CollapsibleSection(
     const QString& title, QWidget* contentWidget, bool expanded /*= false*/, QWidget* parent /*= nullptr*/
@@ -56,7 +60,7 @@ QWidget* CollapsibleSection::replaceContentWidget(QWidget* newContentWidget)
     // Remove old widget from layout
     QWidget* oldWidget = m_contentWidget;
 
-    if (oldWidget) { m_internalLayout->removeWidget(oldWidget); }
+    if (oldWidget) m_internalLayout->removeWidget(oldWidget);
 
     m_contentWidget = newContentWidget;
 
@@ -73,7 +77,7 @@ QWidget* CollapsibleSection::replaceContentWidget(QWidget* newContentWidget)
 
 void CollapsibleSection::setContentVisible(bool visible)
 {
-    if (m_contentWidget) { m_contentWidget->setVisible(visible); }
+    if (m_contentWidget) m_contentWidget->setVisible(visible);
 
     // When collapsed, hide the entire section to save space
     if (!visible)
@@ -105,9 +109,7 @@ AccordionWidget::AccordionWidget(QWidget* parent /* = nullptr */) : QWidget(pare
     // Button Panel Setup
     m_buttonPanel = new QWidget(this);
     m_buttonPanel->setObjectName("AccordionButtonPanel");
-    m_buttonPanel->setStyleSheet(
-        "#AccordionButtonPanel { background-color: palette(Window); padding: 0px; margin: 0px; }"
-    );
+    m_buttonPanel->setStyleSheet(PANEL_STYLESHEET);
     m_buttonPanelLayout = new QHBoxLayout(m_buttonPanel);
     m_buttonPanelLayout->setContentsMargins(0, 0, 0, 0); // No padding
     m_buttonPanelLayout->setSpacing(0);
@@ -142,30 +144,7 @@ void AccordionWidget::addSection(
     panelButton->setCheckable(true);
     panelButton->setChecked(section->isExpanded()); // Sync initial state
 
-    // Create border color slightly lighter than background
-    QColor borderColor = WindowColors::HotspotBkg().lighter(140);
-    QColor checkedBgColor = WindowColors::HotspotBkg().lighter(120);
-    QString styleSheet = QString("QPushButton { "
-                                 "  border: 1px solid rgb(%1,%2,%3); "
-                                 "  border-bottom: 2px solid transparent; "
-                                 "  border-top-left-radius: 2px; "
-                                 "  border-top-right-radius: 2px; "
-                                 "  border-bottom-left-radius: 0px; "
-                                 "  border-bottom-right-radius: 0px; "
-                                 "  padding: 4px 10px; "
-                                 "  margin: 0px; "
-                                 "} "
-                                 "QPushButton:checked { "
-                                 "  border-bottom: 2px solid palette(Highlight); "
-                                 "  background-color: rgb(%4,%5,%6); "
-                                 "}")
-                             .arg(borderColor.red())
-                             .arg(borderColor.green())
-                             .arg(borderColor.blue())
-                             .arg(checkedBgColor.red())
-                             .arg(checkedBgColor.green())
-                             .arg(checkedBgColor.blue());
-    panelButton->setStyleSheet(styleSheet);
+    panelButton->setStyleSheet(createButtonStyleSheet());
 
     // Add shadow effect using QGraphicsDropShadowEffect
     QColor shadowColor = WindowColors::HotspotBkg().darker(200);
@@ -195,7 +174,7 @@ CollapsibleSection* AccordionWidget::findSectionByContent(QWidget* contentWidget
     for (int i = 0; i < m_mainLayout->count(); ++i)
     {
         CollapsibleSection* section = qobject_cast<CollapsibleSection*>(m_mainLayout->itemAt(i)->widget());
-        if (section && section->contentWidget() == contentWidget) { return section; }
+        if (section && section->contentWidget() == contentWidget) return section;
     }
     return nullptr;
 }
@@ -205,7 +184,7 @@ CollapsibleSection* AccordionWidget::findSectionByTitle(const QString& title) co
     for (int i = 0; i < m_mainLayout->count(); ++i)
     {
         CollapsibleSection* section = qobject_cast<CollapsibleSection*>(m_mainLayout->itemAt(i)->widget());
-        if (section && section->title() == title) { return section; }
+        if (section && section->title() == title) return section;
     }
     return nullptr;
 }
@@ -289,11 +268,11 @@ void AccordionWidget::onButtonClicked()
     int openSectionCount = 0;
     for (auto it = m_sectionButtonMap.constBegin(); it != m_sectionButtonMap.constEnd(); ++it)
     {
-        if (it.key()->isExpanded()) { openSectionCount++; }
+        if (it.key()->isExpanded()) openSectionCount++;
     }
 
     // Prevent closing if this is the only open section and user is trying to close it
-    if (openSectionCount == 1 && clickedSection->isExpanded() && !isCtrlPressed) { return; }
+    if (openSectionCount == 1 && clickedSection->isExpanded() && !isCtrlPressed) return;
 
     if (!isCtrlPressed)
     {
@@ -301,7 +280,7 @@ void AccordionWidget::onButtonClicked()
         for (auto it = m_sectionButtonMap.constBegin(); it != m_sectionButtonMap.constEnd(); ++it)
         {
             CollapsibleSection* section = it.key();
-            if (section != clickedSection && section->isExpanded()) { section->expand(false); }
+            if (section != clickedSection && section->isExpanded()) section->expand(false);
         }
     }
 
@@ -317,9 +296,35 @@ void AccordionWidget::updateLayoutStretches()
         if (item->widget())
         {
             CollapsibleSection* section = qobject_cast<CollapsibleSection*>(item->widget());
-            if (section) { m_mainLayout->setStretchFactor(section, section->isExpanded() ? 1 : 0); }
+            if (section) m_mainLayout->setStretchFactor(section, section->isExpanded() ? 1 : 0);
         }
     }
+}
+
+QString AccordionWidget::createButtonStyleSheet() const
+{
+    QColor borderColor = WindowColors::HotspotBkg().lighter(140);
+    QColor checkedBgColor = WindowColors::HotspotBkg().lighter(120);
+    return QString("QPushButton { "
+                   "  border: 1px solid rgb(%1,%2,%3); "
+                   "  border-bottom: 2px solid transparent; "
+                   "  border-top-left-radius: 2px; "
+                   "  border-top-right-radius: 2px; "
+                   "  border-bottom-left-radius: 0px; "
+                   "  border-bottom-right-radius: 0px; "
+                   "  padding: 4px 10px; "
+                   "  margin: 0px; "
+                   "} "
+                   "QPushButton:checked { "
+                   "  border-bottom: 2px solid palette(Highlight); "
+                   "  background-color: rgb(%4,%5,%6); "
+                   "}")
+        .arg(borderColor.red())
+        .arg(borderColor.green())
+        .arg(borderColor.blue())
+        .arg(checkedBgColor.red())
+        .arg(checkedBgColor.green())
+        .arg(checkedBgColor.blue());
 }
 
 void AccordionWidget::updateButtonState(const QString& title, bool enabled)
@@ -356,7 +361,30 @@ void AccordionWidget::notifyPlotsUpdate()
         if (section && section->isExpanded() && section->contentWidget())
         {
             // Check if content is a PlotGraph
-            if (auto* plot = qobject_cast<class PlotGraph*>(section->contentWidget())) { plot->update(); }
+            if (auto* plot = qobject_cast<class PlotGraph*>(section->contentWidget())) plot->update();
+        }
+    }
+}
+
+void AccordionWidget::updateButtonStyles()
+{
+    // Update button panel background color
+    if (m_buttonPanel) m_buttonPanel->setStyleSheet(PANEL_STYLESHEET);
+
+    for (auto it = m_sectionButtonMap.constBegin(); it != m_sectionButtonMap.constEnd(); ++it)
+    {
+        QPushButton* button = it.value();
+        if (button)
+        {
+            button->setStyleSheet(createButtonStyleSheet());
+
+            // Update shadow color
+            if (QGraphicsDropShadowEffect* shadow = qobject_cast<QGraphicsDropShadowEffect*>(button->graphicsEffect()))
+            {
+                QColor shadowColor = WindowColors::HotspotBkg().darker(200);
+                shadowColor.setAlpha(100);
+                shadow->setColor(shadowColor);
+            }
         }
     }
 }
