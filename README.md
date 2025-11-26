@@ -56,6 +56,22 @@ For rocprofv3 to generate thread trace data correctly, the following components 
 
 ## Using the ROCprof Compute Viewer
 
+### Shortcuts and Interactions
+
+* Multiple tabs on top widget:
+  * Ctrl+Left mouse on tab headers will keep multiple tabs open
+  * Left click will switch tabs normally
+* Plots:
+  * Mousewheel zooms in/out horizontally
+  * Ctrl + Mousewheel zooms vertically
+  * Right click + drag for panning
+  * Ctrl + Left mouse on will reset axis to default
+* Compute Unit and Utilization:
+  * A/D for panning
+  * Mousewheel for vertical scroll
+  * Ctrl + Mousewheel for zoom in/out
+  * Right click and drag for measuring cycles (also Global View)
+
 ### Hotspot Tab
 
 ![Alt text](docs/data/hotspot.png)

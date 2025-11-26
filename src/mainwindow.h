@@ -128,6 +128,10 @@ public:
     class QWidget* hotspot_tab = nullptr;
     class SourceFileTab* source_filetab = nullptr;
 
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    class AccordionWidget* accordion = nullptr;
+#endif
+
     class WaveIDSelector* widSelector = nullptr;
     std::pair<int, int> iteration_current{};
 

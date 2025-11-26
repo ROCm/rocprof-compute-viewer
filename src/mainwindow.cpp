@@ -52,9 +52,14 @@
 #include "graphics/specialized_plots.h"
 #include "summary/summaryview.h"
 #include "util/jsonrequest.hpp"
+#include "util/version.h"
 #include "wave/scroll.h"
 #include "wave/waveglobal.h"
 #include "wave/waveview.h"
+
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+#    include "util/accordionwidget.h"
+#endif
 
 #if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
 #    include <QGuiApplication>
@@ -132,6 +137,11 @@ MainWindow::MainWindow(std::string uidir) : QMainWindow(nullptr), ui(new Ui::Mai
     ui->splitter->setSizes(QList<int>({height() / 3, 2 * height() / 3}));
     ui->splitter_2->setSizes(QList<int>({height() / 6, height() / 2, 2 * height() / 6}));
 
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    accordion = new AccordionWidget();
+    ui->splitter->replaceWidget(0, accordion);
+#endif
+
     for (int i = 0; i < 16; i++) cu_enable_list.push_back(true);
 
     this->history_table = ui->history_table;
@@ -205,6 +215,11 @@ MainWindow::MainWindow(std::string uidir) : QMainWindow(nullptr), ui(new Ui::Mai
         &QCustomScroll::onScroll
     );
 
+    QWidget* compute_unit_widget = new QWidget(this);
+    compute_unit_widget->setLayout(new QVBox());
+    compute_unit_widget->layout()->addWidget(cuwaves_v_scrollarea);
+    compute_unit_widget->layout()->addWidget(cuwaves_h_scrollarea);
+
     // ---- Utilization View ----
     ui->utilization_tab->setLayout(new QVBox());
     utilization_v_scrollarea = new QScrollArea(this);
@@ -217,6 +232,25 @@ MainWindow::MainWindow(std::string uidir) : QMainWindow(nullptr), ui(new Ui::Mai
 
     utilization_content = new QUtilization(utilization_h_scrollarea);
     utilization_v_scrollarea->setWidget(utilization_content);
+
+    QWidget* ulitization_widget = new QWidget(this);
+    ulitization_widget->setLayout(new QVBox());
+    ulitization_widget->layout()->addWidget(utilization_v_scrollarea);
+    ulitization_widget->layout()->addWidget(utilization_h_scrollarea);
+
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    accordion->addSection("Counters", nullptr);
+    accordion->addSection("Wave States", nullptr);
+    accordion->addSection("Hotspot", nullptr);
+    accordion->addSection("Occupancy", nullptr);
+    accordion->addSection("Kernel Dispatch", nullptr);
+    accordion->addSection("Compute Unit", compute_unit_widget, true);
+    accordion->addSection("Utilization", ulitization_widget);
+
+    // Connect scroll updates to accordion plots
+    connect(cuwaves_h_scrollarea, &QCustomScroll::valueupdated, accordion, &AccordionWidget::notifyPlotsUpdate);
+#endif
+
     this->global_view_tab = ui->globalview_tab;
 
     summary_view = new SummaryView(this);
@@ -272,6 +306,9 @@ MainWindow::MainWindow(std::string uidir) : QMainWindow(nullptr), ui(new Ui::Mai
             WindowColors::setDark(box);
             this->lastPath = "";
             this->ResetSelector();
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+            if (accordion) accordion->updateButtonStyles();
+#endif
             this->update();
         }
     );
@@ -285,6 +322,19 @@ MainWindow::MainWindow(std::string uidir) : QMainWindow(nullptr), ui(new Ui::Mai
         {
             LICENSE license;
             license.exec();
+        }
+    );
+    connect(
+        ui->actionVersion,
+        &QAction::triggered,
+        this,
+        [this]()
+        {
+            QString versionText = QString("ROCprof Compute Viewer\nVersion %1.%2.%3")
+                                      .arg(Version::Get().viewer_major)
+                                      .arg(Version::Get().viewer_minor)
+                                      .arg(Version::Get().viewer_rev);
+            QMessageBox::information(this, "Version", versionText);
         }
     );
 }
@@ -572,6 +622,9 @@ void MainWindow::ResetSelector()
     catch (std::exception& e)
     {
         ui->ConfigNameEdit->setText(QString::fromStdString(ui_dir));
+        QMessageBox::warning(
+            this, "Path Not Found", QString("Invalid or inaccessible path: %1").arg(QString::fromStdString(newpath))
+        );
         QWARNING(false, "Invalid filename " << newpath, return );
     }
 
@@ -690,6 +743,10 @@ void MainWindow::CreateCountersPlot()
     this->counters_plot_layout = new QBox();
     ui->wv_counters_tab->setLayout(this->counters_plot_layout);
     this->counters_plot_layout->addWidget(this->counters_plot);
+
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    accordion->replaceContentByTitle("Counters", this->counters_plot);
+#endif
 
     if (perfcounter_names.empty() || accumulated.empty()) return;
 
@@ -904,6 +961,10 @@ void MainWindow::CreateWavesPlot()
     this->waves_plot_layout = new QBox();
     ui->wv_states_tab->setLayout(waves_plot_layout);
     waves_plot_layout->addWidget(this->waves_plot);
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    accordion->replaceContentByTitle("Wave States", this->waves_plot);
+#endif
+
     this->waves_plot->LoadWaveStateData(GetUIDir(), 0);
     this->waves_plot->setAutoLod(ui->lod_checkBox->isChecked());
 
@@ -932,17 +993,26 @@ void MainWindow::CreateOccupancyPlot(bool bDispatch)
     plot = bDispatch ? new DispatchPlotView(this) : new OccupancyPlotView(this);
     plot->setGeometry(0, 0, 300, plot->size().width());
     layout = new QBox();
+    layout->addWidget(plot);
+
     if (bDispatch)
     {
         if (ui->dispatch_tab->layout()) delete ui->dispatch_tab->layout();
         ui->dispatch_tab->setLayout(layout);
+
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+        accordion->replaceContentByTitle("Kernel Dispatch", plot);
+#endif
     }
     else
     {
         if (ui->occupancy_tab->layout()) delete ui->occupancy_tab->layout();
         ui->occupancy_tab->setLayout(layout);
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+        accordion->replaceContentByTitle("Occupancy", plot);
+#endif
     }
-    layout->addWidget(plot);
+
     plot->LoadOccupancyData(GetUIDir() + "occupancy.json");
     plot->setAutoLod(ui->lod_checkBox->isChecked());
 }
@@ -1266,7 +1336,7 @@ void MainWindow::GatherWaves()
             {
                 std::string filler = "-";
                 if (slot_name.size() <= 1) filler = "-0";
-                simd_views[std::stoi(slot_name)] = {view, "SM" + simd_name + filler + slot_name};
+                simd_views[std::stoi(slot_name)] = {view, "SM" + simd_name + filler + slot_name + " "};
             }
             catch (std::exception& e)
             {
@@ -1286,6 +1356,10 @@ void MainWindow::GatherWaves()
     hotspot_tab->layout()->setSpacing(0);
     hotspot_tab->layout()->setContentsMargins(0, 0, 0, 0);
     hotspot_tab->layout()->addWidget(hotspot_view);
+
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    accordion->replaceContentByTitle("Hotspot", hotspot_view);
+#endif
 }
 
 void MainWindow::loadJsonFileTree(const char* streambytes)
@@ -1371,11 +1445,7 @@ void MainWindow::onFileClicked(const QModelIndex& index)
         if (it != source_filetab->snap_to_filename.end()) { profilingPath = it->second; }
     }
 
-    if (profilingPath.empty())
-    {
-        qDebug() << "ERROR: No profiling path found for:" << nodeName;
-        return;
-    }
+    QWARNING(!profilingPath.empty(), "ERROR: No profiling path found for:" << nodeName.toStdString(), return );
 
     // Find position of the last path separator
     size_t pos = profilingPath.find_last_of("/\\");
@@ -1410,9 +1480,9 @@ void MainWindow::showEvent(QShowEvent* event)
 #else
         auto rect = QApplication::desktop()->availableGeometry(this);
 #endif
-        int width = rect.width() / pixelRatio;
-        int height = rect.height() / pixelRatio;
-        this->setGeometry(width / 12, height / 12, width, height);
+        int _width = std::min<int>(rect.width() / pixelRatio, width());
+        int _height = std::min<int>(rect.height() / pixelRatio, height());
+        this->setGeometry(_width / 12, _height / 12, _width, _height);
     }
 }
 

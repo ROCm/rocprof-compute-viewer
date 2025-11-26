@@ -51,7 +51,7 @@ void HotspotSummaryWidget::setFile(const std::string& filePath, const std::strin
     }
 
     // If no matches, log error
-    if (lineLatencies.empty()) { qDebug() << "ERROR: No hotspots found for path:" << QString::fromStdString(filePath); }
+    QWARNING(!lineLatencies.empty(), "ERROR: No hotspots found for path:" << filePath, return );
 
     // Sort and take top hotspots
     std::sort(
@@ -115,7 +115,6 @@ void HotspotSummaryWidget::paintEvent(QPaintEvent* event)
 
     int lineHeight = contentFm.height();
     int padding = 14;
-    int hotspotBarWidth = 150;
 
     // Draw title
     painter.setFont(titleFont);
@@ -135,7 +134,7 @@ void HotspotSummaryWidget::paintEvent(QPaintEvent* event)
                         padding;
     int cyclesTextWidth = latencyFm.horizontalAdvance("999.9M") + padding;
     int hotspotColumnX = padding;
-    int cyclesColumnX = hotspotColumnX + hotspotBarWidth + padding;
+    int cyclesColumnX = hotspotColumnX + HorizontalHotspot::HISTOGRAM_WIDTH + padding;
     int lineColumnX = cyclesColumnX + cyclesTextWidth + padding;
 
     // Draw column headers
@@ -153,16 +152,14 @@ void HotspotSummaryWidget::paintEvent(QPaintEvent* event)
     // Draw hotspot lines
     for (const auto& [line, latency] : hotspotLines)
     {
-        // TODO: PC sampling
-        float value_to_pixel_ratio = hotspotBarWidth / static_cast<float>(maxLatency);
         latency.paint(
             painter,
             hotspotColumnX,
             yPos - lineHeight + contentFm.descent() + 1,
             lineHeight - contentFm.descent(),
-            value_to_pixel_ratio,
-            value_to_pixel_ratio,
-            HorizontalHotspot::DrawFormat::DRAWSTALL,
+            maxLatency,
+            maxLatency,
+            HorizontalHotspot::DrawFormat::DRAWTYPE,
             false
         );
 

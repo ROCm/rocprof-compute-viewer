@@ -48,6 +48,7 @@ public:
     virtual void mouseMoveEvent(QMouseEvent* event) override;
     virtual void mousePressEvent(QMouseEvent* event) override;
     virtual void mouseReleaseEvent(QMouseEvent* event) override;
+    virtual void leaveEvent(QEvent* event) override;
     virtual void keyPressEvent(QKeyEvent* event) override;
     virtual void keyReleaseEvent(QKeyEvent* event) override;
     void onScroll(int value) { update(); }
@@ -57,7 +58,11 @@ public:
     std::map<int64_t, std::shared_ptr<TokenGroup>> waves;
 
 private:
+    void setLineHover(int line_index, bool hover);
+    void clearLineHover();
+
     std::shared_ptr<MeasureTool> tool;
+    int hovering_line_index = -1;
 public slots:
     void onupdatebar() { update(); }
 signals:

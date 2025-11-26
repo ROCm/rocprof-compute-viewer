@@ -30,9 +30,9 @@ public:
         static Version version;
         return version;
     };
-    const int viewer_major = 0;
-    const int viewer_minor = 0;
-    const int viewer_rev = 0;
+    const int viewer_major = @PROJECT_VERSION_MAJOR@;
+    const int viewer_minor = @PROJECT_VERSION_MINOR@;
+    const int viewer_rev = @PROJECT_VERSION_PATCH@;
     int tool_major = 0;
     int tool_minor = 0;
     int tool_rev = 0;
