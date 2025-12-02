@@ -189,22 +189,6 @@ CollapsibleSection* AccordionWidget::findSectionByTitle(const QString& title) co
     return nullptr;
 }
 
-bool AccordionWidget::removeSectionByContent(QWidget* contentWidget)
-{
-    CollapsibleSection* section = findSectionByContent(contentWidget);
-    bool result = removeSectionInternal(section);
-    QWARNING(result, "Could not find section containing widget:" << contentWidget, );
-    return result;
-}
-
-bool AccordionWidget::removeSectionByTitle(const QString& title)
-{
-    CollapsibleSection* section = findSectionByTitle(title);
-    bool result = removeSectionInternal(section);
-    QWARNING(result, "Could not find section titled:" << title.toStdString(), );
-    return false;
-}
-
 bool AccordionWidget::removeSectionInternal(CollapsibleSection* section)
 {
     if (section)
@@ -263,6 +247,7 @@ void AccordionWidget::onButtonClicked()
     if (!clickedSection) return;
 
     bool isCtrlPressed = QApplication::keyboardModifiers() & Qt::ControlModifier;
+    bool wasExpanded = clickedSection->isExpanded();
 
     // Check if clicking on the only open section
     int openSectionCount = 0;
@@ -272,7 +257,11 @@ void AccordionWidget::onButtonClicked()
     }
 
     // Prevent closing if this is the only open section and user is trying to close it
-    if (openSectionCount == 1 && clickedSection->isExpanded() && !isCtrlPressed) return;
+    if (openSectionCount == 1 && wasExpanded && !isCtrlPressed)
+    {
+        clickedButton->setChecked(true); // Restore button state
+        return;
+    }
 
     if (!isCtrlPressed)
     {
@@ -281,6 +270,13 @@ void AccordionWidget::onButtonClicked()
         {
             CollapsibleSection* section = it.key();
             if (section != clickedSection && section->isExpanded()) section->expand(false);
+        }
+
+        // If clicked section was already expanded, keep it open (don't toggle)
+        if (wasExpanded)
+        {
+            clickedButton->setChecked(true); // Restore button state
+            return;
         }
     }
 

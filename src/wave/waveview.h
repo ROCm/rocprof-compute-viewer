@@ -50,7 +50,6 @@ public:
     virtual void mouseReleaseEvent(QMouseEvent* event) override;
     virtual void leaveEvent(QEvent* event) override;
     virtual void keyPressEvent(QKeyEvent* event) override;
-    virtual void keyReleaseEvent(QKeyEvent* event) override;
     void onScroll(int value) { update(); }
 
     void Reset();
@@ -91,7 +90,6 @@ public:
     virtual void mousePressEvent(QMouseEvent* event) override;
     virtual void mouseReleaseEvent(QMouseEvent* event) override;
     virtual void keyPressEvent(QKeyEvent* event) override;
-    virtual void keyReleaseEvent(QKeyEvent* event) override;
 
     class QVBox* names_layout = nullptr;
     class QVBox* content_layout = nullptr;

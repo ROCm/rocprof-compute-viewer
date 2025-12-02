@@ -163,7 +163,7 @@ void TokenGroup::Draw(class QPainter& painter, int64_t viewstart, int64_t viewen
 
     if (!bInitialized) SetMipN();
 
-    int blank_space_thresh = (WaveInstance::BaseClock() << Token::mipmap_level) / 3;
+    int blank_space_thresh = mipShiftLeft(WaveInstance::BaseClock(), Token::mipmap_level) / 3;
 
     painter.setPen(QPen(Qt::black, 0.9));
 
@@ -182,6 +182,7 @@ void TokenGroup::Draw(class QPainter& painter, int64_t viewstart, int64_t viewen
     }
 
     auto pen = painter.pen();
+    painter.setRenderHint(QPainter::Antialiasing, false);
     {
         Token blankToken{};
         blankToken.clock = wave_begin;
@@ -207,6 +208,7 @@ void TokenGroup::Draw(class QPainter& painter, int64_t viewstart, int64_t viewen
         it++;
     }
 
+    painter.setRenderHint(QPainter::Antialiasing, true);
     painter.setPen(pen);
 }
 

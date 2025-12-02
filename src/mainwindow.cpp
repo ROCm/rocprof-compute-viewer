@@ -1093,7 +1093,7 @@ void MainWindow::incrementWaveViewMipmap(int inc, float position)
     auto* ui = MainWindow::window->ui;
 
     int value = ui->waveview_spin->value() + inc;
-    if (value > 10 || value < 0) return;
+    if (value > 12 || value < 0) return;
 
     if (inc < 0)
         view->start -= view->range * position;
@@ -1106,7 +1106,7 @@ void MainWindow::incrementWaveViewMipmap(int inc, float position)
 
 void MainWindow::SetWaveViewMipmap(int value)
 {
-    value = std::min(std::max(10 - value, 0), 10);
+    value = std::min(std::max(10 - value, -2), 10);
     Token::mipmap_level = value;
 
     cuwaves_h_scrollarea->updatebar(true);

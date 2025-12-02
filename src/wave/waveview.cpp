@@ -33,8 +33,6 @@
 #include "mainwindow.h"
 #include "scroll.h"
 
-bool ctrl_pressed = false;
-
 QWaveView::QWaveView(QCustomScroll* parent) : view(parent->view), tool(parent->tool)
 {
     assert(parent);
@@ -81,7 +79,7 @@ void QWaveView::paintEvent(QPaintEvent* event)
     painter.setRenderHint(QPainter::Antialiasing);
 
     int64_t cutoff_start = QCustomScroll::clock_cutoff_start + view->start;
-    int64_t cutoff_end = std::min(cutoff_start + (view->range << Token::mipmap_level), QCustomScroll::clock_cutoff_end);
+    int64_t cutoff_end = std::min(cutoff_start + Token::PosToClock(width()), QCustomScroll::clock_cutoff_end);
 
     for (auto& [_, wave] : waves) wave->Draw(painter, cutoff_start, cutoff_end);
 }
@@ -264,17 +262,15 @@ static int64_t getdelta(QKeyEvent* event)
     static const int64_t mult = 5 * WaveInstance::BaseClock();
 
     if (event->key() == Qt::Key_A)
-        return -mult << Token::mipmap_level;
+        return -mipShiftLeft(mult, Token::mipmap_level);
     else if (event->key() == Qt::Key_D)
-        return mult << Token::mipmap_level;
+        return mipShiftLeft(mult, Token::mipmap_level);
     else
         return 0;
 }
 
 void QWaveView::keyPressEvent(QKeyEvent* event)
 {
-    if (event->key() == Qt::Key_Control) ctrl_pressed = true;
-
     Super::keyPressEvent(event);
 
     auto delta = getdelta(event);
@@ -286,14 +282,9 @@ void QWaveView::keyPressEvent(QKeyEvent* event)
     }
 }
 
-void QWaveView::keyReleaseEvent(QKeyEvent* event)
-{
-    if (event->key() == Qt::Key_Control) ctrl_pressed = false;
-}
-
 void QWaveSlots::wheelEvent(QWheelEvent* event)
 {
-    if (!ctrl_pressed)
+    if (!(QApplication::keyboardModifiers() & Qt::ControlModifier))
     {
         this->Super::wheelEvent(event);
         return;
@@ -302,17 +293,18 @@ void QWaveSlots::wheelEvent(QWheelEvent* event)
     if (!cuwaves_content) return;
     IMPLEMENT_FPS_LIMITER();
 
-    int posx = cuwaves_content->pos().x();
+    float mouse_x_in_content = event->position().x() - cuwaves_content->pos().x();
+    int64_t clock_at_mouse = Token::PosToClock(mouse_x_in_content) + view->start;
 
-    float ratio = (event->position().x() - posx) / float(width() - posx + 0.5f);
-    if (ratio > 0) MainWindow::incrementWaveViewMipmap(event->angleDelta().y() > 0 ? 1 : -1, ratio);
+    // Calculate ratio based on the clock position relative to the visible range
+    float ratio = float(clock_at_mouse - view->start) / float(view->range);
+
+    if (mouse_x_in_content > 0) MainWindow::incrementWaveViewMipmap(event->angleDelta().y() > 0 ? 1 : -1, ratio);
 }
 
 void QWaveSlots::keyPressEvent(QKeyEvent* event)
 {
     Super::keyPressEvent(event);
-
-    if (event->key() == Qt::Key_Control) ctrl_pressed = true;
 
     auto delta = getdelta(event);
     if (delta != 0)
@@ -321,11 +313,6 @@ void QWaveSlots::keyPressEvent(QKeyEvent* event)
         view->notify();
         update();
     }
-}
-
-void QWaveSlots::keyReleaseEvent(QKeyEvent* event)
-{
-    if (event->key() == Qt::Key_Control) ctrl_pressed = false;
 }
 
 QLabel* QWaveSlots::AddSlot(QWaveView* view, const std::string& name, int fixedsize)
@@ -397,7 +384,7 @@ void QWaveSlots::paintEvent(QPaintEvent* event)
     }
 
     // Tick marks
-    const int64_t clock_spacing = 25 * WaveInstance::BaseClock() << Token::mipmap_level;
+    const int64_t clock_spacing = mipShiftLeft(25 * WaveInstance::BaseClock(), Token::mipmap_level);
     const int64_t pixel_spacing = Token::GetTokenSize(clock_spacing);
     const int64_t clock_start = QCustomScroll::clock_cutoff_start + view->start;
 

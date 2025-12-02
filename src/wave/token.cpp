@@ -39,7 +39,7 @@ std::vector<QColor> WaveState::STATE_COLORS = {
 
 int64_t Token::PosToClock(int64_t value)
 {
-    return (int64_t(value * 2 / MainWindow::getScaling() / (bIsNaviWave ? 12 : 3)) << mipmap_level);
+    return mipShiftLeft(int64_t(value * 2 / MainWindow::getScaling() / (bIsNaviWave ? 12 : 3)), mipmap_level);
 }
 
 static float tonemap(float x)
@@ -73,7 +73,8 @@ void Token::DrawToken(QPainter& painter, int64_t viewstart, int64_t viewend, flo
     }
 
     const float scaling = MainWindow::getScaling();
-    int height = (TOKEN_HEIGHT() - SLOT_OFFSET() * std::max(0, 2 * slot - 1)) / scaling;
+    const int height_reduction = SlotHeightReduction();
+    int height = (TOKEN_HEIGHT() - height_reduction * std::max(0, 2 * slot - 1)) / scaling;
     int posy = (TOKEN_POSY() - SLOT_OFFSET() * std::min<int>(1, slot)) / scaling;
 
     QBrush brush;
@@ -92,7 +93,7 @@ void Token::DrawToken(QPainter& painter, int64_t viewstart, int64_t viewend, flo
         brush = QBrush(grad);
     }
 
-    QRectF rect(pos, posy, width, height);
+    QRect rect(pos, posy, width, height);
     painter.setPen(QPen(Qt::black, penwidth));
 
     painter.fillRect(rect, brush);

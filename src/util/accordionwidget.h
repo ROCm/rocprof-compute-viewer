@@ -63,12 +63,6 @@ public:
     // Find the CollapsibleSection by its title
     CollapsibleSection* findSectionByTitle(const QString& title) const;
 
-    // Remove the section associated with the contentWidget
-    bool removeSectionByContent(QWidget* contentWidget);
-
-    // Remove section by title
-    bool removeSectionByTitle(const QString& title);
-
     // Replace the content of a section identified by its current content widget.
     void replaceContent(QWidget* oldContentWidget, QWidget* newContentWidget);
 

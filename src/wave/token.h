@@ -35,6 +35,18 @@
 #define WSTATE_POSY()   (TOKEN_POSY() + TOKEN_HEIGHT() + SLOT_OFFSET())
 #define WSTATE_HEIGHT() 4
 
+// Helper for safe shift that handles negative mipmap_level (allows zooming in more)
+// When mipmap_level < 0, left shift becomes right shift and vice versa
+inline int64_t mipShiftLeft(int64_t value, int mipmap_level)
+{
+    return mipmap_level >= 0 ? (value << mipmap_level) : (value >> (-mipmap_level));
+}
+
+inline int64_t mipShiftRight(int64_t value, int mipmap_level)
+{
+    return mipmap_level >= 0 ? (value >> mipmap_level) : (value << (-mipmap_level));
+}
+
 struct Token
 {
     int64_t clock = 0;
@@ -98,8 +110,10 @@ struct Token
     static int64_t PosToClock(int64_t value);
     static int64_t GetTokenSize(int64_t value)
     {
-        return ((value * (bIsNaviWave ? 12 : 3) / 2) + ((1 << mipmap_level) >> 1)) >> mipmap_level;
+        int64_t rounding = mipShiftLeft(1, mipmap_level) >> 1;
+        return mipShiftRight((value * (bIsNaviWave ? 12 : 3) / 2) + rounding, mipmap_level);
     }
+    static int SlotHeightReduction() { return mipmap_level >= 1 ? (2 - mipmap_level) : 3; }
     static void updateColors();
 
     static int mipmap_level;
