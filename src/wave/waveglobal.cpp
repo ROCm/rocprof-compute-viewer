@@ -21,10 +21,13 @@
 // SOFTWARE.
 
 #include "waveglobal.h"
+#include <QApplication>
+#include <QHBoxLayout>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPainterPath>
 #include <QScrollArea>
+#include <QScrollBar>
 #include <QToolTip>
 #include "code/qcodelist.h"
 #include "config/config.hpp"
@@ -35,7 +38,265 @@
 
 int64_t QGlobalView::begintime = 0;
 int64_t QGlobalView::maxtime = 0;
-int QGlobalView::mipmap_level = 5;
+int QGlobalView::mipmap_level = 10;
+
+// Column positions for SE|SA|CU|SM labels
+static constexpr int COL_SE = 3;
+static constexpr int COL_SA = 23;
+static constexpr int COL_CU = 35;
+static constexpr int COL_SM = 55;
+
+// QTickHeader implementation
+QTickHeader::QTickHeader(QWidget* parent) : QWidget(parent) { setFixedHeight(HEADER_HEIGHT); }
+
+int QTickHeader::getHorizontalOffset() const
+{
+    if (m_scrollArea && m_scrollArea->horizontalScrollBar()) return m_scrollArea->horizontalScrollBar()->value();
+    return 0;
+}
+
+void QTickHeader::paintEvent(QPaintEvent* event)
+{
+    QPainter painter(this);
+
+    // Fill background
+    QPainterPath path;
+    path.addRect(rect());
+    painter.fillPath(path, WindowColors::Background());
+
+    painter.setPen(WindowColors::textColor());
+    QFontMetrics fm(painter.font());
+    int headerY = (height() + fm.ascent()) / 2;
+
+    // Draw column headers on the left (over label panel area)
+    painter.drawText(COL_SE, headerY, "SE");
+    painter.drawText(COL_SA, headerY, "A");
+    painter.drawText(COL_CU, headerY, "CU");
+    painter.drawText(COL_SM, headerY, "SM");
+
+    // Draw tick marks (offset by LEFT_MARGIN since label panel is on the left)
+    int64_t clock_spacing = QGlobalView::Delta() * 100;
+    int hOffset = getHorizontalOffset(); // Get current scroll position
+
+    if (clock_spacing > 0)
+    {
+        QPen pen = painter.pen();
+        pen.setWidth(1);
+        pen.setStyle(Qt::DashLine);
+        pen.setColor(WindowColors::textColor());
+        painter.setPen(pen);
+
+        QFontMetrics fm(painter.font());
+        int fmheight = fm.ascent();
+
+        // Use the same calculation as QGlobalView::paintEvent
+        int64_t bt = QGlobalView::PosToClock(0); // This equals static begintime
+        int64_t clock_iter = bt + clock_spacing - (bt % clock_spacing);
+
+        while (true)
+        {
+            // Calculate position the same way as in QGlobalView, then add offset
+            int64_t content_pos = QGlobalView::ClockToPos(clock_iter);
+            int barpos = LEFT_MARGIN + content_pos - hOffset;
+            if (barpos >= width()) break;
+
+            if (barpos >= LEFT_MARGIN)
+            {
+                painter.drawLine(barpos, 0, barpos, height());
+                std::string cycle = std::to_string(clock_iter);
+                painter.drawText(barpos + 3, fmheight + 2, cycle.c_str());
+            }
+            clock_iter += clock_spacing;
+        }
+    }
+
+    // Draw vertical separator lines between columns and on the right of label area
+    QPen sepPen = painter.pen();
+    sepPen.setWidth(1);
+    sepPen.setStyle(Qt::SolidLine);
+    sepPen.setColor(QColor(80, 80, 80));
+    painter.setPen(sepPen);
+    painter.drawLine(COL_SA - 3, 0, COL_SA - 3, height()); // Between SE and SA
+    painter.drawLine(COL_CU - 3, 0, COL_CU - 3, height()); // Between SA and CU
+    painter.drawLine(COL_SM - 3, 0, COL_SM - 3, height()); // Between CU and SM
+    painter.drawLine(LEFT_MARGIN - 1, 0, LEFT_MARGIN - 1, height());
+
+    QWidget::paintEvent(event);
+}
+
+// QLabelPanel implementation
+QLabelPanel::QLabelPanel(QWidget* parent) : QWidget(parent) { setFixedWidth(QTickHeader::LEFT_MARGIN); }
+
+void QLabelPanel::addRow(int se, int sa, int cu, int simd, int slot) { m_rows.push_back({se, sa, cu, simd, slot}); }
+
+void QLabelPanel::recalculatePositions()
+{
+    // Recalculate groups based on current mipmap level
+    m_simdGroups.clear();
+    m_simdBoundaries.clear();
+    if (m_rows.empty()) return;
+
+    const int trackheight = QGlobalView::HEIGHT() + 1;
+    int totalSimdGroups = 0;
+    int cur_se = -1, cur_sa = -1, cur_cu = -1, cur_simd = -1;
+    for (const auto& row : m_rows)
+    {
+        if (row.se != cur_se || row.sa != cur_sa || row.cu != cur_cu || row.simd != cur_simd)
+        {
+            totalSimdGroups++;
+            cur_se = row.se;
+            cur_sa = row.sa;
+            cur_cu = row.cu;
+            cur_simd = row.simd;
+        }
+    }
+
+    int totalHeight = static_cast<int>(m_rows.size()) * trackheight;
+    int avgSimdHeight = totalSimdGroups > 0 ? totalHeight / totalSimdGroups : totalHeight;
+
+    // Decide grouping: if average SIMD group is too small, group by CU instead
+    bool groupByCU = avgSimdHeight < QFontMetrics(font()).height();
+
+    cur_se = -1;
+    cur_sa = -1;
+    cur_cu = -1;
+    cur_simd = -1;
+    int groupStart = 0;
+    int y = 0;
+
+    for (size_t i = 0; i < m_rows.size(); i++)
+    {
+        const auto& row = m_rows[i];
+        bool newGroup;
+        if (groupByCU)
+            newGroup = (row.se != cur_se || row.sa != cur_sa || row.cu != cur_cu);
+        else
+            newGroup = (row.se != cur_se || row.sa != cur_sa || row.cu != cur_cu || row.simd != cur_simd);
+
+        if (newGroup)
+        {
+            // Close previous group
+            if (cur_se >= 0)
+            {
+                m_simdGroups.push_back({cur_se, cur_sa, cur_cu, groupByCU ? -1 : cur_simd, groupStart, y});
+                m_simdBoundaries.push_back(y);
+            }
+            // Start new group
+            cur_se = row.se;
+            cur_sa = row.sa;
+            cur_cu = row.cu;
+            cur_simd = row.simd;
+            groupStart = y;
+        }
+        y += trackheight;
+    }
+    // Close last group
+    if (cur_se >= 0) { m_simdGroups.push_back({cur_se, cur_sa, cur_cu, groupByCU ? -1 : cur_simd, groupStart, y}); }
+
+    update();
+}
+
+void QLabelPanel::finalize() { recalculatePositions(); }
+
+void QLabelPanel::setVerticalOffset(int offset)
+{
+    m_vOffset = offset;
+    update();
+}
+
+void QLabelPanel::paintEvent(QPaintEvent* event)
+{
+    QPainter painter(this);
+
+    // Fill background
+    painter.fillRect(rect(), WindowColors::Background());
+
+    painter.setPen(WindowColors::textColor());
+    QFontMetrics fm(painter.font());
+
+    // Separator pen
+    QPen sepPen;
+    sepPen.setWidth(1);
+    sepPen.setStyle(Qt::SolidLine);
+    sepPen.setColor(QColor(80, 80, 80));
+
+    // Draw SIMD group labels (centered vertically in each group)
+    for (size_t i = 0; i < m_simdGroups.size(); i++)
+    {
+        const auto& grp = m_simdGroups[i];
+        int yStart = grp.yStart - m_vOffset;
+        int yEnd = grp.yEnd - m_vOffset;
+
+        if (yEnd < 0) continue;       // Above visible area
+        if (yStart > height()) break; // Below visible area
+
+        // Draw horizontal separator line at the top of each SIMD group (except first)
+        if (i > 0 && yStart >= 0 && yStart < height())
+        {
+            painter.setPen(sepPen);
+            painter.drawLine(0, yStart, width(), yStart);
+        }
+
+        // Center the text vertically in the group
+        int yCenter = (yStart + yEnd) / 2;
+        int textY = yCenter + fm.ascent() / 2 - 1;
+
+        // Only draw if text would be visible
+        painter.setPen(WindowColors::textColor());
+        if (textY >= 0 && textY - fm.ascent() < height())
+        {
+            QString seStr = QString("%1").arg(grp.se, 2, 10, QChar('0'));
+            QString saStr = QString::number(grp.sa);
+            QString cuStr = QString("%1").arg(grp.cu, 2, 10, QChar('0'));
+            QString smStr = (grp.simd >= 0) ? QString::number(grp.simd) : QString("-");
+
+            painter.drawText(COL_SE, textY, seStr);
+            painter.drawText(COL_SA, textY, saStr);
+            painter.drawText(COL_CU, textY, cuStr);
+            painter.drawText(COL_SM, textY, smStr);
+        }
+    }
+
+    // Draw vertical separator lines between columns
+    painter.setPen(sepPen);
+    painter.drawLine(COL_SA - 3, 0, COL_SA - 3, height()); // Between SE and SA
+    painter.drawLine(COL_CU - 3, 0, COL_CU - 3, height()); // Between SA and CU
+    painter.drawLine(COL_SM - 3, 0, COL_SM - 3, height()); // Between CU and SM
+
+    // Draw vertical separator line on the right
+    painter.drawLine(width() - 1, 0, width() - 1, height());
+
+    QWidget::paintEvent(event);
+}
+
+void QGlobalView::setScrollArea(QScrollArea* sa)
+{
+    if (!sa) return;
+    if (tickHeader)
+    {
+        tickHeader->setScrollArea(sa);
+        connect(sa->horizontalScrollBar(), &QScrollBar::valueChanged, tickHeader, &QTickHeader::onScrollChanged);
+    }
+    if (labelPanel)
+        connect(sa->verticalScrollBar(), &QScrollBar::valueChanged, labelPanel, &QLabelPanel::setVerticalOffset);
+}
+
+int QGlobalView::calcZoomScroll(int old_mip, int new_mip, int old_scroll, int anchor_viewport_x)
+{
+    // Calculate the content position of the anchor point
+    int anchor_content_x = old_scroll + anchor_viewport_x;
+
+    // Calculate where that content position will be after zoom
+    int64_t new_anchor_content_x;
+    if (new_mip > old_mip)
+        new_anchor_content_x = anchor_content_x >> (new_mip - old_mip);
+    else
+        new_anchor_content_x = anchor_content_x << (old_mip - new_mip);
+
+    // New scroll keeps anchor at same viewport position
+    int new_scroll = new_anchor_content_x - anchor_viewport_x;
+    return std::max(0, new_scroll);
+}
 
 std::unordered_map<int, std::string> QGlobalView::kernel_names{};
 
@@ -61,6 +322,10 @@ QGlobalView::QGlobalView(const std::string& filename)
     QVBox* layout = new QVBox();
     maxtime = 0;
     begintime = 0;
+
+    // Tracking for CU groups
+    int current_se = -1, current_sa = -1, current_cu = -1;
+    int cu_slot_count = 0; // Count slots in current CU for label height
 
     for (auto& [SE, array] : file.data.items())
     {
@@ -98,7 +363,6 @@ QGlobalView::QGlobalView(const std::string& filename)
             maxtime = std::max<int64_t>(maxtime, data.time);
         }
 
-        layout->addWidget(new QLabel(("Shader engine " + SE).c_str()));
         for (auto& [_traceid, trace] : traces)
         {
             int traceID = _traceid;
@@ -116,7 +380,19 @@ QGlobalView::QGlobalView(const std::string& filename)
             traceID /= 2;
             int se = traceID;
 
+            // Check if this is a new CU group
+            if (se != current_se || sa != current_sa || cu != current_cu)
+            {
+                current_se = se;
+                current_sa = sa;
+                current_cu = cu;
+                cu_slot_count = 0;
+            }
+            cu_slot_count++;
+
             views.push_back(new QOutsideWaveView(se, sa, cu, simd, slot, trace, tool));
+
+            // Just add the wave view directly - labels are handled by external labelPanel
             layout->addWidget(views.back());
         }
         layout->addStretch();
@@ -126,7 +402,24 @@ QGlobalView::QGlobalView(const std::string& filename)
     this->setAttribute(Qt::WA_AlwaysShowToolTips, true);
 
     if (tool) tool->update_list.insert(this);
-};
+}
+
+void QGlobalView::populateLabelPanel()
+{
+    if (!labelPanel) return;
+
+    for (auto* view : views)
+    {
+        int se = view->getSE();
+        int sa = view->getSA();
+        int cu = view->getCU();
+        int simd = view->getSIMD();
+        int slot = view->getSlot();
+
+        labelPanel->addRow(se, sa, cu, simd, slot);
+    }
+    labelPanel->finalize();
+}
 
 void QGlobalView::paintEvent(QPaintEvent* event)
 {
@@ -135,6 +428,41 @@ void QGlobalView::paintEvent(QPaintEvent* event)
     QPainterPath path;
     path.addRect(QRect(0, 0, width(), height()));
     painter.fillPath(path, WindowColors::Background());
+
+    // Draw horizontal separator lines at SIMD group boundaries
+    if (labelPanel)
+    {
+        QPen sepPen;
+        sepPen.setWidth(1);
+        sepPen.setStyle(Qt::SolidLine);
+        sepPen.setColor(QColor(80, 80, 80));
+        painter.setPen(sepPen);
+
+        for (int y : labelPanel->m_simdBoundaries) painter.drawLine(0, y, width(), y);
+    }
+
+    // Draw vertical tick lines (labels are in the sticky header)
+    int64_t clock_spacing = Delta() * 100;
+
+    if (clock_spacing > 0)
+    {
+        QPen pen = painter.pen();
+        pen.setWidth(1);
+        pen.setStyle(Qt::DashLine);
+        pen.setColor(WindowColors::textColor());
+        painter.setPen(pen);
+
+        int64_t clock_iter = begintime + clock_spacing - (begintime % clock_spacing);
+
+        while (true)
+        {
+            int barpos = ClockToPos(clock_iter);
+            if (barpos >= width()) break;
+
+            painter.drawLine(barpos, 0, barpos, height());
+            clock_iter += clock_spacing;
+        }
+    }
 
     this->Super::paintEvent(event);
 }
@@ -153,8 +481,7 @@ se(_se), sa(_sa), cu(_cu), simd(_simd), slot(_slot), waves(_waves), tool(_tool)
     setMouseTracking(true);
     this->setAttribute(Qt::WA_AlwaysShowToolTips, true);
 
-    height_multiplier = 1 + (simd == 0);
-    height_multiplier *= slot == 0;
+    height_multiplier = 0; // No extra space for separators
 
     if (tool) tool->update_list.insert(this);
 }
@@ -187,18 +514,12 @@ void QOutsideWaveView::paintEvent(QPaintEvent* event)
         painter.fillPath(path, WindowColors::MeasureTool());
     }
 
-    if (height_multiplier == 0) return;
-
-    float height = QGlobalView::HEIGHT() * height_multiplier;
-    if (simd == 0)
-    {
-        QPainterPath path;
-        QRect rect(0, height / 4, this->sizeHint().width(), height / 2);
-        QBrush brush(QColor(0, 0, 0));
-        path.addRect(rect);
-        painter.fillPath(path, brush);
-    }
-    else { painter.drawLine(0, height / 2, this->sizeHint().width(), height / 2); }
+    // Draw 1-pixel separator line at the bottom of each slot
+    QPen pen = painter.pen();
+    pen.setWidth(1);
+    pen.setColor(QColor(60, 60, 60));
+    painter.setPen(pen);
+    painter.drawLine(0, height() - 1, sizeHint().width(), height() - 1);
 
     this->Super::paintEvent(event);
 }
@@ -206,7 +527,7 @@ void QOutsideWaveView::paintEvent(QPaintEvent* event)
 int64_t QOutsideWaveView::DrawWave(QPainter& painter, int64_t start, const WaveTraceData& wave, const QRect& area)
 {
     int pos = QGlobalView::ClockToPos(start);
-    int width = QGlobalView::ClockToPos(wave.end) - pos;
+    int width = QGlobalView::ClockToPos(wave.end) - QGlobalView::ClockToPos(start);
 
     if (pos > area.right()) return 0;
     if (pos + width < area.left()) return 0;
@@ -294,6 +615,18 @@ void QGlobalView::mouseReleaseEvent(QMouseEvent* event)
 {
     this->Super::mouseReleaseEvent(event);
     if (tool && event->button() & Qt::RightButton) tool->mousePressEvent(false, event->pos().x(), event->pos().y());
+}
+
+void QGlobalView::wheelEvent(QWheelEvent* event)
+{
+    if (!(QApplication::keyboardModifiers() & Qt::ControlModifier))
+    {
+        this->Super::wheelEvent(event);
+        return;
+    }
+
+    int mouse_x = event->position().x();
+    MainWindow::incrementGlobalViewMipmap(event->angleDelta().y() > 0 ? 1 : -1, mouse_x);
 }
 
 void QGlobalView::mouseMoveEvent(QMouseEvent* event)

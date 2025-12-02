@@ -1113,23 +1113,51 @@ void MainWindow::SetWaveViewMipmap(int value)
     utilization_h_scrollarea->updatebar(true);
 }
 
-void MainWindow::SetGlobalViewMipmap(int value)
+void MainWindow::incrementGlobalViewMipmap(int inc, int content_mouse_x)
+{
+    QWARNING(window, "No MainWindow", return );
+    QWARNING(window->global_view_scrollarea, "No global_view scroll area", return );
+    QWARNING(window->global_view_widget, "No global_view widget", return );
+
+    auto* ui = window->ui;
+    int spinValue = ui->global_spin->value() + inc;
+    if (spinValue > 15 || spinValue < 0) return;
+
+    int new_mip = QGlobalView::SpinToMip(spinValue);
+    int old_mip = QGlobalView::GetMip();
+    int old_scroll = window->global_view_scrollarea->horizontalScrollBar()->value();
+    int viewport_mouse_x = content_mouse_x - old_scroll;
+
+    int new_scroll = QGlobalView::calcZoomScroll(old_mip, new_mip, old_scroll, viewport_mouse_x);
+
+    // Update spinbox without triggering SetGlobalViewMipmap
+    ui->global_spin->blockSignals(true);
+    ui->global_spin->setValue(spinValue);
+    ui->global_spin->blockSignals(false);
+
+    // Set scroll before mipmap change to avoid flash
+    window->global_view_scrollarea->horizontalScrollBar()->setValue(new_scroll);
+    window->global_view_widget->SetMip(new_mip);
+
+    // Set scroll again after layout update for zoom out
+    if (new_mip > old_mip) window->global_view_scrollarea->horizontalScrollBar()->setValue(new_scroll);
+}
+
+void MainWindow::SetGlobalViewMipmap(int spinValue)
 {
     QWARNING(global_view_scrollarea, "No global_view scroll area", return );
 
-    value = std::max(0, std::min(15 - value, 15));
-    int vwidth = global_view_scrollarea->width() / 2;
+    int new_mip = QGlobalView::SpinToMip(spinValue);
+    int old_mip = QGlobalView::GetMip();
+    int old_scroll = global_view_scrollarea->horizontalScrollBar()->value();
+    int viewport_center = global_view_scrollarea->width() / 2;
 
-    int old_value = QGlobalView::GetMip();
-    int scroll_value = global_view_scrollarea->horizontalScrollBar()->value() + vwidth;
+    int new_scroll = QGlobalView::calcZoomScroll(old_mip, new_mip, old_scroll, viewport_center);
 
-    if (global_view_widget) global_view_widget->SetMip(value);
+    if (global_view_widget) global_view_widget->SetMip(new_mip);
 
-    if (old_value > value)
-        scroll_value = scroll_value << (old_value - value);
-    else
-        scroll_value = scroll_value >> (value - old_value);
-
+    // Use timer to set scroll after layout updates
+    slider_global = new_scroll;
     QTimer* timer = new QTimer(this);
     timer->setSingleShot(true);
     timer->setInterval(1);
@@ -1139,13 +1167,10 @@ void MainWindow::SetGlobalViewMipmap(int value)
         this,
         [this]()
         {
-            if (auto* area = this->global_view_scrollarea)
-                area->horizontalScrollBar()->setValue(this->slider_global - area->width() / 2);
+            if (auto* area = this->global_view_scrollarea) area->horizontalScrollBar()->setValue(this->slider_global);
         }
     );
     timer->start();
-
-    slider_global = scroll_value;
 }
 
 uint64_t MainWindow::ToMask(const std::vector<bool>& list)
@@ -1159,17 +1184,46 @@ void MainWindow::CreateGlobalView()
 {
     if (this->global_view_tab->layout()) delete this->global_view_tab->layout();
 
-    auto* layout = new QVBox();
+    auto* mainLayout = new QVBox();
+    mainLayout->setContentsMargins(0, 0, 0, 0);
+    mainLayout->setSpacing(0);
 
     global_view_widget = new QGlobalView(GetUIDir() + "occupancy.json");
-    global_view_scrollarea = new QScrollArea(this);
-    global_view_scrollarea->setWidgetResizable(true);
 
+    // Create sticky tick header (spans full width)
+    QTickHeader* tickHeader = new QTickHeader(this);
+    global_view_widget->tickHeader = tickHeader;
+    mainLayout->addWidget(tickHeader);
+
+    // Create horizontal layout for label panel + scroll area
+    QHBoxLayout* contentLayout = new QHBoxLayout();
+    contentLayout->setContentsMargins(0, 0, 0, 0);
+    contentLayout->setSpacing(0);
+
+    // Create sticky label panel on the left
+    QLabelPanel* labelPanel = new QLabelPanel(this);
+    global_view_widget->labelPanel = labelPanel;
+    contentLayout->addWidget(labelPanel);
+
+    // Scroll area for waves on the right
+    global_view_scrollarea = new QScrollArea(this);
+    global_view_scrollarea->setFrameShape(QFrame::NoFrame);
+    global_view_scrollarea->setWidgetResizable(true);
     global_view_scrollarea->setWidget(global_view_widget);
     global_view_scrollarea->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    contentLayout->addWidget(global_view_scrollarea);
 
-    layout->addWidget(global_view_scrollarea);
-    this->global_view_tab->setLayout(layout);
+    // Connect scroll bars to sticky elements
+    global_view_widget->setScrollArea(global_view_scrollarea);
+
+    // Populate the label panel with data from the global view
+    global_view_widget->populateLabelPanel();
+
+    QWidget* contentWidget = new QWidget();
+    contentWidget->setLayout(contentLayout);
+    mainLayout->addWidget(contentWidget);
+
+    this->global_view_tab->setLayout(mainLayout);
 }
 
 void MainWindow::AddHistoryEntry(int64_t cycle, std::string_view type, std::string_view asmline)

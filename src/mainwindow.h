@@ -35,11 +35,11 @@
 #include <QTreeView>
 #include <optional>
 #include <string_view>
+#include <unordered_set>
 #include <vector>
 #include "collection/hotspotsummarywidget.h"
 #include "graphics/hotspot.h"
 #include "util/custom_layouts.h"
-#include "wave/waveglobal.h"
 
 QT_BEGIN_NAMESPACE
 namespace Ui
@@ -145,6 +145,7 @@ public:
     void setScaling(int scale);
 
     static void incrementWaveViewMipmap(int value, float position);
+    static void incrementGlobalViewMipmap(int inc, int content_mouse_x);
     static std::shared_ptr<class ScrollValue> getCUScroll();
 
     static int& font();

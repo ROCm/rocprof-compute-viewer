@@ -29,6 +29,8 @@
 #include "data/wavemanager.h"
 #include "measure.h"
 
+class QScrollArea;
+
 struct WaveTraceData
 {
     int64_t begin;
@@ -68,6 +70,12 @@ public:
     virtual void mousePressEvent(QMouseEvent* event) override;
     virtual void mouseReleaseEvent(QMouseEvent* event) override;
 
+    int getSE() const { return se; }
+    int getSA() const { return sa; }
+    int getCU() const { return cu; }
+    int getSIMD() const { return simd; }
+    int getSlot() const { return slot; }
+
     bool bIsVisible = true;
 
 protected:
@@ -82,6 +90,55 @@ protected:
 
 public:
 signals:
+};
+
+// Sticky header widget for tick marks - stays at top during vertical scroll
+class QTickHeader : public QWidget
+{
+    Q_OBJECT
+public:
+    QTickHeader(QWidget* parent = nullptr);
+    virtual QSize sizeHint() const override { return QSize(100, HEADER_HEIGHT); }
+    virtual QSize minimumSizeHint() const override { return sizeHint(); }
+    void setScrollArea(QScrollArea* sa) { m_scrollArea = sa; }
+    void onScrollChanged() { update(); } // Trigger repaint on scroll
+    virtual void paintEvent(QPaintEvent* event) override;
+    static constexpr int HEADER_HEIGHT = 20;
+    static constexpr int LEFT_MARGIN = 84; // Width of label panel on the left
+private:
+    int getHorizontalOffset() const; // Gets current offset from scrollbar
+    QScrollArea* m_scrollArea = nullptr;
+};
+
+// Sticky label panel - stays on the left during horizontal scroll
+class QLabelPanel : public QWidget
+{
+    Q_OBJECT
+public:
+    QLabelPanel(QWidget* parent = nullptr);
+    void addRow(int se, int sa, int cu, int simd, int slot); // Just store raw data
+    void finalize();                                         // Call after all rows added to compute SIMD groups
+    void setVerticalOffset(int offset);
+    void recalculatePositions(); // Recalculate when mipmap level changes
+    virtual void paintEvent(QPaintEvent* event) override;
+    virtual QSize sizeHint() const override { return QSize(QTickHeader::LEFT_MARGIN, 100); }
+    virtual QSize minimumSizeHint() const override { return sizeHint(); }
+
+private:
+    struct RowInfo
+    {
+        int se, sa, cu, simd, slot;
+    }; // Raw data only
+    struct SimdGroup
+    {
+        int se, sa, cu, simd, yStart, yEnd;
+    }; // Computed positions
+    std::vector<RowInfo> m_rows;
+    std::vector<SimdGroup> m_simdGroups;
+    std::vector<int> m_simdBoundaries; // Y positions where SIMD groups change
+    int m_vOffset = 0;
+
+    friend class QGlobalView; // Allow QGlobalView to access boundaries
 };
 
 class QGlobalView : public QWidget
@@ -103,10 +160,17 @@ public:
     static int64_t HEIGHT() { return 5 - mipmap_level / 6; }
 
     static int GetMip() { return mipmap_level; }
+    static int SpinToMip(int spinValue) { return std::max(0, std::min(15 - spinValue, 15)); }
+
+    // Calculate new scroll position when zooming, keeping anchor_x at the same viewport position
+    static int calcZoomScroll(int old_mip, int new_mip, int old_scroll, int anchor_viewport_x);
+
     void SetMip(int new_mipmap_level)
     {
         mipmap_level = new_mipmap_level;
         for (auto* view : views) view->updateGeometry();
+        if (labelPanel) labelPanel->recalculatePositions();
+        if (tickHeader) tickHeader->update();
         this->updateGeometry();
         this->repaint();
     }
@@ -115,6 +179,7 @@ public:
     virtual void mouseMoveEvent(QMouseEvent* event) override;
     virtual void mousePressEvent(QMouseEvent* event) override;
     virtual void mouseReleaseEvent(QMouseEvent* event) override;
+    virtual void wheelEvent(QWheelEvent* event) override;
 
     static std::unordered_map<int, std::string> kernel_names;
     std::shared_ptr<MeasureTool> tool = std::make_shared<MeasureTool>();
@@ -124,4 +189,10 @@ private:
     static int64_t begintime;
     static int mipmap_level;
     std::vector<QOutsideWaveView*> views;
+
+public:
+    QTickHeader* tickHeader = nullptr;   // External header widget for sticky ticks
+    QLabelPanel* labelPanel = nullptr;   // External label panel for sticky labels
+    void setScrollArea(QScrollArea* sa); // Connect to scroll area for sync
+    void populateLabelPanel();           // Fill labelPanel with label data
 };
