@@ -19,6 +19,8 @@ ROCprof Compute Viewer (RCV) is a tool for visualizing and analyzing GPU thread 
   * Ctrl + Left Click to open a tab without closing the previous one
 * Hovering over a token will soft highlight the ISA line
 * Option to zoom in further in Compute Unit and Utilization (levels=11 and 12)
+* Proper track names and tickmarks on Global View
+* Zoom in/out with mousehweel in globalView
 
 ### Changed
 * Order of Prev/Next in search bar: [Issue #9](https://github.com/ROCm/rocprof-compute-viewer/issues/9)
