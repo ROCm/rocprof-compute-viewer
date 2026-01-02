@@ -43,16 +43,17 @@ For rocprofv3 to generate thread trace data correctly, the following components 
 
 * AQLprofile:
   * ROCm 7.x, or
-  * [Build from source](https://github.com/rocm/aqlprofile)
+  * [Build from source](https://github.com/ROCm/rocm-systems/tree/develop/projects/aqlprofile)
   * If rocprofv3 errors out with "INVALID_SHADER_DATA", this means the particular version of aqlprofile and Decoder are incompatible.
 
 * Rocprofiler-sdk:
   * ROCm 7.x, or
-  * [Build from source](https://github.com/rocm/rocprofiler-sdk)
+  * [Build from source](https://github.com/ROCm/rocm-systems/tree/develop/projects/rocprofiler-sdk)
 
 * ROCprof Trace Decoder:
   * [Repository](https://github.com/ROCm/rocprof-trace-decoder)
   * [Binary releases](https://github.com/ROCm/rocprof-trace-decoder/releases)
+  * Any 0.1.x version, with latest preferred.
 
 ## Using the ROCprof Compute Viewer
 
