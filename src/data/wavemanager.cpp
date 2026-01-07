@@ -29,6 +29,7 @@
 #include "util/version.h"
 #include "wave/scroll.h"
 #include "wavedata.h"
+#include "mainwindow.h"
 
 std::shared_mutex wave_mutex;
 std::unordered_map<std::string, std::shared_ptr<WaveInstance>> reader_cache;
@@ -200,7 +201,7 @@ void TokenGroup::Draw(class QPainter& painter, int64_t viewstart, int64_t viewen
         if (it->clock + it->cycles <= viewstart && !it->overlapped()) break;
     }
 
-    const float penwidth = 0.5f * std::max(3 - Token::mipmap_level, 1);
+    const float penwidth = 0.5f * std::max(3 - Token::mipmap_level, 1) * std::min(1.0, MainWindow::getScaling());
 
     while (it != selected_mip.end() && it->clock < viewend)
     {

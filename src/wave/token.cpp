@@ -65,7 +65,7 @@ const QColor& Token::GetToneColor(int i)
 void Token::DrawToken(QPainter& painter, int64_t viewstart, int64_t viewend, float penwidth) const
 {
     int pos = GetTokenSize(this->clock - viewstart);
-    int width = GetTokenSize(this->cycles);
+    int width = GetTokenSize(this->clock + this->cycles - viewstart) - pos;
     if (viewstart > this->clock)
     {
         pos = 0;

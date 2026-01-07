@@ -1555,6 +1555,7 @@ void MainWindow::loadConfigSettings()
     ui->fontedit->setText(QString::number(config.getFontSize()));
     ui->dark_theme_box->setChecked(config.getDarkTheme());
     ui->scale_edit->setChecked(config.getDisplayScaling());
+    ui->separate_lds_pipe_box->setChecked(config.getSeparateLDSPipe());
 
     // Apply loaded settings
     font() = config.getFontSize();
@@ -1562,6 +1563,7 @@ void MainWindow::loadConfigSettings()
     _scaling_var = config.getDisplayScaling() ? 1 : 0;
     SourceLine::bDisplayLineNumber = config.getDisplayLineNumber();
     HorizontalHotspot::HISTOGRAM_WIDTH = config.getSourceHotspotSize();
+    QUtilization::bSeparateLDSPipe = config.getSeparateLDSPipe();
 }
 
 void MainWindow::setupConfigConnections()
@@ -1577,6 +1579,7 @@ void MainWindow::setupConfigConnections()
     connect(ui->fontedit, &QLineEdit::editingFinished, this, &MainWindow::saveFontSizeSetting);
     connect(ui->dark_theme_box, &QCheckBox::stateChanged, this, &MainWindow::saveDarkThemeSetting);
     connect(ui->scale_edit, &QCheckBox::stateChanged, this, &MainWindow::saveDisplayScalingSetting);
+    connect(ui->separate_lds_pipe_box, &QCheckBox::stateChanged, this, &MainWindow::saveSeparateLDSPipeSetting);
 }
 
 void MainWindow::saveLevelOfDetailSetting(int state) { AppConfig::getInstance().setLevelOfDetail(state != 0); }
@@ -1600,6 +1603,14 @@ void MainWindow::saveFontSizeSetting()
 void MainWindow::saveDarkThemeSetting(int state) { AppConfig::getInstance().setDarkTheme(state != 0); }
 
 void MainWindow::saveDisplayScalingSetting(int state) { AppConfig::getInstance().setDisplayScaling(state != 0); }
+
+void MainWindow::saveSeparateLDSPipeSetting(int state)
+{
+    AppConfig::getInstance().setSeparateLDSPipe(state != 0);
+    QUtilization::bSeparateLDSPipe = (state != 0);
+    QMessageBox::information(this, "Restart Required",
+                             "Please restart the viewer for this change to take effect.");
+}
 
 std::optional<int> MainWindow::parseLineEditInt(const QLineEdit* edit)
 {

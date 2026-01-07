@@ -482,6 +482,8 @@ void QUtilView::Compile(bool bVisible)
     }
 }
 
+bool QUtilization::bSeparateLDSPipe = false;
+
 QUtilization::QUtilization(QCustomScroll* parent) : QWaveSlots(parent)
 {
     auto createView = [&](const std::string& name)
@@ -525,18 +527,19 @@ QUtilization::QUtilization(QCustomScroll* parent) : QWaveSlots(parent)
         {
             for (size_t simd = 0; simd < 4; simd++) short_token_defs.at(i).at(simd) = IMMED;
         }
-
-        if (sfind("MSG"))
+        else if (sfind("MSG"))
         {
             for (size_t simd = 0; simd < 4; simd++) short_token_defs.at(i).at(simd) = MSG;
         }
-
-        if (sfind("VALU") || sfind("MFMA") || sfind("MATRIX") || sfind("WMMA"))
+        else if (sfind("VALU") || sfind("MFMA") || sfind("MATRIX") || sfind("WMMA"))
         {
             for (size_t simd = 0; simd < 4; simd++) short_token_defs.at(i).at(simd) = VALU.at(simd);
         }
-
-        if (sfind("FLAT") || sfind("VMEM") || sfind("BVH") || sfind("RAY") || sfind("LDS"))
+        else if (QUtilization::bSeparateLDSPipe && sfind("LDS"))
+        {
+            for (size_t simd = 0; simd < 4; simd++) short_token_defs.at(i).at(simd) = LDS.at(simd);
+        }
+        else if (sfind("FLAT") || sfind("VMEM") || sfind("BVH") || sfind("RAY") || sfind("LDS"))
         {
             for (size_t simd = 0; simd < 4; simd++) short_token_defs.at(i).at(simd) = VMEM.at(simd);
         }

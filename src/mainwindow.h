@@ -205,6 +205,7 @@ private:
     void saveFontSizeSetting();
     void saveDarkThemeSetting(int state);
     void saveDisplayScalingSetting(int state);
+    void saveSeparateLDSPipeSetting(int state);
 
     class HotspotSummaryWidget* hotspotSummary = nullptr;
 

@@ -880,6 +880,16 @@
                      </property>
                     </widget>
                    </item>
+                   <item>
+                    <widget class="QCheckBox" name="separate_lds_pipe_box">
+                     <property name="text">
+                      <string>Separate LDS pipe</string>
+                     </property>
+                     <property name="checked">
+                      <bool>false</bool>
+                     </property>
+                    </widget>
+                   </item>
                   </layout>
                  </item>
                 </layout>

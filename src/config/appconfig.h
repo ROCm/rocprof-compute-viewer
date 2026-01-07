@@ -48,6 +48,8 @@ public:
     void setDarkTheme(bool enabled);
     bool getDisplayScaling() const;
     void setDisplayScaling(bool enabled);
+    bool getSeparateLDSPipe() const;
+    void setSeparateLDSPipe(bool enabled);
 
 private:
     AppConfig();

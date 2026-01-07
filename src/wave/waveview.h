@@ -133,6 +133,8 @@ public:
     virtual void Clear() override;
     virtual void Compile();
 
+    static bool bSeparateLDSPipe;
+
     std::array<std::array<QUtilView*, 4>, 16> short_token_defs{};
     std::array<std::array<QUtilView*, 4>, 16> expanded_token_defs{};
 

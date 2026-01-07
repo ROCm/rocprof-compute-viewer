@@ -61,3 +61,7 @@ void AppConfig::setDarkTheme(bool enabled) { settings.setValue("DisplayOptions/D
 bool AppConfig::getDisplayScaling() const { return settings.value("DisplayOptions/DisplayScaling", true).toBool(); }
 
 void AppConfig::setDisplayScaling(bool enabled) { settings.setValue("DisplayOptions/DisplayScaling", enabled); }
+
+bool AppConfig::getSeparateLDSPipe() const { return settings.value("DisplayOptions/SeparateLDSPipe", false).toBool(); }
+
+void AppConfig::setSeparateLDSPipe(bool enabled) { settings.setValue("DisplayOptions/SeparateLDSPipe", enabled); }
