@@ -64,6 +64,10 @@ line_index(line_vec.size()), line_number(_line_number)
     if (cppline.size() > SHORT_CPPLINE_MAXCHARS)
         cppline = "[...]" + cppline.substr(cppline.size() - SHORT_CPPLINE_MAXCHARS);
 
+    std::stringstream ss;
+    ss << std::hex << line.addr << ' ';
+    elements.at(Element::ECODEOBJ) = std::make_unique<TextLineElement>(std::to_string(line.codeobj_id));
+    elements.at(Element::EADDRESS) = std::make_unique<TextLineElement>(ss.str());
     elements.at(Element::ESOURCEREF) = std::make_unique<TextLineElement>(cppline);
 
     hotspot.add_latency(line.type, {line.latency_sum, line.stall_sum}, {line.pcsamples, line.pcstalls});
@@ -228,6 +232,8 @@ TextLineElement(line.inst), line_number(_line_number), codeobj(line.codeobj_id),
 void ASMLine::onMousePress()
 {
     QASSERT(MainWindow::window, "Invalid window");
+
+    MainWindow::window->SetSearchText(getStdText());
 
     int iteration = MainWindow::window ? MainWindow::window->iteration_current.second : -1;
     int64_t clock = WaveInstance::GetMainClock(line_number, iteration);

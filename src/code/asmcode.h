@@ -45,6 +45,8 @@ public:
         EHIT,
         ELATENCY,
         EIDLE,
+        ECODEOBJ,
+        EADDRESS,
         ESOURCEREF,
         ENUMTYPES
     };

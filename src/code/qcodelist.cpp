@@ -133,6 +133,8 @@ QCodelist::QCodelist(QWidget* parent)
     layout_main->addWidget(new QLabel("Hitcount "), 0, Element::EHIT + 1);
     layout_main->addWidget(new CycleModeSelector(this), 0, Element::ELATENCY + 1);
     layout_main->addWidget(new QLabel(" Idle "), 0, Element::EIDLE + 1);
+    layout_main->addWidget(new QLabel(" Codeobj"), 0, Element::ECODEOBJ + 1);
+    layout_main->addWidget(new QLabel(" Vaddr"), 0, Element::EADDRESS + 1);
 
     connector = new Canvas();
     layout_main->addWidget(connector, 1, 0);

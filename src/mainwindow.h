@@ -93,6 +93,7 @@ public:
 
     void PrevSearch();
     void NextSearch();
+    void SetSearchText(const std::string& text);
     void SourceHotspotSizeEdited();
 
     void LoadSourceFiles();

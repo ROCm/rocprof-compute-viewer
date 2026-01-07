@@ -1243,6 +1243,13 @@ void MainWindow::AddHistoryEntry(int64_t cycle, std::string_view type, std::stri
     history_table->setItem(rows, 2, new QTableWidgetItem(asmline.data()));
 }
 
+void MainWindow::SetSearchText(const std::string& text)
+{
+    ui->search_edit->blockSignals(true);
+    ui->search_edit->setText(QString::fromStdString(text));
+    ui->search_edit->blockSignals(false);
+}
+
 void MainWindow::NextSearch()
 {
     QWARNING(code_contents, "No code", return );
@@ -1608,8 +1615,7 @@ void MainWindow::saveSeparateLDSPipeSetting(int state)
 {
     AppConfig::getInstance().setSeparateLDSPipe(state != 0);
     QUtilization::bSeparateLDSPipe = (state != 0);
-    QMessageBox::information(this, "Restart Required",
-                             "Please restart the viewer for this change to take effect.");
+    QMessageBox::information(this, "Restart Required", "Please restart the viewer for this change to take effect.");
 }
 
 std::optional<int> MainWindow::parseLineEditInt(const QLineEdit* edit)

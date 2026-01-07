@@ -571,14 +571,13 @@ QUtilization::QUtilization(QCustomScroll* parent) : QWaveSlots(parent)
         {
             for (size_t simd = 0; simd < 4; simd++) expanded_token_defs.at(i).at(simd) = JUMP;
         }
-
     }
-
 }
 
 void QUtilization::Clear()
 {
-    for (auto* view : all_views) if (view && view->wave0) view->wave0->tokens.clear();
+    for (auto* view : all_views)
+        if (view && view->wave0) view->wave0->tokens.clear();
 
     QPalette pal = QPalette();
     pal.setColor(QPalette::Window, WindowColors::TraceBackground());
@@ -587,7 +586,8 @@ void QUtilization::Clear()
 
 void QUtilization::Compile()
 {
-    for (auto* view : all_views) if (view) view->Compile(false);
+    for (auto* view : all_views)
+        if (view) view->Compile(false);
 }
 
 void QUtilization::AddTokens(int simd, const TokenMap& tokens)

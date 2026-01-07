@@ -2,29 +2,19 @@
 
 ROCprof Compute Viewer (RCV) is a tool for visualizing and analyzing GPU thread trace data collected with rocprofv3.
 
-## Release 0.1.5
+## Release 0.1.6
 
 ### Bug Fixes
-* Fixed counters not properly loading with discontiguous SE numbers
-* Fixed relative paths for source files
-* Fixed hotspot sometimes highlighting the wrong line: [Issue #12](https://github.com/ROCm/rocprof-compute-viewer/issues/12)
-* Fixed mouse position slightly offset when zooming in/out
+* Fixed minor display issue where some tokens would have darker lines separating them with display scaling
 
 ### Added
-* Display Shader Array ID in global view
-* Option to view branch targets [Issue #7](https://github.com/ROCm/rocprof-compute-viewer/issues/7)
-* Option to view latency per (ISA) instruction
-* Ability to display multiple tabs at the same time
-  * e.g. Compute Unit + Utilization
-  * Ctrl + Left Click to open a tab without closing the previous one
-* Hovering over a token will soft highlight the ISA line
-* Option to zoom in further in Compute Unit and Utilization (levels=11 and 12)
-* Proper track names and tickmarks on Global View
-* Zoom in/out with mousehweel in globalView
+* CDNA: Added option to have a separate LDS Pipe in utilization view. Options -> Display options -> "Separate LDS pipe" (SWDEV-564105)
+* RDNA: LDS, Raytrace (BVH), BRANCH and WMMA have their own separate pipes in Utilization View.
+* CDNA and RDNA: Added separate message bus pipe (MSG) in Utilization view.
+  * Note: As with IMMED, MSG bus utilization is approximate.
+* Code object ID and offset/vaddr to instruction view (SWDEV-564105)
+* Clicking on instruction now updates "Search" box to contain the instruction text.
+ * This allows for quicker search of the same instruction, as well as Copying text from the Viewer (SWDEV-564105)
 
 ### Changed
-* Order of Prev/Next in search bar: [Issue #9](https://github.com/ROCm/rocprof-compute-viewer/issues/9)
-* Hitcount label will show total OR per wave depending on latency selection
-
-### Optimization
-* Removed roundedRect from Token display to better performance on larger traces
+* Renamed "OTHER" track in utilization view to "IMMED" as only IMMED and TRAP are part of it now.
