@@ -133,12 +133,22 @@ public:
     virtual void Clear() override;
     virtual void Compile();
 
-    std::array<std::array<QUtilView*, 4>, 16> token_defs{};
+    std::array<std::array<QUtilView*, 4>, 16> short_token_defs{};
+    std::array<std::array<QUtilView*, 4>, 16> expanded_token_defs{};
+
+    std::vector<QUtilView*> all_views{};
 
     std::array<QUtilView*, 4> VALU{};
     std::array<QUtilView*, 4> VMEM{};
     std::array<QUtilView*, 4> SCAL{};
-    QUtilView* OTHER{};
+    QUtilView* IMMED{};
+    QUtilView* MSG{};
+
+    // Expanded defs
+    std::array<QUtilView*, 4> LDS{};
+    std::array<QUtilView*, 4> RT{};
+    QUtilView* WMMA{};
+    QUtilView* JUMP{};
 
 signals:
 };

@@ -484,30 +484,29 @@ void QUtilView::Compile(bool bVisible)
 
 QUtilization::QUtilization(QCustomScroll* parent) : QWaveSlots(parent)
 {
+    auto createView = [&](const std::string& name)
+    {
+        auto* view = all_views.emplace_back(new QUtilView(parent));
+        view->label = AddSlot(view, name, WSTATE_HEIGHT() + WSTATE_POSY() + 1);
+        return view;
+    };
+
     int vertical_size = WSTATE_HEIGHT() + WSTATE_POSY() + 1;
 
-    for (int i = 0; i < 4; i++)
-    {
-        VALU.at(i) = new QUtilView(parent);
-        VALU.at(i)->label = AddSlot(VALU.at(i), "VALU" + std::to_string(i) + ' ', vertical_size);
-    }
+    WMMA = createView("WMMA ");
+    for (int i = 0; i < 4; i++) VALU.at(i) = createView("VALU" + std::to_string(i) + ' ');
 
-    for (int i = 0; i < 4; i++)
-    {
-        VMEM.at(i) = new QUtilView(parent);
-        VMEM.at(i)->label = AddSlot(VMEM.at(i), "VMEM" + std::to_string(i) + ' ', vertical_size);
-    }
+    for (int i = 0; i < 4; i++) LDS.at(i) = createView("LDS" + std::to_string(i));
+    for (int i = 0; i < 4; i++) VMEM.at(i) = createView("VMEM" + std::to_string(i) + ' ');
+    for (int i = 0; i < 4; i++) RT.at(i) = createView("RAY" + std::to_string(i));
 
-    for (int i = 0; i < 4; i++)
-    {
-        SCAL.at(i) = new QUtilView(parent);
-        SCAL.at(i)->label = AddSlot(SCAL.at(i), "SCAL" + std::to_string(i) + ' ', vertical_size);
-    }
+    for (int i = 0; i < 4; i++) SCAL.at(i) = createView("SCAL" + std::to_string(i) + ' ');
 
-    OTHER = new QUtilView(parent);
-    OTHER->label = AddSlot(OTHER, "OTHER ", vertical_size);
+    JUMP = createView("JUMP");
+    MSG = createView("MSG");
+    IMMED = createView("IMMED");
 
-    for (auto& token : token_defs)
+    for (auto& token : short_token_defs)
         for (int simd = 0; simd < 4; simd++) token.at(simd) = SCAL.at(simd);
 
     auto upper = [](std::string str)
@@ -522,29 +521,61 @@ QUtilization::QUtilization(QCustomScroll* parent) : QWaveSlots(parent)
 
         auto sfind = [&name](std::string_view match) { return name.find(match) != std::string::npos; };
 
-        if (sfind("IMMED") || sfind("MSG") || sfind("TRAP"))
+        if (sfind("IMMED") || sfind("TRAP"))
         {
-            for (size_t simd = 0; simd < 4; simd++) token_defs.at(i).at(simd) = OTHER;
+            for (size_t simd = 0; simd < 4; simd++) short_token_defs.at(i).at(simd) = IMMED;
         }
 
-        if (sfind("VALU") || sfind("MFMA") || sfind("MATRIX"))
+        if (sfind("MSG"))
         {
-            for (size_t simd = 0; simd < 4; simd++) token_defs.at(i).at(simd) = VALU.at(simd);
+            for (size_t simd = 0; simd < 4; simd++) short_token_defs.at(i).at(simd) = MSG;
         }
 
-        if (sfind("FLAT") || sfind("VMEM") || sfind("LDS"))
+        if (sfind("VALU") || sfind("MFMA") || sfind("MATRIX") || sfind("WMMA"))
         {
-            for (size_t simd = 0; simd < 4; simd++) token_defs.at(i).at(simd) = VMEM.at(simd);
+            for (size_t simd = 0; simd < 4; simd++) short_token_defs.at(i).at(simd) = VALU.at(simd);
+        }
+
+        if (sfind("FLAT") || sfind("VMEM") || sfind("BVH") || sfind("RAY") || sfind("LDS"))
+        {
+            for (size_t simd = 0; simd < 4; simd++) short_token_defs.at(i).at(simd) = VMEM.at(simd);
         }
     }
+
+    expanded_token_defs = short_token_defs;
+    for (int i = 0; i < Config::TokenColors().size(); i++)
+    {
+        auto name = upper(Config::TokenColors().at(i).name);
+
+        auto sfind = [&name](std::string_view match) { return name.find(match) != std::string::npos; };
+
+        if (sfind("WMMA") || sfind("MFMA") || sfind("MATRIX"))
+        {
+            for (size_t simd = 0; simd < 4; simd++) expanded_token_defs.at(i).at(simd) = WMMA;
+        }
+
+        if (sfind("LDS"))
+        {
+            for (size_t simd = 0; simd < 4; simd++) expanded_token_defs.at(i).at(simd) = LDS.at(simd);
+        }
+
+        if (sfind("BVH") || sfind("RAY"))
+        {
+            for (size_t simd = 0; simd < 4; simd++) expanded_token_defs.at(i).at(simd) = RT.at(simd);
+        }
+
+        if (sfind("BRANCH") || sfind("JUMP") || sfind("NEXT"))
+        {
+            for (size_t simd = 0; simd < 4; simd++) expanded_token_defs.at(i).at(simd) = JUMP;
+        }
+
+    }
+
 }
 
 void QUtilization::Clear()
 {
-    for (auto* view : VALU) view->wave0->tokens.clear();
-    for (auto* view : VMEM) view->wave0->tokens.clear();
-    for (auto* view : SCAL) view->wave0->tokens.clear();
-    if (OTHER) OTHER->wave0->tokens.clear();
+    for (auto* view : all_views) if (view && view->wave0) view->wave0->tokens.clear();
 
     QPalette pal = QPalette();
     pal.setColor(QPalette::Window, WindowColors::TraceBackground());
@@ -553,14 +584,7 @@ void QUtilization::Clear()
 
 void QUtilization::Compile()
 {
-    for (auto& view : VALU)
-        if (view) view->Compile(false);
-    for (auto& view : VMEM)
-        if (view) view->Compile(false);
-    for (auto& view : SCAL)
-        if (view) view->Compile(false);
-
-    if (OTHER) OTHER->Compile(false);
+    for (auto* view : all_views) if (view) view->Compile(false);
 }
 
 void QUtilization::AddTokens(int simd, const TokenMap& tokens)
@@ -570,6 +594,7 @@ void QUtilization::AddTokens(int simd, const TokenMap& tokens)
     // Use base here as some decoder versions don't consider stalls for MSG
     // We dont want to show full cycles to avoid clutter in the timeline display
     int base = WaveInstance::BaseClock();
+    auto& token_defs = Token::bIsNaviWave ? expanded_token_defs : short_token_defs;
 
     try
     {
@@ -579,7 +604,7 @@ void QUtilization::AddTokens(int simd, const TokenMap& tokens)
             if (auto* def = token_defs.at(token.type).at(simd))
             {
                 Token _token = token;
-                if (def == OTHER) _token.stall = std::max(0, _token.cycles - base);
+                if (def == IMMED || def == MSG) _token.stall = std::max(0, _token.cycles - base);
 
                 def->Add(_token);
             }
