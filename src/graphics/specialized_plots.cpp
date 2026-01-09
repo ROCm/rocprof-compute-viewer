@@ -21,6 +21,7 @@
 // SOFTWARE.
 
 #include "specialized_plots.h"
+#include <QMessageBox>
 #include <fstream>
 #include <set>
 #include "container/datanode.h"
@@ -30,6 +31,8 @@
 #include "util/version.h"
 
 using namespace std;
+
+constexpr size_t kMaxPlotsPerDerived = 10;
 
 std::vector<std::string> WavePlotView::state_names = {"Empty", "Idle", "Exec", "Wait", "Stall"};
 
@@ -90,120 +93,366 @@ void WavePlotView::LoadWaveStateData(const std::string& pathname, int SE)
 
 void WavePlotView::UpdateGraphTable(float mousepos)
 {
-    float total = 0;
-    std::array<float, 3> values{};
-
     for (int i = 0; i < 3; i++)
     {
         if (i >= curves.size() || !curves.at(i).lods.size()) continue;
-
-        values.at(i) = curves.at(i).lods.at(0).search(mousepos);
-        total += values.at(i);
+        MainWindow::window->UpdateGraphInfo(state_names.at(i + 2), curves.at(i).lods.at(0).search(mousepos));
     }
-    total = std::max(total, 1.0f) / 100.0f; // Display as percentage
-    for (int i = 0; i < 3; i++)
-        MainWindow::window->UpdateGraphInfo(state_names.at(i + 2), values[i], values[i] / total);
 }
 
-CounterPlotView::CounterAccum TraceCounterPlotView::LoadCounterData(JsonRequest& file, int shader_engine)
+void TraceCounterPlotView::LoadCounterData(JsonRequest& file, int shader_engine)
 {
-    std::array<std::vector<CounterData>, BANKS> data;
+    std::array<std::vector<CounterData>, 2> data{};
     data[0].reserve(file.data["data"].size());
     data[1].reserve(file.data["data"].size());
 
     for (auto& event : file.data["data"])
-        data.at(int8_t(event[6]) & 0x3)
+        data.at(int8_t(event[6]) & 1)
             .push_back(CounterData({
                 int64_t(event[0]),
-                {int(event[1]), int(event[2]), int(event[3]), int(event[4])},
                 int8_t(event[5]),
-                int8_t(shader_engine)
+                int8_t(shader_engine),
+                {float(event[1]), float(event[2]), float(event[3]), float(event[4])}
         }));
 
-    for (int b = 0; b < BANKS; b++)
-        if (data[b].size()) rootnodes.at(b)->Insert(shader_engine, data[b]);
-
-    CounterPlotView::CounterAccum ret{};
-
-    for (size_t b = 0; b < data.size(); b++)
-        for (auto& counter : data[b])
-            for (int c = 0; c < 4; c++) ret.at(counter.cu).at(4 * b + c) += counter.events[c];
-
-    return ret;
+    while (rootnodes.size() < data.size()) rootnodes.emplace_back(std::make_unique<GPUCounterNode>());
+    for (int b = 0; b < data.size(); b++)
+        if (data[b].size()) rootnodes[b]->Insert(shader_engine, data[b]);
 }
 
-CounterPlotView::CounterList TraceCounterPlotView::GetPeakRates()
+std::vector<double> CounterPlotView::GetPeakRates()
 {
-    CounterPlotView::CounterList ret{};
+    std::vector<double> result{};
 
-    for (int b = 0; b < BANKS; b++)
+    for (auto& node : rootnodes)
     {
-        if (!rootnodes.at(b)) continue;
-        std::vector<CounterData> counters = rootnodes[b]->AccumFromMask(~0ul, ~0ul);
+        std::vector<CounterData> counters = node->AccumFromMask(~0ul, ~0ul);
 
-        for (auto& counter : counters)
+        for (int c = 0; c < CNT_BANK; c++)
         {
-            for (int c = 0; c < 4; c++)
+            auto& maxv = result.emplace_back(0);
+            for (auto& counter : counters) maxv = std::max<double>(maxv, counter.events[c]);
+        }
+    }
+
+    return result;
+}
+
+DerivedCounter::Tensor CounterPlotView::GetAvgRates()
+{
+    size_t num_se = 0;
+    for (auto& node : rootnodes) num_se = std::max(num_se, node->numSEs());
+
+    DerivedCounter::Tensor result(DerivedCounter::Shape(1, num_se, NUM_CU, counter_names.size()), 0);
+
+    // Ensure derivedmanager is built so raw counters are available
+    if (!derivedmanager) buildDerivedManager();
+    if (!derivedmanager) return result;
+
+    for (int i = 0; i < counter_names.size(); i++)
+    {
+        if (!derivedmanager->context().hasCounter(counter_names[i])) continue;
+
+        auto counter_tensor = derivedmanager->context().getCounter(counter_names[i]);
+        if (!counter_tensor) continue;
+
+        auto summed = counter_tensor->sum(DerivedCounter::Axis::Time);
+
+        for (size_t xcc = 0; xcc < summed.shape().getXCC(); xcc++)
+            for (size_t se = 0; se < summed.shape().getSE(); se++)
+                for (size_t cu = 0; cu < summed.shape().getCU(); cu++)
+                    result.at(xcc, se, cu, i) += summed.at(xcc, se, cu, 0);
+    }
+
+    return result;
+}
+
+void CounterPlotView::UpdateDataSelection(
+    const std::vector<std::string>& _counter_names,
+    uint64_t se_mask,
+    uint64_t cu_mask,
+    const std::string& derivedDefinitions
+)
+{
+    this->counter_names = _counter_names;
+
+    this->xmin = 0;
+    this->xmax = 0;
+
+    this->curves.clear();
+
+    QWARNING(rootnodes.size(), "no root node", return );
+
+    this->delta = INT64_MAX;
+    for (auto& node : rootnodes) delta = verify_skew(delta, node->getDelta());
+
+    size_t num_samples = 0;
+    for (int b = 0; b < rootnodes.size(); b++)
+    {
+        auto& node = rootnodes.at(b);
+        node->fillDelta(delta);
+
+        std::vector<CounterData> counters_loaded = node->AccumFromMask(se_mask, cu_mask);
+        if (counters_loaded.empty()) continue;
+
+        num_samples = std::max(num_samples, counters_loaded.size());
+
+        for (int c = 0; c < CNT_BANK; c++)
+        {
+            int index = c + b * CNT_BANK;
+            while (index >= counter_names.size()) counter_names.push_back("UNK_" + std::to_string(c));
+            auto& name = counter_names.at(index);
+
+            std::vector<WeightedPoint> datapoints;
+            datapoints.reserve(counters_loaded.size());
+            for (auto& counter : counters_loaded)
+                datapoints.push_back({(float) counter.time, (float) counter.events[c]});
+            AddData(name, Config::PlotColors(index), std::move(datapoints));
+        }
+    }
+
+    // Add derived counters
+    UpdateDerivedCounters(derivedDefinitions, true);
+}
+
+void CounterPlotView::UpdateDerivedCounters(const std::string& derivedDefinitions, bool suppress)
+{
+    // Remove existing derived counter curves (those added after the raw counters)
+    size_t rawCounterCount = counter_names.size();
+    while (curves.size() > rawCounterCount) curves.pop_back();
+
+    std::string builtin_derived = derivedDefinitions.empty() ? getBuiltin() : derivedDefinitions;
+
+    // Rebuild derived manager to clear old definitions
+    buildDerivedManager();
+    auto derived = getDerived(builtin_derived, suppress);
+    if (derived.empty()) return;
+
+    // Update disabled state for raw counters based on derived success
+    if (derived.size() == derivedmanager->derivedCounterNames().size())
+        for (size_t i = 0; i < rawCounterCount && i < curves.size(); i++) curves[i].disabled = true;
+
+    int derived_index = counter_names.size();
+    std::shared_ptr<const DerivedCounter::Tensor> time_data;
+    try
+    {
+        if (!derivedmanager->context().hasCounter("SCLOCK")) return;
+        time_data = derivedmanager->context().getCounter("SCLOCK");
+    }
+    catch (const std::exception&)
+    {
+        return;
+    }
+
+    for (auto& [derived_name, result] : derived)
+    {
+        if (derived_name.empty() || derived_name.at(0) == '_') continue;
+        if (!result || !time_data) continue;
+
+        size_t num_samples = result->shape().getSamples();
+        if (time_data->shape().getSamples() < num_samples) continue;
+
+        size_t num_xcc = result->shape().getXCC();
+        size_t num_se = result->shape().getSE();
+        size_t num_cu = result->shape().getCU();
+
+        // If result is already [1,1,1,time], just plot it directly
+        if (num_xcc == 1 && num_se == 1 && num_cu == 1)
+        {
+            std::vector<WeightedPoint> datapoints;
+            datapoints.reserve(num_samples);
+            for (size_t i = 0; i < num_samples; i++) datapoints.push_back({(*time_data)[i], (*result)[i]});
+            AddData(derived_name, Config::PlotColors(derived_index++), std::move(datapoints));
+            continue;
+        }
+
+        // For multi-dimensional results, create separate plots for each combination
+        // Limit total plots to kMaxPlotsPerDerived
+        size_t plot_count = 0;
+        for (size_t xcc = 0; xcc < num_xcc && plot_count < kMaxPlotsPerDerived; xcc++)
+        {
+            for (size_t se = 0; se < num_se && plot_count < kMaxPlotsPerDerived; se++)
             {
-                auto& maxv = ret.at(4 * b + c);
-                maxv = std::max<double>(maxv, counter.events[c]);
+                for (size_t cu = 0; cu < num_cu && plot_count < kMaxPlotsPerDerived; cu++)
+                {
+                    // Build plot name with non-trivial indices
+                    std::string plot_name = derived_name;
+                    if (num_xcc > 1) plot_name += "_XCC" + std::to_string(xcc);
+                    if (num_se > 1) plot_name += "_SE" + std::to_string(se);
+                    if (num_cu > 1) plot_name += "_CU" + std::to_string(cu);
+
+                    std::vector<WeightedPoint> datapoints;
+                    datapoints.reserve(num_samples);
+                    for (size_t t = 0; t < num_samples; t++)
+                    {
+                        float value = result->at(xcc, se, cu, t);
+                        datapoints.push_back({(*time_data)[t], value});
+                    }
+                    AddData(plot_name, Config::PlotColors(derived_index++), std::move(datapoints));
+                    plot_count++;
+                }
             }
         }
     }
 
-    return ret;
+    update();
 }
 
-void TraceCounterPlotView::UpdateDataSelection(
-    const std::vector<std::string>& counter_names,
-    uint64_t se_mask,
-    uint64_t cu_mask,
-    std::unordered_set<std::string>& disable_counters
-)
+void CounterPlotView::buildDerivedManager()
 {
-    this->xmin = 0;
-    this->ymin = 0;
-    this->xmax = 0;
-    this->ymax = 0;
+    derivedmanager = std::make_shared<DerivedCounter::DerivedCounterManager>();
+    // Compute the full tensor shape from the raw counter data
+    // Shape is (num_banks/XCC, num_SEs, NUM_CU, num_time_samples)
 
-    this->curves.clear();
+    // Find the global time range across all nodes
+    int64_t global_min_time = INT64_MAX;
+    int64_t global_max_time = INT64_MIN;
+    size_t max_num_ses = 0;
 
-    int64_t delta = verify_skew(rootnodes.at(0)->getDelta(), rootnodes.back()->getDelta());
-
-    for (int b = 0; b < BANKS; b++)
+    for (auto& node : rootnodes)
     {
-        if (!rootnodes.at(b).get()) continue;
-
-        rootnodes[b]->fillDelta(delta);
-        std::vector<CounterData> counters_loaded = rootnodes[b]->AccumFromMask(se_mask, cu_mask);
-        if (counters_loaded.size() == 0) continue;
-
-        std::array<std::vector<WeightedPoint>, 4> datapoints;
-        for (auto& dp : datapoints) dp.reserve(counters_loaded.size());
-
-        for (auto& counter : counters_loaded)
+        int64_t node_min, node_max;
+        node->getTimeRange(delta, node_min, node_max);
+        if (node_min != INT64_MAX)
         {
-            for (int i = 0; i < 4; i++) datapoints[i].push_back({(float) counter.time, (float) counter.events[i]});
+            global_min_time = std::min(global_min_time, node_min);
+            global_max_time = std::max(global_max_time, node_max);
         }
+        max_num_ses = std::max(max_num_ses, node->numSEs());
+    }
 
-        for (int i = 0; i < 4 && i + 4 * b < counter_names.size(); i++)
+    if (global_min_time == INT64_MAX || delta <= 0) return;
+
+    // Calculate number of time samples based on delta
+    size_t num_time_samples = static_cast<size_t>((global_max_time - global_min_time) / delta);
+    if (num_time_samples == 0) num_time_samples = 1;
+
+    // Create time data array for plotting
+    std::vector<float> time_data(num_time_samples);
+    for (size_t i = 0; i < num_time_samples; i++) time_data[i] = static_cast<float>(global_min_time + i * delta);
+
+    // Shape: (1, num_SEs, NUM_CU, num_time_samples) - one tensor per counter
+    // Each counter only has data from its respective bank
+    size_t num_banks = rootnodes.size();
+    DerivedCounter::Shape counterShape(1, max_num_ses, NUM_CU, num_time_samples);
+
+    // Create tensors for each counter (num_banks * CNT_BANK total), filled with zeros initially
+    size_t total_counters = num_banks * CNT_BANK;
+    std::vector<std::shared_ptr<DerivedCounter::Tensor>> counter_tensors;
+    counter_tensors.reserve(total_counters);
+    for (size_t i = 0; i < total_counters; i++)
+        counter_tensors.emplace_back(std::make_shared<DerivedCounter::Tensor>(counterShape, 0.0f));
+
+    // Populate tensors from raw CU data
+    for (size_t b = 0; b < num_banks; b++)
+    {
+        auto& node = rootnodes[b];
+        for (size_t se_idx = 0; se_idx < node->numSEs(); se_idx++)
         {
-            if (disable_counters.find(counter_names[i + 4 * b]) != disable_counters.end()) datapoints[i] = {};
-            AddData(counter_names[i + 4 * b], Config::PlotColors(i + 4 * b), std::move(datapoints[i]));
+            SECounterNode* se_node = node->getSE(se_idx);
+            if (!se_node) continue;
+
+            size_t se = static_cast<size_t>(se_node->se);
+            if (se >= max_num_ses) continue;
+
+            for (size_t cu = 0; cu < NUM_CU; cu++)
+            {
+                if (!se_node->cu_nodes[cu]) continue;
+
+                for (const auto& counter : se_node->cu_nodes[cu]->data)
+                {
+                    // Calculate time index: maps interval [t-delta/4, t+3*delta/4] to same index
+                    // Equivalent to: time_idx = (sample_time - min_time + delta/4) / delta
+                    size_t time_idx = static_cast<size_t>((counter.time - global_min_time + delta / 4) / delta);
+                    if (time_idx >= num_time_samples) continue;
+
+                    for (int c = 0; c < CNT_BANK; c++)
+                    {
+                        size_t tensor_idx = c + b * CNT_BANK;
+                        counter_tensors[tensor_idx]->at(0, se, cu, time_idx) += counter.events[c];
+                    }
+                }
+            }
         }
+    }
+
+    // Register tensors with the derived counter manager
+    for (size_t b = 0; b < num_banks; b++)
+    {
+        for (int c = 0; c < CNT_BANK; c++)
+        {
+            int index = c + static_cast<int>(b) * CNT_BANK;
+            auto name = index < counter_names.size() ? counter_names.at(index) : ("UNK_" + std::to_string(c));
+
+            derivedmanager->context().setCounter(name, counter_tensors[index]);
+        }
+    }
+
+    // Create SCLOCK tensor from time points (broadcast across all dimensions)
+    {
+        DerivedCounter::Shape sclockShape(1, 1, 1, num_time_samples);
+        derivedmanager->context().setCounter(
+            "SCLOCK", std::make_shared<DerivedCounter::Tensor>(sclockShape, time_data)
+        );
     }
 }
 
-TraceCounterPlotView::TraceCounterPlotView(QWidget* parent)
+std::vector<std::pair<std::string, std::shared_ptr<const DerivedCounter::Tensor>>> CounterPlotView::getDerived(
+    const std::string& derived, bool suppress
+)
 {
-    for (int i = 0; i < BANKS; i++) rootnodes.at(i) = std::make_unique<GPUCounterNode>();
+    if (!derivedmanager) buildDerivedManager();
+
+    std::vector<std::pair<std::string, std::shared_ptr<const DerivedCounter::Tensor>>> result{};
+    try
+    {
+        derivedmanager->loadDefinitions(derived);
+    }
+    catch (const std::exception& e)
+    {
+        std::cerr << "Warning: Failed to load definitions: " << e.what() << std::endl;
+        QMessageBox::warning(
+            this, "Derived Counter Error", QString("Failed to parse derived counter definitions:\n%1").arg(e.what())
+        );
+        return result;
+    }
+
+    QStringList errors;
+    for (const auto& derived_name : derivedmanager->derivedCounterNames())
+    {
+        try
+        {
+            result.push_back({derived_name, derivedmanager->evaluate(derived_name)});
+        }
+        catch (const std::exception& e)
+        {
+            // Derived counters may fail if required raw counters are missing
+            std::cerr << "Warning: Failed to evaluate derived counter '" << derived_name << "': " << e.what()
+                      << std::endl;
+            errors.append(QString("'%1': %2").arg(QString::fromStdString(derived_name), e.what()));
+        }
+    }
+
+    if (!errors.isEmpty())
+    {
+        if (!suppress)
+            QMessageBox::warning(
+                this,
+                "Derived Counter Error",
+                QString("Failed to evaluate %1 derived counter(s):\n\n%2").arg(errors.size()).arg(errors.join("\n\n"))
+            );
+        derivedmanager->context().clearDerivedCounters();
+    }
+
+    return result;
 }
+
+TraceCounterPlotView::TraceCounterPlotView(QWidget* parent) {}
 
 void CounterPlotView::UpdateGraphTable(float mousepos)
 {
     for (auto& curve : curves)
-        if (curve.lods.size())
-            MainWindow::window->UpdateGraphInfo(curve.fullname, curve.lods.at(0).search(mousepos), 0);
+        if (curve.lods.size()) MainWindow::window->UpdateGraphInfo(curve.fullname, curve.lods.at(0).search(mousepos));
 }
 
 void OccupancyPlotView::LoadOccupancyData(const std::string& filename)
@@ -333,4 +582,16 @@ void DispatchPlotView::LoadOccupancyData(const std::string& filename)
     for (int id = 0; id < num_dispatch_ids; id++)
         if (datapoints[id].size() >= 2)
             AddData(std::to_string(id) + '-' + kernel_names[id], DispatchColor(id), std::move(datapoints[id]));
+}
+
+std::string TraceCounterPlotView::getBuiltin() const
+{
+    std::string derived = "_reduce_busy := sum[BUSY_CU_CYCLES, axis=[XCC,SE,CU]] + 1E-6";
+
+    for (std::string name : {"MISC", "FLAT", "SCA", "LDS", "VMEM", "VALU"})
+        derived += "\n" + name + "_util := 100 * sum[ACTIVE_INST_" + name + ", axis=[XCC,SE,CU]] / _reduce_busy";
+
+    derived += "\nMFMA_util := 25 * sum[VALU_MFMA_BUSY_CYCLES, axis=[XCC,SE,CU]] / _reduce_busy";
+
+    return derived;
 }

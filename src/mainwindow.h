@@ -68,12 +68,12 @@ public:
     void CreateOccupancyPlot(bool bDispatch);
     void CreateWavesPlot();
     void setPlotBarPos(float x);
-    void UpdateGraphInfo(const std::string& name, int value, float integral);
+    void UpdateGraphInfo(const std::string& name, int value);
     void UpdateGraphAutoLod(int bAutoLod);
     void ToggleDisplayLineNumber(int display);
     void SetJsonsFolder();
-    void CountersFilter();
     void OpenOptionsDialog();
+    void OpenDerivedCounterEditor();
     void SetWaveViewMipmap(int value);
     void SetGlobalViewMipmap(int value);
     int GetHotspotBins() const { return hotspot_n_bins; }
@@ -87,8 +87,6 @@ public:
     void GatherWaves();
     void UpdateOccupancyInfo(const std::vector<std::pair<std::string, int>>& values, float norm);
 
-    uint64_t GetSEMask() { return ToMask(se_enable_list); }
-    uint64_t GetCUMask() { return ToMask(cu_enable_list); }
     static uint64_t ToMask(const std::vector<bool>& list);
 
     void PrevSearch();
@@ -123,7 +121,6 @@ public:
     class QGridLayout* counters_plot_layout = nullptr;
     class QGridLayout* occupancy_plot_layout = nullptr;
     class QGridLayout* dispatch_plot_layout = nullptr;
-    class QTableWidget* wave_info_table = nullptr;
     class QTableWidget* graph_info_table = nullptr;
     class QTableWidget* history_table = nullptr;
     class QWidget* hotspot_tab = nullptr;
@@ -155,9 +152,6 @@ public:
     static QString default_font;
 
 private:
-    void updatePerfNames();
-    std::vector<std::string> perfcounter_names{};
-
     static double _paint_scale;
     static int _scaling_var;
 
@@ -165,7 +159,7 @@ private:
     class SESelector* seSelector = nullptr;
     std::string lastPath = "";
 
-    std::unordered_map<std::string, std::pair<class QLabel*, class QLabel*>> counter_values_tableitem;
+    std::unordered_map<std::string, class QLabel*> counter_values_tableitem;
     std::unordered_map<std::string, std::pair<class QLabel*, class QLabel*>> occupancy_values_tableitem;
 
     std::string ui_dir;
@@ -173,9 +167,6 @@ private:
     int hotspot_begin = 0;
     int hotspot_end = 1000000;
     double hotspot_max_value = -1;
-
-    std::vector<bool> cu_enable_list = {};
-    std::vector<bool> se_enable_list = {};
 
     int slider_scrollbar;
     int slider_cuwaves;

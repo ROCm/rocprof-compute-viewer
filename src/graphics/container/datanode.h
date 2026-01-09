@@ -31,13 +31,14 @@
 #include "util/custom_layouts.h"
 
 #define NUM_CU 16
+#define CNT_BANK 4
 
 struct CounterData
 {
-    int64_t time = 0;
-    int32_t events[4] = {0, 0, 0, 0};
-    int8_t cu = 0;
-    int8_t se = 0;
+    int64_t time{};
+    int8_t cu{};
+    int8_t se{};
+    std::array<float, CNT_BANK> events{};
 
     std::string toString() const
     {
@@ -48,12 +49,12 @@ struct CounterData
     }
     CounterData& operator+=(const CounterData& other)
     {
-        for (int i = 0; i < 4; i++) events[i] += other.events[i];
+        for (int i = 0; i < CNT_BANK; i++) events[i] += other.events[i];
         return *this;
     }
     CounterData& operator-=(const CounterData& other)
     {
-        for (int i = 0; i < 4; i++) events[i] -= other.events[i];
+        for (int i = 0; i < CNT_BANK; i++) events[i] -= other.events[i];
         return *this;
     }
 
@@ -62,8 +63,6 @@ struct CounterData
     bool operator<=(const CounterData& other) const { return this->time <= other.time; }
 
     int linearpos() const { return se * NUM_CU + cu; }
-
-    // static std::unordered_map<int8_t, int64_t> shader_order_offset;
 };
 
 class CUCounterNode
@@ -103,6 +102,14 @@ public:
     int64_t getDelta() const;
     void fillDelta(int64_t delta);
     std::vector<CounterData> AccumFromMask(uint64_t se_mask, uint64_t cu_mask);
+    
+    // Get number of SEs and access to SE nodes for tensor creation
+    size_t numSEs() const { return se_nodes.size(); }
+    SECounterNode* getSE(size_t idx) { return idx < se_nodes.size() ? se_nodes[idx].get() : nullptr; }
+    const SECounterNode* getSE(size_t idx) const { return idx < se_nodes.size() ? se_nodes[idx].get() : nullptr; }
+    
+    // Get time range info for tensor shape calculation
+    void getTimeRange(int64_t delta, int64_t& min_time, int64_t& max_time) const;
 
 protected:
     std::vector<std::unique_ptr<SECounterNode>> se_nodes;

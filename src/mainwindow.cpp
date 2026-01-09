@@ -23,6 +23,7 @@
 #include "mainwindow.h"
 #include <stdlib.h>
 #include <sys/stat.h>
+#include <QCheckBox>
 #include <QDir>
 #include <QFileDialog>
 #include <QFontDatabase>
@@ -30,6 +31,7 @@
 #include <QPainterPath>
 #include <QScrollArea>
 #include <QSpinBox>
+#include <QTextStream>
 #include <algorithm>
 #include <fstream>
 #include <future>
@@ -39,6 +41,7 @@
 #include "button/jsonselector.h"
 #include "code/qcodelist.h"
 #include "code/sourcefile.h"
+#include "collection/derivedcountereditor.h"
 #include "collection/histogramdelegate.h"
 #include "collection/jsonfilemodel.h"
 #include "collection/license.h"
@@ -47,7 +50,6 @@
 #include "config/config.hpp"
 #include "data/wavedata.h"
 #include "graphics/canvas.h"
-#include "graphics/container/counterdialog.h"
 #include "graphics/hotspot.h"
 #include "graphics/specialized_plots.h"
 #include "summary/summaryview.h"
@@ -142,23 +144,22 @@ MainWindow::MainWindow(std::string uidir) : QMainWindow(nullptr), ui(new Ui::Mai
     ui->splitter->replaceWidget(0, accordion);
 #endif
 
-    for (int i = 0; i < 16; i++) cu_enable_list.push_back(true);
-
     this->history_table = ui->history_table;
     this->history_table->verticalHeader()->setDefaultSectionSize(16);
 
     this->graph_info_table = ui->graph_info_table;
-    this->graph_info_table->setColumnCount(3);
-    this->graph_info_table->setRowCount(3);
-    this->graph_info_table->setHorizontalHeaderLabels(QList<QString>({"Counter", "Value", "%/View"}));
+    this->graph_info_table->setColumnCount(2);
+    this->graph_info_table->setRowCount(1);
+    this->graph_info_table->setHorizontalHeaderLabels(QList<QString>({"Enable Counter", "Value"}));
+    this->graph_info_table->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
+    this->graph_info_table->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Fixed);
+    this->graph_info_table->setColumnWidth(1, 60);
     this->graph_info_table->setEditTriggers(QAbstractItemView::NoEditTriggers);
     this->graph_info_table->setSelectionMode(QAbstractItemView::NoSelection);
-
-    this->wave_info_table = ui->wave_info_table;
-    this->wave_info_table->setColumnCount(3);
-    this->wave_info_table->setHorizontalHeaderLabels(QList<QString>({"Type", "Hit", "Stalls"}));
-    this->wave_info_table->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    this->wave_info_table->setSelectionMode(QAbstractItemView::NoSelection);
+    this->graph_info_table->setSortingEnabled(false);
+    this->graph_info_table->horizontalHeader()->setSectionsClickable(false);
+    this->graph_info_table->verticalHeader()->setSectionsClickable(false);
+    this->graph_info_table->setFocusPolicy(Qt::NoFocus);
 
     ui->occ_info_table->setColumnCount(3);
     ui->occ_info_table->setEditTriggers(QAbstractItemView::NoEditTriggers);
@@ -270,7 +271,7 @@ MainWindow::MainWindow(std::string uidir) : QMainWindow(nullptr), ui(new Ui::Mai
 
     connect(ui->actionJsons_folder, &QAction::triggered, this, &MainWindow::SetJsonsFolder);
     connect(ui->actionHotOptions, &QAction::triggered, this, &MainWindow::OpenOptionsDialog);
-    connect(ui->actionCounters_filter, &QAction::triggered, this, &MainWindow::CountersFilter);
+    connect(ui->actionDerived_counters, &QAction::triggered, this, &MainWindow::OpenDerivedCounterEditor);
 
     connect(ui->waveview_spin, qOverload<int>(&QSpinBox::valueChanged), this, &MainWindow::SetWaveViewMipmap);
     connect(ui->global_spin, qOverload<int>(&QSpinBox::valueChanged), this, &MainWindow::SetGlobalViewMipmap);
@@ -472,16 +473,6 @@ void MainWindow::SetMainWave(int se, int simd, int sl, int wid)
     UpdateWaveViewRange();
     force_gather = false;
 
-    QWARNING(wave_info_table, "No wave info", return );
-    int i = 0;
-    for (auto& [name, value, stalls] : main_wave->wave_info)
-    {
-        wave_info_table->setCellWidget(i, 0, new QLabel(name.c_str()));
-        wave_info_table->setCellWidget(i, 1, new QLabel(std::to_string(value).c_str()));
-        wave_info_table->setCellWidget(i, 2, new QLabel(std::to_string(stalls).c_str()));
-        i++;
-    }
-
     if (thread_wait.valid()) thread_wait.get();
     if (thread_branch.valid()) thread_branch.get();
 
@@ -543,6 +534,97 @@ void MainWindow::OpenOptionsDialog()
 {
     OptionsDialogH dialog;
     dialog.exec();
+}
+
+void MainWindow::OpenDerivedCounterEditor()
+{
+    if (!counters_plot)
+    {
+        QMessageBox::warning(
+            this,
+            "No Counters Loaded",
+            "Cannot open Derived Counter Editor: No counters are currently loaded.\n"
+            "Please load a trace with counter data first."
+        );
+        return;
+    }
+
+    // Gather available counter information
+    std::vector<DerivedCounterEditor::CounterInfo> rawCounterList;
+    std::vector<DerivedCounterEditor::CounterInfo> derivedCounterList;
+    auto derivedManager = counters_plot->getDerivedManager();
+    if (derivedManager)
+    {
+        auto& ctx = derivedManager->context();
+        // Raw counters
+        for (const auto& name : ctx.rawCounterNames())
+        {
+            try
+            {
+                auto counter = ctx.getCounter(name);
+                auto shape = counter->shape();
+                QString shapeStr = QString("%1x%2x%3x%4")
+                                       .arg(shape.getXCC())
+                                       .arg(shape.getSE())
+                                       .arg(shape.getCU())
+                                       .arg(shape.getSamples());
+                DerivedCounterEditor::CounterInfo info;
+                info.name = QString::fromStdString(name);
+                info.shape = shapeStr;
+                // Store first few values for tooltip
+                const auto& data = counter->data();
+                size_t valuesToStore = std::min(data.size(), DerivedCounterEditor::kMaxTooltipValues);
+                for (size_t i = 0; i < valuesToStore; i++) info.firstValues.push_back(data[i]);
+                rawCounterList.push_back(std::move(info));
+            }
+            catch (const std::exception& e)
+            {
+                // Skip counters that fail to load
+                rawCounterList.push_back({QString::fromStdString(name), "error", {}});
+            }
+        }
+        // Derived counters
+        for (const auto& name : ctx.derivedCounterNames())
+        {
+            // Skip internal counters starting with _
+            if (!name.empty() && name[0] == '_') continue;
+            try
+            {
+                auto counter = ctx.getCounter(name);
+                auto shape = counter->shape();
+                QString shapeStr = QString("%1x%2x%3x%4")
+                                       .arg(shape.getXCC())
+                                       .arg(shape.getSE())
+                                       .arg(shape.getCU())
+                                       .arg(shape.getSamples());
+                DerivedCounterEditor::CounterInfo info;
+                info.name = QString::fromStdString(name);
+                info.shape = shapeStr;
+                // Store first few values for tooltip
+                const auto& data = counter->data();
+                size_t valuesToStore = std::min(data.size(), DerivedCounterEditor::kMaxTooltipValues);
+                for (size_t i = 0; i < valuesToStore; i++) info.firstValues.push_back(data[i]);
+                derivedCounterList.push_back(std::move(info));
+            }
+            catch (const std::exception& e)
+            {
+                // Add with error indicator if evaluation fails
+                derivedCounterList.push_back({QString::fromStdString(name), QString("error: %1").arg(e.what()), {}});
+            }
+        }
+    }
+
+    QString builtinText = QString::fromStdString(counters_plot->getBuiltin());
+    DerivedCounterEditor editor(builtinText, rawCounterList, derivedCounterList, this);
+    editor.exec();
+
+    // After dialog closes, update the plot with the active tab's definitions
+    QString newDefinitions = editor.getCurrentTabContent();
+    if (!newDefinitions.isEmpty())
+    {
+        counters_plot->UpdateDerivedCounters(newDefinitions.toStdString(), false);
+        UpdateCountersPlotSelection();
+    }
 }
 
 void MainWindow::SetJsonsFolder()
@@ -651,12 +733,11 @@ void MainWindow::ResetSelector()
     counter_values_tableitem.clear();
     occupancy_values_tableitem.clear();
 
-    if (graph_info_table) graph_info_table->setRowCount(3);
+    if (graph_info_table) graph_info_table->setRowCount(1);
     if (ui->occ_info_table) ui->occ_info_table->setRowCount(0);
 
     try
     {
-        updatePerfNames();
         CreateWavesPlot();
         CreateOccupancyPlot(false);
         CreateOccupancyPlot(true);
@@ -704,10 +785,20 @@ void MainWindow::CreateCountersPlot()
     summary_view->clearBarChartData();
     ui->tabWidget_2->setTabEnabled(2, false);
 
-    se_enable_list = {};
-    std::vector<CounterPlotView::CounterAccum> accumulated{};
-    CounterPlotView::CounterList peak_rates{};
-    bool load_perf_counters = !perfcounter_names.empty() && perfcounter_names.size() <= peak_rates.size();
+    // Load counter names from filenames.json
+    auto perfcounter_names = std::vector<std::string>{};
+    try
+    {
+        JsonRequest file(MainWindow::GetUIDir() + "filenames.json", false);
+        perfcounter_names = file.data["counter_names"];
+    }
+    catch (...)
+    {}
+
+    for (auto& name : perfcounter_names)
+        if (name.size() > 5 && name.find("SQ_") == 0) name = name.substr(3);
+
+    bool load_perf_counters = !perfcounter_names.empty(); // && perfcounter_names.size() <= peak_rates.size();
 
     auto* traceplot = new TraceCounterPlotView(this);
     this->counters_plot = traceplot;
@@ -721,22 +812,16 @@ void MainWindow::CreateCountersPlot()
             auto it = std::max_element(list.begin(), list.end());
             if (it != list.end()) max_se = 1 + *it;
         }
-        accumulated.reserve(max_se);
 
-        // Only try to see counters where waves are present
         for (int se_num = 0; se_num < max_se; se_num++)
         {
             std::string filename = GetUIDir() + "se" + std::to_string(se_num) + "_perfcounter.json";
             JsonRequest file(filename, false);
             if (!file.bValid) continue;
 
-            if (accumulated.size() <= se_num) accumulated.resize(se_num + 1);
-            accumulated.at(se_num) = traceplot->LoadCounterData(file, se_num);
+            traceplot->LoadCounterData(file, se_num);
         }
-
-        peak_rates = traceplot->GetPeakRates();
     }
-    se_enable_list = std::vector<bool>(accumulated.size(), true);
 
     if (this->counters_plot_layout) delete this->counters_plot_layout;
 
@@ -748,19 +833,29 @@ void MainWindow::CreateCountersPlot()
     accordion->replaceContentByTitle("Counters", this->counters_plot);
 #endif
 
-    if (perfcounter_names.empty() || accumulated.empty()) return;
+    if (perfcounter_names.empty()) return;
+
+    // Load user-defined derived counters from file
+    std::string derived_definitions = DerivedCounterEditor::loadDefinitions();
 
     this->counters_plot->setAutoLod(ui->lod_checkBox->isChecked());
     this->counters_plot->setGeometry(0, 0, 300, this->counters_plot->size().width());
-
+    this->counters_plot->UpdateDataSelection(perfcounter_names, ~0ULL, ~0ULL, derived_definitions);
     UpdateCountersPlotSelection();
+
+    auto peak_rates = counters_plot->GetPeakRates();
+    auto accumulated = counters_plot->GetAvgRates();
+
+    if (peak_rates.empty() || accumulated.shape().totalSize() <= 1) return;
+    if (peak_rates.size() != accumulated.shape().getSamples()) peak_rates.resize(accumulated.shape().getSamples());
+
+    if (perfcounter_names.size() != peak_rates.size()) perfcounter_names.resize(peak_rates.size());
 
     auto acc_index = [&accumulated](int index) -> double
     {
         double acc = 0;
-        for (auto& se : accumulated)
-            for (auto& cu : se)
-                if (index < cu.size()) acc += cu.at(index);
+        for (int se = 0; se < accumulated.shape().getSE(); se++)
+            for (int cu = 0; cu < accumulated.shape().getCU(); cu++) acc += accumulated.at(0, se, cu, index);
 
         return acc;
     };
@@ -792,12 +887,12 @@ void MainWindow::CreateCountersPlot()
     {
         auto name = perfcounter_names.at(i);
 
-        if (name == "SQ_BUSY_CU_CYCLES")
+        if (name == "BUSY_CU_CYCLES")
         {
             // Baseline quadcycle measurement
             busy_cu_index = i;
         }
-        else if (name == "SQ_VALU_MFMA_BUSY_CYCLES")
+        else if (name == "VALU_MFMA_BUSY_CYCLES")
         {
             QColor color = getColorByName("MATRIX"); // special case for MFMA
             // This counter increments by cycles, not quadcycles
@@ -805,9 +900,9 @@ void MainWindow::CreateCountersPlot()
             bar_chart_data.push_back({"MFMA Peak", peak_rates.at(i) / 4, color});
             util_names["MFMA"] = i;
         }
-        else if (name.find("SQ_ACTIVE_INST_") == 0)
+        else if (name.find("ACTIVE_INST_") == 0)
         {
-            name = name.substr(std::string("SQ_ACTIVE_INST_").size());
+            name = name.substr(std::string("ACTIVE_INST_").size());
             QColor color = (name == "SCA") ? getColorByName("SMEM") : getColorByName(name); // special case for SCA
             bar_chart_data.push_back({name.c_str(), acc_index(i), color});
             if (name == "VALU") bar_chart_data.push_back({"VALU Peak", peak_rates.at(i), color});
@@ -862,17 +957,17 @@ void MainWindow::CreateCountersPlot()
         summary_view->addTableRow(row_data);
     }
 
-    for (int se = 0; se < accumulated.size(); se++)
+    for (int se = 0; se < accumulated.shape().getSE(); se++)
     {
-        for (int cu = 0; cu < accumulated.at(se).size(); cu++)
+        for (int cu = 0; cu < accumulated.shape().getCU(); cu++)
         {
             bool nonzero = false;
             QList<QString> row_data;
 
             for (auto& [name, index] : util_names)
             {
-                double div = std::max(accumulated.at(se).at(cu).at(busy_cu_index), 1.0);
-                double value = accumulated.at(se).at(cu).at(index);
+                double div = std::max((double) accumulated.at(0, se, cu, busy_cu_index), 1.0);
+                double value = accumulated.at(0, se, cu, index);
                 if (name == "MFMA") value /= 4;
 
                 row_data.push_back(QString::number(int(100.0 * value / div + 0.5)) + "%");
@@ -880,7 +975,7 @@ void MainWindow::CreateCountersPlot()
 
             for (int cidx = 0; cidx < perfcounter_names.size(); cidx++)
             {
-                double value = accumulated.at(se).at(cu).at(cidx);
+                double value = accumulated.at(0, se, cu, cidx);
                 nonzero |= value > 0;
 
                 row_data.push_back(QString::number(value));
@@ -898,56 +993,44 @@ void MainWindow::CreateCountersPlot()
     summary_view->setTableRowHeaders(row_headers);
 }
 
-void MainWindow::updatePerfNames()
-{
-    perfcounter_names = {};
-    try
-    {
-        JsonRequest file(MainWindow::GetUIDir() + "filenames.json", false);
-        perfcounter_names = file.data["counter_names"];
-    }
-    catch (...)
-    {}
-}
-
-void MainWindow::CountersFilter()
-{
-    QWARNING(this->counters_plot, "Counter plot missing", return );
-
-    if (perfcounter_names.empty()) return;
-
-    std::vector<std::pair<std::string, bool>> counters_disable;
-    for (auto& name : perfcounter_names) counters_disable.push_back({name, false});
-
-    CounterDialog dialog(cu_enable_list, se_enable_list, counters_disable);
-    dialog.exec();
-
-    disabled_counters = {};
-    for (auto& [name, disable] : counters_disable)
-        if (disable) disabled_counters.insert(name);
-
-    UpdateCountersPlotSelection();
-}
-
 void MainWindow::UpdateCountersPlotSelection()
 {
-    QWARNING(this->counters_plot, "Plot missing", return );
+    if (!this->counters_plot) return;
 
-    if (perfcounter_names.empty()) return;
+    auto perfcounter_names = this->counters_plot->getDisabled();
+    std::sort(
+        perfcounter_names.begin(),
+        perfcounter_names.end(),
+        [](const auto& a, const auto& b) { return a.first.size() < b.first.size(); }
+    );
+    graph_info_table->setRowCount(perfcounter_names.size());
 
-    this->counters_plot->UpdateDataSelection(perfcounter_names, GetSEMask(), GetCUMask(), disabled_counters);
-    graph_info_table->setRowCount(3 + perfcounter_names.size());
-
-    int i = 3;
-    for (auto& name : perfcounter_names)
+    int i = 0;
+    for (auto& [name, disabled] : perfcounter_names)
     {
         class QLabel* v_label = new QLabel("");
-        class QLabel* i_label = new QLabel("");
-        counter_values_tableitem[name] = {v_label, i_label};
+        counter_values_tableitem[name] = v_label;
 
-        graph_info_table->setCellWidget(i, 0, new QLabel(name.c_str()));
+        QCheckBox* checkbox = new QCheckBox(name.c_str());
+        checkbox->setChecked(!disabled);
+        if (WindowColors::isDark())
+            checkbox->setStyleSheet("background-color: #282828;");
+        else
+            checkbox->setStyleSheet("background-color: pallete(mid);");
+        std::string counter_name = name;
+        connect(
+            checkbox,
+            &QCheckBox::clicked,
+            this,
+            [this, counter_name](bool checked)
+            {
+                this->counters_plot->setDisabled(counter_name, !checked);
+                this->counters_plot->update();
+            }
+        );
+
+        graph_info_table->setCellWidget(i, 0, checkbox);
         graph_info_table->setCellWidget(i, 1, v_label);
-        graph_info_table->setCellWidget(i, 2, i_label);
         i++;
     }
 }
@@ -968,20 +1051,20 @@ void MainWindow::CreateWavesPlot()
     this->waves_plot->LoadWaveStateData(GetUIDir(), 0);
     this->waves_plot->setAutoLod(ui->lod_checkBox->isChecked());
 
-    for (int i = 0; i < WavePlotView::state_names.size() - 2; i++)
+    int wave_state_count = WavePlotView::state_names.size() - 2;
+    ui->occ_info_table->setRowCount(wave_state_count);
+    for (int i = 0; i < wave_state_count; i++)
     {
         auto& name = WavePlotView::state_names[i + 2];
         class QLabel* v_label = new QLabel("");
-        class QLabel* i_label = new QLabel("");
 
-        counter_values_tableitem[name] = {v_label, i_label};
+        counter_values_tableitem[name] = v_label;
 
-        graph_info_table->setCellWidget(i, 0, new QLabel(("Waves " + name).c_str()));
-        graph_info_table->setCellWidget(i, 1, v_label);
-        graph_info_table->setCellWidget(i, 2, i_label);
+        ui->occ_info_table->setCellWidget(i, 0, new QLabel(("Waves " + name).c_str()));
+        ui->occ_info_table->setCellWidget(i, 1, v_label);
     }
-    graph_info_table->setToolTip("Displays current values under the mouse pointer. "
-                                 "For waves, displays current values and percentage of each wave state.");
+    ui->occ_info_table->setToolTip("Displays current values under the mouse pointer. "
+                                   "For waves, displays current values and percentage of each wave state.");
 }
 
 void MainWindow::CreateOccupancyPlot(bool bDispatch)
@@ -1033,20 +1116,13 @@ void MainWindow::setPlotBarPos(float x)
     if (dispatch_plot) dispatch_plot->SetBarPos(x);
 }
 
-void MainWindow::UpdateGraphInfo(const std::string& name, int value, float integral)
+void MainWindow::UpdateGraphInfo(const std::string& name, int value)
 {
-    QWARNING(graph_info_table, "No graph info", return );
+    QLabel* v_label = counter_values_tableitem[name];
 
-    QLabel *v_label, *i_label;
-    std::tie(v_label, i_label) = counter_values_tableitem[name];
-
-    if (!v_label || !i_label) return;
+    if (!v_label) return;
 
     v_label->setText(std::to_string(value).c_str());
-
-    std::stringstream ss;
-    ss << std::setprecision(4) << integral;
-    i_label->setText(ss.str().c_str());
 }
 
 void MainWindow::UpdateOccupancyInfo(const std::vector<std::pair<std::string, int>>& values, float norm)
@@ -1062,6 +1138,7 @@ void MainWindow::UpdateOccupancyInfo(const std::vector<std::pair<std::string, in
         if (table_entry.first == nullptr || table_entry.second == nullptr)
         {
             int cnt = ui->occ_info_table->rowCount();
+            if (cnt < 3) cnt = 3; // Reserve first 3 rows for wave states
             ui->occ_info_table->setRowCount(cnt + 1);
 
             table_entry.first = new QLabel();
@@ -1597,14 +1674,14 @@ void MainWindow::saveSourceHotspotSizeSetting()
 {
     bool ok;
     int size = ui->source_hotspot_size_edit->text().toInt(&ok);
-    if (ok) { AppConfig::getInstance().setSourceHotspotSize(size); }
+    if (ok) AppConfig::getInstance().setSourceHotspotSize(size);
 }
 
 void MainWindow::saveFontSizeSetting()
 {
     bool ok;
     int size = ui->fontedit->text().toInt(&ok);
-    if (ok) { AppConfig::getInstance().setFontSize(size); }
+    if (ok) AppConfig::getInstance().setFontSize(size);
 }
 
 void MainWindow::saveDarkThemeSetting(int state) { AppConfig::getInstance().setDarkTheme(state != 0); }

@@ -25,9 +25,8 @@
 #include <memory>
 #include <unordered_set>
 #include "container/datanode.h"
+#include "derived_counter.h"
 #include "plot.h"
-
-#define BANKS 2
 
 //! Class for visualizing wave states
 class WavePlotView : public PlotGraph
@@ -48,11 +47,6 @@ private:
 class CounterPlotView : public PlotGraph
 {
 public:
-    // List of [compute_unit][counter_id] -> sum of counter
-    using CounterList = std::array<double, 4 * BANKS>;
-    // First = per CU counter, second = Peak rates
-    using CounterAccum = std::array<CounterList, NUM_CU>;
-
     CounterPlotView() : CounterPlotView(nullptr){};
     CounterPlotView(class QWidget* parent) : PlotGraph(1, parent){};
     virtual ~CounterPlotView() = default;
@@ -61,9 +55,33 @@ public:
         const std::vector<std::string>& counters_names,
         uint64_t se_mask,
         uint64_t cu_mask,
-        std::unordered_set<std::string>& disable_counters
-    ) = 0;
+        const std::string& derivedDefinitions = ""
+    );
+
+    //! Update only the derived counters without reloading raw counter data
+    void UpdateDerivedCounters(const std::string& derivedDefinitions, bool suppress);
+
+    std::shared_ptr<DerivedCounter::DerivedCounterManager> getDerivedManager() { return derivedmanager; };
+    std::vector<std::pair<std::string, std::shared_ptr<const DerivedCounter::Tensor>>> getDerived(
+        const std::string& derived, bool suppress
+    );
+
+    void setDisablesCounters(const std::vector<std::pair<std::string, bool>>& names);
+
     virtual void UpdateGraphTable(float timepos) override;
+    std::vector<double> GetPeakRates();
+    // XCC vs SE vs CU vs CounterID
+    DerivedCounter::Tensor GetAvgRates();
+
+    virtual std::string getBuiltin() const = 0;
+
+protected:
+    void buildDerivedManager();
+    std::shared_ptr<DerivedCounter::DerivedCounterManager> derivedmanager{nullptr};
+
+    std::vector<std::unique_ptr<class GPUCounterNode>> rootnodes{};
+    std::vector<std::string> counter_names{};
+    int64_t delta = INT64_MAX;
 };
 
 //! Class for visualizing GPU occupancy
@@ -100,17 +118,7 @@ public:
     TraceCounterPlotView(class QWidget* parent);
     virtual ~TraceCounterPlotView() = default;
 
-    // Returns per CU accumulated counters
-    CounterAccum LoadCounterData(class JsonRequest& file, int SE);
-    void UpdateDataSelection(
-        const std::vector<std::string>& counters_names,
-        uint64_t se_mask,
-        uint64_t cu_mask,
-        std::unordered_set<std::string>& disable_counters
-    ) override;
+    void LoadCounterData(class JsonRequest& file, int SE);
 
-    CounterList GetPeakRates();
-
-private:
-    std::array<std::unique_ptr<class GPUCounterNode>, BANKS> rootnodes{};
+    virtual std::string getBuiltin() const override;
 };

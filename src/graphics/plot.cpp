@@ -70,6 +70,8 @@ float LODCurve::search(float time) const
 void PlotCurve::SetData(std::vector<WeightedPoint>&& data)
 {
     int n_lods = 0;
+    ymax = 1E-3;
+    for (auto& elem : data) ymax = std::max(ymax, 1.025 * elem.value);
 
     if (data.size() < 2) return;
 
@@ -256,12 +258,16 @@ void PlotGraph::paintEvent(QPaintEvent* ev)
     QPen pen = painter.pen();
     pen.setWidth(penwidth);
 
+    double ymax = 1E-3;
+    for (auto& curve : curves)
+        if (!curve.disabled) ymax = std::max(ymax, curve.ymax);
+
     int start_y = height() - bottom_space;
     double cvty = (start_y - top_space) * yscale / ymax;
 
     for (auto& series : curves)
     {
-        if (!series.lods.size()) continue;
+        if (!series.lods.size() || series.disabled) continue;
 
         series.UpdateLOD((xmax - xmin) / xscale, width(), bAutoLod);
         auto& data = series.get().data;
@@ -362,18 +368,20 @@ void PlotGraph::paintEvent(QPaintEvent* ev)
 
     // Draw token colors
     int total_text_width = curves.size() * font_height * 3 / 2;
-    for (auto& data : curves) total_text_width += fm.horizontalAdvance(data.shortname.c_str());
+    for (auto& data : curves)
+        if (!data.disabled) total_text_width += fm.horizontalAdvance(data.shortname.c_str());
 
     int left_padding = std::max((width() - total_text_width) / 2 + font_height, 0);
 
     for (auto& data : curves)
-    {
-        painter.fillRect(
-            QRectF(left_padding + font_height / 4, font_height / 2, font_height / 2, font_height / 2), data.color
-        );
-        painter.drawText(left_padding + font_height, font_height, data.shortname.c_str());
-        left_padding += font_height * 3 / 2 + fm.horizontalAdvance(data.shortname.c_str());
-    }
+        if (!data.disabled)
+        {
+            painter.fillRect(
+                QRectF(left_padding + font_height / 4, font_height / 2, font_height / 2, font_height / 2), data.color
+            );
+            painter.drawText(left_padding + font_height, font_height, data.shortname.c_str());
+            left_padding += font_height * 3 / 2 + fm.horizontalAdvance(data.shortname.c_str());
+        }
 
     pen.setStyle(Qt::DotLine);
 
@@ -406,11 +414,7 @@ void PlotGraph::paintEvent(QPaintEvent* ev)
 
 void PlotGraph::AddData(std::string name, QColor color, std::vector<WeightedPoint>&& data)
 {
-    for (const auto& point : data)
-    {
-        xmax = std::max(xmax, (double) point.time);
-        ymax = std::max(ymax, 1.05 * point.value);
-    }
+    for (const auto& point : data) xmax = std::max(xmax, (double) point.time);
 
     PlotCurve& curve = curves.emplace_back(PlotCurve{});
     curve.fullname = name;

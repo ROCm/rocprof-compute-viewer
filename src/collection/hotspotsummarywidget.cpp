@@ -40,7 +40,7 @@ void HotspotSummaryWidget::setFile(const std::string& filePath, const std::strin
         // Extract file path from key (remove line number if present)
         std::string keyPath = key;
         size_t colonPos = keyPath.find_last_of(':');
-        if (colonPos != std::string::npos) { keyPath = keyPath.substr(0, colonPos); }
+        if (colonPos != std::string::npos) keyPath = keyPath.substr(0, colonPos);
 
         // Compare exact paths
         if (keyPath == filePath && linePtr && linePtr->hotspot.combined() > 0)
@@ -167,9 +167,12 @@ void HotspotSummaryWidget::paintEvent(QPaintEvent* event)
         QString latencyText;
         // TODO: not true
         int64_t lat = latency.combined();
-        if (lat > 1000000) { latencyText = QString("%1M").arg(lat / 1000000.0, 0, 'f', 1); }
-        else if (lat > 1000) { latencyText = QString("%1K").arg(lat / 1000.0, 0, 'f', 1); }
-        else { latencyText = QString::number(lat); }
+        if (lat > 1000000)
+            latencyText = QString("%1M").arg(lat / 1000000.0, 0, 'f', 1);
+        else if (lat > 1000)
+            latencyText = QString("%1K").arg(lat / 1000.0, 0, 'f', 1);
+        else
+            latencyText = QString::number(lat);
 
         painter.setFont(latencyFont);
         painter.setPen(QPen(WindowColors::LatencyTextColor(), 1));

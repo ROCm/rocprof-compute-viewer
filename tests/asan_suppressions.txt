@@ -1,0 +1,14 @@
+# ASAN suppressions for Qt/Wayland known leaks
+# These are false positives from Qt's Wayland integration that occur during
+# platform initialization and are not actual leaks in application code.
+
+# Qt Wayland client library leaks
+leak:libwayland-client.so
+leak:libQt6WaylandClient.so
+leak:libqwayland-generic.so
+
+# Qt platform integration
+leak:QGuiApplicationPrivate::createPlatformIntegration
+leak:QWaylandIntegration
+leak:QWaylandDisplay
+leak:QtWaylandClient

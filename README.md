@@ -166,10 +166,13 @@ If debug symbols are present, rocprofv3 snapshots the related source files, whic
 ![Alt text](docs/data/util.png)
 
 ### Counters:
-* Displays a plot of counter collection over time
-  * Up to 8 counters can be added, with 4 recommended
-  * Only SQ counters are allowed.
-  * On Mi300, "--att-perfcounter-ctrl 3" has a polling rate of 120~240 cycles
+
+Displays a plot of counter collection over time
+
+#### Collecting basic counters
+* Up to 8 counters can be added, with 4 recommended
+* Only SQ counters are allowed.
+* On Mi300, "--att-perfcounter-ctrl 3" has a polling rate of 120~240 cycles
 * Syntax in rocprofv3:
 ```bash
 rocprofv3 --att-perfcounter-ctrl 3 --att-perfcounters "SQ_VALU_MFMA_BUSY_CYCLES SQ_INSTS_VALU SQ_INSTS_MFMA SQ_INST_LEVEL_LDS"
@@ -187,10 +190,15 @@ Counters can be used to visualize specific types of hardware utilization. For in
 * SQ_INST_LEVEL_LDS - Measures current number of in-flight LDS instructions.
 * SQ_VALU_MFMA_BUSY_CYCLES - Measures current MFMA hardware utilization.
 
-Counters are also collected per compute unit and per shader engine.
-* Use Menu -> Edit -> Counters shown to define which Shaders/CUs are plotted.
-* Deselect all compute units except '1' to visualize counters only for CU=1.
-  * '1' is usually the default --att-target-cu
+#### Derived Counters
+
+The RCV allows user-defined derived counters to be edited in realtime. Defined in Edit -> Derived Counters
+* Some simple derived counters are provided by default (MFMA_util, VALU_util, LDS_util...)
+* Use "Help" button to see the derived counter syntax.
+* Create, Delete and Edit user-defined derived counters.
+* If multiple files are present, the currently selected widget tab defines which derived counter list to show.
+
+The left list shows the list of Raw (basic) counters collected with SQTT, along with their shapes=(XCC, SE, CU, Time).
 
 ![Alt text](docs/data/counter_far.png)
 ![Alt text](docs/data/counter_close.png)
@@ -251,7 +259,7 @@ If the RCV does not display anything except "Occupancy" and stats_*.csv file is 
 
   * Thread Trace only receives detailed information from the target_cu.
   * If the application does not populate the target_cu, then nothing will be traced.
-  * For possible solutions, the [rocprofv3 documentation](https://rocm.docs.amd.com/projects/rocprofiler-sdk/en/amd-mainline/how-to/using-thread-trace.html#troubleshooting)
+  * For possible solutions, the [rocprofv3 documentation](https://rocm.docs.amd.com/projects/rocprofiler-sdk/en/latest/how-to/using-thread-trace.html#troubleshooting)
 
 ## Building from source
 
@@ -314,7 +322,7 @@ make -j
 
 * Requires Ubuntu 22+
 * Follow the same instructions for Linux.
-* Recommended to use Qt5.15.
+* Recommended to use Qt6.4
 
 ### Windows Native
 

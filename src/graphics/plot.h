@@ -64,6 +64,8 @@ struct PlotCurve
     QColor color;
     std::vector<LODCurve> lods = {};
     int lod = 0;
+    bool disabled = false;
+    double ymax = 1E-3;
 
     const LODCurve& get() const { return lods.at(lod); }
     void SetData(std::vector<WeightedPoint>&& data);
@@ -97,6 +99,25 @@ public:
         update();
     };
 
+    void setDisabled(const std::string& name, bool disable)
+    {
+        for (auto& curve : curves)
+            if (curve.fullname == name) curve.disabled = disable;
+    }
+
+    void setDisabled(const std::vector<std::pair<std::string, bool>>& names)
+    {
+        for (auto& name : names) setDisabled(name.first, name.second);
+        update();
+    }
+
+    std::vector<std::pair<std::string, bool>> getDisabled() const
+    {
+        std::vector<std::pair<std::string, bool>> ret;
+        for (auto& curve : curves) ret.push_back({curve.fullname, curve.disabled});
+        return ret;
+    }
+
 private slots:
     void wheelEvent(QWheelEvent*) override;
     void mousePressEvent(QMouseEvent*) override;
@@ -109,9 +130,7 @@ protected:
     bool bAutoLod = true;
 
     double xmin = 0;
-    double ymin = 0;
     double xmax = 1;
-    double ymax = 1;
 
     double xscale = 1;
     double xoffset = 0;

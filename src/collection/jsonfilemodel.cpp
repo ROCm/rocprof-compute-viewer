@@ -89,7 +89,7 @@ void JsonFileModel::parseJson(const QJsonObject& json, std::shared_ptr<Node> par
 
 QVariant JsonFileModel::headerData(int section, Qt::Orientation orientation, int role) const
 {
-    if (orientation == Qt::Horizontal && role == Qt::DisplayRole) { return QString("Source Files"); }
+    if (orientation == Qt::Horizontal && role == Qt::DisplayRole) return QString("Source Files");
     return QVariant();
 }
 
@@ -102,7 +102,8 @@ QModelIndex JsonFileModel::index(int row, int column, const QModelIndex& parent)
     {
         parentNode = std::shared_ptr<Node>(rootNode, static_cast<Node*>(parent.internalPointer()));
     }
-    else { parentNode = rootNode; }
+    else
+        parentNode = rootNode;
     std::shared_ptr<Node> childNode = parentNode->children.at(row);
 
     return childNode ? createIndex(row, column, childNode.get()) : QModelIndex();
@@ -196,10 +197,14 @@ QVariant JsonFileModel::data(const QModelIndex& index, int role) const
     }
     else if (role == Qt::DecorationRole)
     {
-        if (node->value.isObject()) { return folderIcon; }
-        else { return fileIcon; }
+        if (node->value.isObject())
+            return folderIcon;
+        else
+            return fileIcon;
     }
-    else if (role == Qt::ToolTipRole) { return node->name; }
-    else if (role == Qt::UserRole + 1) { return QVariant::fromValue(node->hotspot); }
+    else if (role == Qt::ToolTipRole)
+        return node->name;
+    else if (role == Qt::UserRole + 1)
+        return QVariant::fromValue(node->hotspot);
     return QVariant();
 }

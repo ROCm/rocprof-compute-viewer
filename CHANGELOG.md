@@ -8,13 +8,24 @@ ROCprof Compute Viewer (RCV) is a tool for visualizing and analyzing GPU thread 
 * Fixed minor display issue where some tokens would have darker lines separating them with display scaling
 
 ### Added
+
 * CDNA: Added option to have a separate LDS Pipe in utilization view. Options -> Display options -> "Separate LDS pipe" (SWDEV-564105)
+
 * RDNA: LDS, Raytrace (BVH), BRANCH and WMMA have their own separate pipes in Utilization View.
+
 * CDNA and RDNA: Added separate message bus pipe (MSG) in Utilization view.
   * Note: As with IMMED, MSG bus utilization is approximate.
+
 * Code object ID and offset/vaddr to instruction view (SWDEV-564105)
+
 * Clicking on instruction now updates "Search" box to contain the instruction text.
- * This allows for quicker search of the same instruction, as well as Copying text from the Viewer (SWDEV-564105)
+  * This allows for quicker search of the same instruction, as well as Copying text from the Viewer (SWDEV-564105)
+
+* CDNA: Added option to define derived counters: Go to Edit -> Derived Counters
+  * Save/Delete/Edit several derived counter definitions.
+  * Help button for syntax.
+  * On editor Save + Close, the "Counters" plot tab will update with list of derived counters.
+  * Individual counters can be enabled or disabled in "Plots" tab in the left panel.
 
 ### Changed
 * Renamed "OTHER" track in utilization view to "IMMED" as only IMMED and TRAP are part of it now.

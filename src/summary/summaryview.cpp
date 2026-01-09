@@ -378,7 +378,7 @@ void SummaryView::addTableRow(const QList<QString>& rowData)
         tableItem->setTextAlignment(Qt::AlignCenter);
         tableWidget->setItem(row, col, tableItem);
     }
-    if (tableContainer && rowData.size() > 0 && !tableContainer->isVisible()) { tableContainer->setVisible(true); }
+    if (tableContainer && rowData.size() > 0 && !tableContainer->isVisible()) tableContainer->setVisible(true);
 }
 
 void SummaryView::clearTableData()
@@ -388,7 +388,7 @@ void SummaryView::clearTableData()
         tableWidget->clearContents();
         tableWidget->setRowCount(0);
         tableWidget->setVerticalHeaderLabels(QStringList());
-        if (tableContainer) { tableContainer->setVisible(false); }
+        if (tableContainer) tableContainer->setVisible(false);
         tableContainer->setVisible(false);
     }
 }
@@ -399,8 +399,10 @@ void SummaryView::setBarChartData(const QList<std::tuple<QString, float, QColor>
     {
         barChartWidget->setData(data);
         barChartWidget->setTitle(title);
-        if (data.size() > 0) { barChartWidget->setVisible(true); }
-        else { barChartWidget->setVisible(false); }
+        if (data.size() > 0)
+            barChartWidget->setVisible(true);
+        else
+            barChartWidget->setVisible(false);
     }
 }
 
@@ -463,8 +465,8 @@ void SummaryView::clearBarChartData()
 
 void SummaryView::clearPieChartData()
 {
-    if (pieChartWidget) { pieChartWidget->setData(QList<QPair<QString, float>>()); }
-    if (pieChartContainer) { pieChartContainer->setVisible(false); }
+    if (pieChartWidget) pieChartWidget->setData(QList<QPair<QString, float>>());
+    if (pieChartContainer) pieChartContainer->setVisible(false);
 }
 
 void SummaryView::paintEvent(QPaintEvent* event)
@@ -478,7 +480,7 @@ void SummaryView::paintEvent(QPaintEvent* event)
 
 void SummaryView::setupPieChartLegendTable()
 {
-    if (!legendTable) { return; }
+    if (!legendTable) return;
 
     legendTable->setColumnCount(3);
 

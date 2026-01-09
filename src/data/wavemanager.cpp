@@ -25,11 +25,11 @@
 #include <set>
 #include <shared_mutex>
 #include "json/include/nlohmann/json.hpp"
+#include "mainwindow.h"
 #include "util/jsonrequest.hpp"
 #include "util/version.h"
 #include "wave/scroll.h"
 #include "wavedata.h"
-#include "mainwindow.h"
 
 std::shared_mutex wave_mutex;
 std::unordered_map<std::string, std::shared_ptr<WaveInstance>> reader_cache;

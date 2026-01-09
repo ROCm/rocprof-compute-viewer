@@ -28,6 +28,7 @@
 #include "config/config.hpp"
 #include "util/custom_layouts.h"
 #include "util/highlight.h"
+#include "util/wave_utils.h"
 
 #define TOKEN_POSY()    2
 #define TOKEN_HEIGHT()  15
@@ -35,17 +36,9 @@
 #define WSTATE_POSY()   (TOKEN_POSY() + TOKEN_HEIGHT() + SLOT_OFFSET())
 #define WSTATE_HEIGHT() 4
 
-// Helper for safe shift that handles negative mipmap_level (allows zooming in more)
-// When mipmap_level < 0, left shift becomes right shift and vice versa
-inline int64_t mipShiftLeft(int64_t value, int mipmap_level)
-{
-    return mipmap_level >= 0 ? (value << mipmap_level) : (value >> (-mipmap_level));
-}
-
-inline int64_t mipShiftRight(int64_t value, int mipmap_level)
-{
-    return mipmap_level >= 0 ? (value >> mipmap_level) : (value << (-mipmap_level));
-}
+// Re-export for backward compatibility
+using WaveUtils::mipShiftLeft;
+using WaveUtils::mipShiftRight;
 
 struct Token
 {

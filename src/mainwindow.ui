@@ -496,7 +496,7 @@
           <enum>QLayout::SetMinimumSize</enum>
          </property>
          <item>
-          <layout class="QVBoxLayout" name="verticalLayout" stretch="0,0,1,1">
+          <layout class="QVBoxLayout" name="verticalLayout" stretch="0,1,0,0">
            <property name="spacing">
             <number>6</number>
            </property>
@@ -525,7 +525,7 @@
               <number>12</number>
              </property>
              <property name="columnCount">
-              <number>3</number>
+              <number>2</number>
              </property>
              <attribute name="horizontalHeaderCascadingSectionResizes">
               <bool>true</bool>
@@ -561,11 +561,13 @@
                <string>Value</string>
               </property>
              </column>
-             <column>
-              <property name="text">
-               <string>InView</string>
-              </property>
-             </column>
+            </widget>
+           </item>
+           <item>
+            <widget class="QLabel" name="label_occ_info">
+             <property name="text">
+              <string>Occupancy and states:</string>
+             </property>
             </widget>
            </item>
            <item>
@@ -602,53 +604,6 @@
              <column>
               <property name="text">
                <string>%</string>
-              </property>
-             </column>
-            </widget>
-           </item>
-           <item>
-            <widget class="QTableWidget" name="wave_info_table">
-             <property name="cornerButtonEnabled">
-              <bool>false</bool>
-             </property>
-             <property name="rowCount">
-              <number>10</number>
-             </property>
-             <property name="columnCount">
-              <number>3</number>
-             </property>
-             <attribute name="horizontalHeaderCascadingSectionResizes">
-              <bool>true</bool>
-             </attribute>
-             <attribute name="horizontalHeaderMinimumSectionSize">
-              <number>30</number>
-             </attribute>
-             <attribute name="verticalHeaderVisible">
-              <bool>false</bool>
-             </attribute>
-             <row/>
-             <row/>
-             <row/>
-             <row/>
-             <row/>
-             <row/>
-             <row/>
-             <row/>
-             <row/>
-             <row/>
-             <column>
-              <property name="text">
-               <string>Attrib</string>
-              </property>
-             </column>
-             <column>
-              <property name="text">
-               <string>Issue</string>
-              </property>
-             </column>
-             <column>
-              <property name="text">
-               <string>Stall</string>
               </property>
              </column>
             </widget>
@@ -1094,7 +1049,7 @@
      <string>Edit</string>
     </property>
     <addaction name="actionHotOptions"/>
-    <addaction name="actionCounters_filter"/>
+    <addaction name="actionDerived_counters"/>
    </widget>
    <widget class="QMenu" name="menuHelp">
     <property name="title">
@@ -1118,11 +1073,6 @@
     <string>Hotspot Options</string>
    </property>
   </action>
-  <action name="actionCounters_filter">
-   <property name="text">
-    <string>Counters shown</string>
-   </property>
-  </action>
   <action name="actionAbout_QT">
    <property name="text">
     <string>About QT</string>
@@ -1136,6 +1086,11 @@
   <action name="actionVersion">
    <property name="text">
     <string>Version</string>
+   </property>
+  </action>
+  <action name="actionDerived_counters">
+   <property name="text">
+    <string>Derived Counters</string>
    </property>
   </action>
  </widget>

@@ -170,3 +170,30 @@ void GPUCounterNode::Insert(int SE, const std::vector<CounterData>& data)
 {
     se_nodes.push_back(std::make_unique<SECounterNode>(SE, data));
 }
+
+void GPUCounterNode::getTimeRange(int64_t delta, int64_t& min_time, int64_t& max_time) const
+{
+    min_time = INT64_MAX;
+    max_time = INT64_MIN;
+    
+    for (const auto& se_node : se_nodes)
+    {
+        if (!se_node) continue;
+        for (size_t cu = 0; cu < NUM_CU; cu++)
+        {
+            if (!se_node->cu_nodes[cu]) continue;
+            for (const auto& counter : se_node->cu_nodes[cu]->data)
+            {
+                min_time = std::min(min_time, counter.time);
+                max_time = std::max(max_time, counter.time);
+            }
+        }
+    }
+    
+    // Align to delta boundaries
+    if (min_time != INT64_MAX && delta > 0)
+    {
+        min_time = (min_time / delta) * delta;
+        max_time = ((max_time / delta) + 1) * delta;
+    }
+}
