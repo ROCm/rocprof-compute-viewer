@@ -61,7 +61,6 @@ public:
 
     static SourceLine* last_pressed_line;
     static std::unordered_map<std::string, std::shared_ptr<SourceLine>> all_lines;
-    static HorizontalHotspot::DrawFormat drawformat;
     static bool bDisplayLineNumber;
 
 private:

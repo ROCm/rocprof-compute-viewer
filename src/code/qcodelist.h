@@ -91,11 +91,15 @@ public:
 
     void Highlight(int lbegin, int lend, bool bIntoView, const Color& color = WindowColors::LineSlowHighlight());
 
+    void setColumnVisibility(ASMCodeline::Element elem, bool visible);
+    void updateColumnVisibility(); // Re-apply visibility based on current flags
+
     std::array<QElementList*, Element::ENUMTYPES> elements{};
 
     class QScrollBar* scrollbar = nullptr;
     class QGridLayout* layout_main = nullptr;
     class Canvas* connector = nullptr;
+    class DrawTypeSelector* drawselector = nullptr;
     std::vector<Canvas::WaitList> waitcnt{};
 
     static int lineheight();

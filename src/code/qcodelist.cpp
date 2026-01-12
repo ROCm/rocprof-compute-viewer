@@ -22,6 +22,7 @@
 
 #include "qcodelist.h"
 #include <QLabel>
+#include <QListView>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPainterPath>
@@ -29,6 +30,7 @@
 #include <sstream>
 #include <unordered_set>
 #include <vector>
+#include "config/appconfig.h"
 #include "data/wavemanager.h"
 #include "graphics/canvas.h"
 #include "mainwindow.h"
@@ -62,7 +64,7 @@ std::array<std::string, (int) CyclesLabel::Strategy::LAST> strategy_names = {
     "Latency: Max Wave"};
 
 std::array<std::string, (int) Canvas::DrawType::DrawLast> drawtype_names = {
-    "View: Waitcnt", "All Latency", "Branch targets"};
+    "View: Waitcnt", "Branch targets", "All Latency", "Stall Reasons", "Latency + Stall"};
 
 DrawTypeSelector::DrawTypeSelector(QCodelist* _parent) : parent(_parent)
 {
@@ -133,12 +135,17 @@ QCodelist::QCodelist(QWidget* parent)
     layout_main->addWidget(new QLabel("Hitcount "), 0, Element::EHIT + 1);
     layout_main->addWidget(new CycleModeSelector(this), 0, Element::ELATENCY + 1);
     layout_main->addWidget(new QLabel(" Idle "), 0, Element::EIDLE + 1);
+    layout_main->addWidget(new QLabel(" Samples "), 0, Element::EPCSamples + 1);
+    layout_main->addWidget(new QLabel(" Issued "), 0, Element::EPCIssued + 1);
+    layout_main->addWidget(new QLabel(" Stalls "), 0, Element::EPCStalls + 1);
     layout_main->addWidget(new QLabel(" Codeobj"), 0, Element::ECODEOBJ + 1);
     layout_main->addWidget(new QLabel(" Vaddr"), 0, Element::EADDRESS + 1);
+    layout_main->addWidget(new QLabel(" Source link"), 0, Element::ESOURCEREF + 1);
 
     connector = new Canvas();
+    drawselector = new DrawTypeSelector(this);
     layout_main->addWidget(connector, 1, 0);
-    layout_main->addWidget(new DrawTypeSelector(this), 0, 0);
+    layout_main->addWidget(drawselector, 0, 0);
 
     elements.at(Element::EASM) = new QASMElementList();
     for (int e = 0; e < Element::ENUMTYPES; e++)
@@ -146,6 +153,11 @@ QCodelist::QCodelist(QWidget* parent)
         if (e != Element::EASM) elements.at(e) = new QElementList(Element(e));
         layout_main->addWidget(elements.at(e), 1, e + 1);
     }
+
+    // Apply column visibility from config
+    AppConfig& config = AppConfig::getInstance();
+    for (int e = Element::EHIT; e < Element::ENUMTYPES; e++)
+        setColumnVisibility(static_cast<Element>(e), config.getColumnVisible(e));
 
     // Set column stretch factors - column 0 can shrink, others get more stretch
     layout_main->setColumnStretch(0, 0);
@@ -169,6 +181,39 @@ QCodelist::~QCodelist()
     if (layout_main) delete layout_main;
 }
 
+void QCodelist::setColumnVisibility(ASMCodeline::Element elem, bool visible)
+{
+    if (elem == Element::EASM) return; // EASM is always visible
+
+    // SQTT-dependent columns: EHIT, ELATENCY, EIDLE
+    if (elem == Element::EHIT || elem == Element::ELATENCY || elem == Element::EIDLE)
+        visible &= HorizontalHotspot::is_sqtt_enabled;
+
+    // PCS-dependent columns: EPCSamples, EPCStalls, EPCIssued
+    if (elem == Element::EPCSamples || elem == Element::EPCStalls || elem == Element::EPCIssued)
+        visible &= HorizontalHotspot::is_pcs_enabled;
+
+    if (auto* element = elements.at(elem)) element->setVisible(visible);
+
+    // Also hide/show the header label
+    if (layout_main)
+    {
+        if (auto* item = layout_main->itemAtPosition(0, elem + 1))
+            if (auto* widget = item->widget()) widget->setVisible(visible);
+    }
+
+    updateGeometry();
+    update();
+}
+
+void QCodelist::updateColumnVisibility()
+{
+    // Re-apply visibility settings from config, which will also apply data-type filters
+    AppConfig& config = AppConfig::getInstance();
+    for (int e = Element::EHIT; e < Element::ENUMTYPES; e++)
+        setColumnVisibility(static_cast<Element>(e), config.getColumnVisible(e));
+}
+
 void QCodelist::Populate(const std::vector<CodeData>& code)
 {
     QPalette pal = QPalette();
@@ -186,6 +231,36 @@ void QCodelist::Populate(const std::vector<CodeData>& code)
     }
 
     scheduleRedraw();
+
+    QWARNING(drawselector, "invalid selector", return );
+    if (HorizontalHotspot::is_pcs_enabled)
+    {
+        drawselector->setCurrentIndex((int) Canvas::DrawType::DrawStall);
+        drawselector->currentTextChanged(drawtype_names.at((int) Canvas::DrawType::DrawStall).c_str());
+    }
+
+    auto* model = drawselector->model();
+    auto* view = qobject_cast<QListView*>(drawselector->view());
+    QWARNING(model && view, "no model/view", return );
+
+    int enabled = static_cast<int>(Qt::ItemIsSelectable | Qt::ItemIsEnabled);
+
+    for (int idx : {(int) Canvas::DrawType::DrawArrows, (int) Canvas::DrawType::DrawBranch})
+    {
+        int flags = HorizontalHotspot::is_sqtt_enabled ? enabled : static_cast<int>(Qt::NoItemFlags);
+        model->setData(model->index(idx, 0), flags, Qt::UserRole - 1);
+        view->setRowHidden(idx, !HorizontalHotspot::is_sqtt_enabled);
+    }
+
+    for (int idx : {(int) Canvas::DrawType::DrawReasons, (int) Canvas::DrawType::DrawStallAndReason})
+    {
+        int flags = HorizontalHotspot::is_pcs_enabled ? enabled : static_cast<int>(Qt::NoItemFlags);
+        model->setData(model->index(idx, 0), flags, Qt::UserRole - 1);
+        view->setRowHidden(idx, !HorizontalHotspot::is_pcs_enabled);
+    }
+
+    // Update column visibility based on data availability flags
+    updateColumnVisibility();
 }
 
 void QCodelist::resizeEvent(QResizeEvent* event)

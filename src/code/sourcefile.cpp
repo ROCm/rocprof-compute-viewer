@@ -43,8 +43,6 @@ std::unordered_map<std::string, std::shared_ptr<SourceLine>> SourceLine::all_lin
 int64_t SourceFile::global_max_sqtt_latency = 1;
 int64_t SourceFile::global_max_pcs_latency = 1;
 
-HorizontalHotspot::DrawFormat SourceLine::drawformat = HorizontalHotspot::DrawFormat::DRAWTYPE;
-
 void SourceLine::scrollTo()
 {
     if (parent) parent->scrollTo(line_number);
@@ -83,7 +81,7 @@ parent(_parent), filename(_filename)
 
 void SourceFile::paintEvent(class QPaintEvent* event)
 {
-    int HISTOGRAM_WIDTH = HorizontalHotspot::HISTOGRAM_WIDTH;
+    int HISTOGRAM_WIDTH = HorizontalHotspot::GetHistogramWidth();
 
     QPainter painter(this);
 
@@ -151,11 +149,14 @@ void SourceLine::add_latency(int type, Latency sqtt, Latency pcs)
 
 void SourceLine::paint(QPainter& painter, int posx, int posy, int sizey, int overline, int numlines_width)
 {
-    int HISTOGRAM_WIDTH = HorizontalHotspot::HISTOGRAM_WIDTH;
+    int HISTOGRAM_WIDTH = HorizontalHotspot::GetHistogramWidth();
     if (width_cache <= 1) width_cache = painter.fontMetrics().horizontalAdvance(text);
 
+    auto drawformat = HorizontalHotspot::is_pcs_enabled ? HorizontalHotspot::DrawFormat::DRAWSTALL
+                                                        : HorizontalHotspot::DrawFormat::DRAWTYPE;
+
     hotspot.paint(
-        painter, 0, posy - sizey, sizey, parent->max_sqtt_latency, parent->max_pcs_latency, drawformat, false, false
+        painter, 0, posy - sizey, -1, sizey, parent->max_sqtt_latency, parent->max_pcs_latency, drawformat, false, false
     );
 
     posx += HISTOGRAM_WIDTH;

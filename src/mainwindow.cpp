@@ -393,9 +393,7 @@ void MainWindow::setScaling(int scale)
 void MainWindow::SourceHotspotSizeEdited()
 {
     if (auto hotspotWidth = parseLineEditInt(ui->source_hotspot_size_edit))
-    {
-        HorizontalHotspot::HISTOGRAM_WIDTH = std::max(0, *hotspotWidth);
-    }
+        HorizontalHotspot::SetHistogramWidth(*hotspotWidth);
 
     if (!source_filetab) return;
 
@@ -723,6 +721,21 @@ void MainWindow::ResetSelector()
     utilization_content->Clear();
     if (hotspot_view) hotspot_view->setVisible(false);
     updateFont(); // Fixme: This is being called to force redraw in case the incoming trace is empty
+
+    HorizontalHotspot::is_sqtt_enabled = true;
+    HorizontalHotspot::is_pcs_enabled = false;
+    try
+    {
+        HorizontalHotspot::is_sqtt_enabled = request->data["thread_trace"];
+        HorizontalHotspot::is_pcs_enabled = request->data["pc_sampling"];
+        if (HorizontalHotspot::is_pcs_enabled)
+        {
+            auto code = CodeData::LoadCode(ui_dir + "code.json");
+            if (!code.empty()) code_contents->Populate(code);
+        }
+    }
+    catch (std::exception&)
+    {}
 
     if (this->seSelector) delete this->seSelector;
     this->seSelector = nullptr;
@@ -1641,12 +1654,23 @@ void MainWindow::loadConfigSettings()
     ui->scale_edit->setChecked(config.getDisplayScaling());
     ui->separate_lds_pipe_box->setChecked(config.getSeparateLDSPipe());
 
+    // Instruction Column Visibility
+    ui->col_hitcount_box->setChecked(config.getColumnVisible(ASMCodeline::Element::EHIT));
+    ui->col_latency_box->setChecked(config.getColumnVisible(ASMCodeline::Element::ELATENCY));
+    ui->col_idle_box->setChecked(config.getColumnVisible(ASMCodeline::Element::EIDLE));
+    ui->col_samples_box->setChecked(config.getColumnVisible(ASMCodeline::Element::EPCSamples));
+    ui->col_stalls_box->setChecked(config.getColumnVisible(ASMCodeline::Element::EPCStalls));
+    ui->col_issued_box->setChecked(config.getColumnVisible(ASMCodeline::Element::EPCIssued));
+    ui->col_codeobj_box->setChecked(config.getColumnVisible(ASMCodeline::Element::ECODEOBJ));
+    ui->col_vaddr_box->setChecked(config.getColumnVisible(ASMCodeline::Element::EADDRESS));
+    ui->col_sourceref_box->setChecked(config.getColumnVisible(ASMCodeline::Element::ESOURCEREF, false));
+
     // Apply loaded settings
     font() = config.getFontSize();
     WindowColors::setDark(config.getDarkTheme());
     _scaling_var = config.getDisplayScaling() ? 1 : 0;
     SourceLine::bDisplayLineNumber = config.getDisplayLineNumber();
-    HorizontalHotspot::HISTOGRAM_WIDTH = config.getSourceHotspotSize();
+    HorizontalHotspot::SetHistogramWidth(config.getSourceHotspotSize());
     QUtilization::bSeparateLDSPipe = config.getSeparateLDSPipe();
 }
 
@@ -1664,6 +1688,26 @@ void MainWindow::setupConfigConnections()
     connect(ui->dark_theme_box, &QCheckBox::stateChanged, this, &MainWindow::saveDarkThemeSetting);
     connect(ui->scale_edit, &QCheckBox::stateChanged, this, &MainWindow::saveDisplayScalingSetting);
     connect(ui->separate_lds_pipe_box, &QCheckBox::stateChanged, this, &MainWindow::saveSeparateLDSPipeSetting);
+
+    // Instruction Column Visibility - using lambdas to pass element enum
+    auto connectColumnCheckbox = [this](QCheckBox* checkbox, ASMCodeline::Element elem)
+    {
+        connect(
+            checkbox,
+            &QCheckBox::stateChanged,
+            this,
+            [this, elem](int state) { saveColumnVisibilitySetting(elem, state != 0); }
+        );
+    };
+    connectColumnCheckbox(ui->col_hitcount_box, ASMCodeline::Element::EHIT);
+    connectColumnCheckbox(ui->col_latency_box, ASMCodeline::Element::ELATENCY);
+    connectColumnCheckbox(ui->col_idle_box, ASMCodeline::Element::EIDLE);
+    connectColumnCheckbox(ui->col_samples_box, ASMCodeline::Element::EPCSamples);
+    connectColumnCheckbox(ui->col_stalls_box, ASMCodeline::Element::EPCStalls);
+    connectColumnCheckbox(ui->col_issued_box, ASMCodeline::Element::EPCIssued);
+    connectColumnCheckbox(ui->col_codeobj_box, ASMCodeline::Element::ECODEOBJ);
+    connectColumnCheckbox(ui->col_vaddr_box, ASMCodeline::Element::EADDRESS);
+    connectColumnCheckbox(ui->col_sourceref_box, ASMCodeline::Element::ESOURCEREF);
 }
 
 void MainWindow::saveLevelOfDetailSetting(int state) { AppConfig::getInstance().setLevelOfDetail(state != 0); }
@@ -1693,6 +1737,13 @@ void MainWindow::saveSeparateLDSPipeSetting(int state)
     AppConfig::getInstance().setSeparateLDSPipe(state != 0);
     QUtilization::bSeparateLDSPipe = (state != 0);
     QMessageBox::information(this, "Restart Required", "Please restart the viewer for this change to take effect.");
+}
+
+void MainWindow::saveColumnVisibilitySetting(int element, bool visible)
+{
+    AppConfig::getInstance().setColumnVisible(element, visible);
+    if (QCodelist::singleton)
+        QCodelist::singleton->setColumnVisibility(static_cast<ASMCodeline::Element>(element), visible);
 }
 
 std::optional<int> MainWindow::parseLineEditInt(const QLineEdit* edit)

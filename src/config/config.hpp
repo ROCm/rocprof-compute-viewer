@@ -64,6 +64,7 @@ namespace Config
 {
 const std::vector<StyleColor>& StateColors();
 const std::vector<StyleColor>& TokenColors();
+const std::vector<StyleColor>& StallReasonColors();
 const std::vector<std::pair<std::string, int>> CustomTokens();
 const QColor& PlotColors(int index);
 

@@ -5,6 +5,7 @@ ROCprof Compute Viewer (RCV) is a tool for visualizing and analyzing GPU thread 
 ## Release 0.1.6
 
 ### Bug Fixes
+
 * Fixed minor display issue where some tokens would have darker lines separating them with display scaling
 
 ### Added
@@ -27,5 +28,12 @@ ROCprof Compute Viewer (RCV) is a tool for visualizing and analyzing GPU thread 
   * On editor Save + Close, the "Counters" plot tab will update with list of derived counters.
   * Individual counters can be enabled or disabled in "Plots" tab in the left panel.
 
+* CDNA: Barebones stochastic PC sampling support
+  * Added "Samples", "Issued" and "Stalls" categories in Instruction view.
+  * Added toggle for these categories, as below.
+
+* Added a "Instruction Columns" frame under the "Options" tab to toggle which columns to be displayed.
+
 ### Changed
+
 * Renamed "OTHER" track in utilization view to "IMMED" as only IMMED and TRAP are part of it now.

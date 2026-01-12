@@ -62,6 +62,7 @@ public:
         class QPainter& painter,
         const int posx,
         const int posy,
+        const int sizex, // if <= 0, use histogram default width
         const int sizey,
         const float sqtt_maxvalue,
         const float pcs_maxvalue,
@@ -72,9 +73,7 @@ public:
 
     // Get tooltip text for a given mouse position relative to the hotspot
     std::string getTooltip() const;
-
-    static bool is_pcs_enabled;
-    static int HISTOGRAM_WIDTH;
+    std::string getStallTip() const;
 
     HorizontalHotspot& operator+=(const HorizontalHotspot& other)
     {
@@ -86,5 +85,14 @@ public:
     }
 
     int64_t combined() const { return sqtt.latency + pcs.latency; }
+
+    static int GetHistogramWidth() { return HISTOGRAM_WIDTH; }
+    static void SetHistogramWidth(int width);
+
+    static bool is_pcs_enabled;
+    static bool is_sqtt_enabled;
+
+private:
+    static int HISTOGRAM_WIDTH;
 };
 Q_DECLARE_METATYPE(HorizontalHotspot)

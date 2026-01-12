@@ -57,8 +57,12 @@ line_index(line_vec.size()), line_number(_line_number)
     elements.at(Element::EASM) = std::make_unique<ASMLine>(_line_number, line);
     elements.at(Element::EHIT) =
         std::make_unique<CyclesLabel>(std::vector<int>{(int) latency.size()}, line.hitcount, line.hitcount > 0 ? 1 : 0);
-    if (line.idle_sum) elements.at(Element::EIDLE) = std::make_unique<CyclesLabel>(idle, line.idle_sum, line.hitcount);
+    elements.at(Element::EIDLE) = std::make_unique<CyclesLabel>(idle, line.idle_sum, line.hitcount);
     elements.at(Element::ELATENCY) = std::make_unique<CyclesLabel>(latency, line.latency_sum, line.hitcount);
+
+    elements.at(Element::EPCSamples) = std::make_unique<NumberLabel>(codedata.line->pcsamples);
+    elements.at(Element::EPCIssued) = std::make_unique<NumberLabel>(codedata.line->pcsamples - codedata.line->pcstalls);
+    elements.at(Element::EPCStalls) = std::make_unique<NumberLabel>(codedata.line->pcstalls);
 
     std::string cppline = line.cppline;
     if (cppline.size() > SHORT_CPPLINE_MAXCHARS)

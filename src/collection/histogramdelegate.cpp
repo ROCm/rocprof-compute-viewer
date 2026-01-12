@@ -64,6 +64,7 @@ void HistogramDelegate::paint(QPainter* painter, const QStyleOptionViewItem& opt
         *painter,
         rect.right(),
         rect.top() + verticalOffset,
+        -1,
         barHeight,
         pxratio,
         pxratio,

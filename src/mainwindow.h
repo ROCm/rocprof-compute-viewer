@@ -199,6 +199,9 @@ private:
     void saveDisplayScalingSetting(int state);
     void saveSeparateLDSPipeSetting(int state);
 
+    // Instruction column visibility
+    void saveColumnVisibilitySetting(int element, bool visible);
+
     class HotspotSummaryWidget* hotspotSummary = nullptr;
 
     static std::optional<int> parseLineEditInt(const QLineEdit* edit);

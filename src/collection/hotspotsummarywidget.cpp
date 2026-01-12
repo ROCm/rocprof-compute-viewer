@@ -134,7 +134,7 @@ void HotspotSummaryWidget::paintEvent(QPaintEvent* event)
                         padding;
     int cyclesTextWidth = latencyFm.horizontalAdvance("999.9M") + padding;
     int hotspotColumnX = padding;
-    int cyclesColumnX = hotspotColumnX + HorizontalHotspot::HISTOGRAM_WIDTH + padding;
+    int cyclesColumnX = hotspotColumnX + HorizontalHotspot::GetHistogramWidth() + padding;
     int lineColumnX = cyclesColumnX + cyclesTextWidth + padding;
 
     // Draw column headers
@@ -156,6 +156,7 @@ void HotspotSummaryWidget::paintEvent(QPaintEvent* event)
             painter,
             hotspotColumnX,
             yPos - lineHeight + contentFm.descent() + 1,
+            -1,
             lineHeight - contentFm.descent(),
             maxLatency,
             maxLatency,

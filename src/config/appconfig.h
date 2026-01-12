@@ -51,6 +51,10 @@ public:
     bool getSeparateLDSPipe() const;
     void setSeparateLDSPipe(bool enabled);
 
+    // Instruction Column Visibility (uses ASMCodeline::Element values)
+    bool getColumnVisible(int element, bool bDefault = true) const;
+    void setColumnVisible(int element, bool enabled);
+
 private:
     AppConfig();
     ~AppConfig() = default;

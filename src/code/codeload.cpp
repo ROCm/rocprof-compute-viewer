@@ -55,6 +55,26 @@ std::vector<CodeData> CodeData::LoadCode(const std::string& path)
     cache.clear();
     loaded_cache = path;
 
+    int stall_idx = -1;
+    int issue_idx = -1;
+    int reasons_idx = -1;
+
+    try
+    {
+        int index = 0;
+        for (auto& _entry : coderequest.data["header"])
+        {
+            auto entry = std::string(_entry);
+            if (entry == "PC_Issued") issue_idx = index;
+            if (entry == "PC_Stalled") stall_idx = index;
+            if (entry == "Stall_Reasons") reasons_idx = index;
+
+            index++;
+        }
+    }
+    catch (...)
+    {}
+
     int i = 0;
     for (auto& c : coderequest.data["code"])
     {
@@ -63,8 +83,12 @@ std::vector<CodeData> CodeData::LoadCode(const std::string& path)
         int64_t idle = int64_t(c[9]);
         int64_t stall = int64_t(c[8]);
 
-        int64_t pcissues = 0;
-        int64_t pcstalls = 0;
+        int64_t pcissues = issue_idx >= 0 ? int64_t(c[issue_idx]) : 0;
+        int64_t pcstalls = stall_idx >= 0 ? int64_t(c[stall_idx]) : 0;
+
+        auto reasons = std::vector<int64_t>();
+        if (reasons_idx >= 0)
+            for (auto& entry : c[reasons_idx]) reasons.push_back(int64_t(entry));
 
         cache.push_back(
             {int(c[2]),
@@ -78,7 +102,7 @@ std::vector<CodeData> CodeData::LoadCode(const std::string& path)
              pcstalls,
              std::string(c[0]),
              cppline,
-             {}}
+             reasons}
         );
 
         for (auto& [custom_token, custom_type] : Config::CustomTokens())

@@ -236,7 +236,7 @@ std::pair<int, std::vector<Canvas::arrow_t>> buildConnections(const std::vector<
 
 QSize Canvas::sizeHint() const
 {
-    int _size = HorizontalHotspot::HISTOGRAM_WIDTH + 1;
+    int _size = HorizontalHotspot::GetHistogramWidth() * 2 + 1;
     if (drawtype == DrawType::DrawArrows)
         _size = std::max(_size, ARROW_SPACING * (2 + max_wait_alloc));
     else if (drawtype == DrawType::DrawBranch)
@@ -249,7 +249,7 @@ void Canvas::paintEvent(QPaintEvent* event)
 {
     if (drawtype == DrawType::DrawArrows)
         paintArrows();
-    else if (drawtype == DrawType::DrawStall)
+    else if (drawtype == DrawType::DrawStall || drawtype == DrawType::DrawReasons || drawtype == DrawType::DrawStallAndReason)
         paintStalls();
     else
         paintBranch();
@@ -375,8 +375,6 @@ void Canvas::paintStalls()
     QWARNING(MainWindow::window && MainWindow::window->code_contents, "no contents", return );
     auto* contents = MainWindow::window->code_contents;
 
-    const int padding = 2;
-
     QPainter painter(this);
     MainWindow::getScaling(painter);
     QPen pen;
@@ -395,12 +393,16 @@ void Canvas::paintStalls()
         [](const auto& line, int idx) { return line && line->line_index < idx; }
     );
 
+    auto drawFormat = drawtype == DrawType::DrawStallAndReason ? HorizontalHotspot::DrawFormat::DRAWBOTH
+                                                               : HorizontalHotspot::DrawFormat::DRAWSTALL;
+    if (drawtype == DrawType::DrawReasons) drawFormat = HorizontalHotspot::DrawFormat::DRAWTYPE;
+
     for (auto it = start_it; it != ASMCodeline::line_vec.end(); ++it)
     {
         auto line = *it;
         if (!line) continue;
 
-        auto ypos = lineheight * line->line_index + padding - scrollposy;
+        auto ypos = indexToYpos(line->line_index, lineheight);
         if (ypos > this->height()) break;
 
         bool highlighted = (hovered_line_index == line->line_index);
@@ -408,10 +410,11 @@ void Canvas::paintStalls()
             painter,
             0,
             ypos,
+            width(),
             lineheight - 2 * padding,
             contents->max_sqtt_latency,
             contents->max_pcs_latency,
-            HorizontalHotspot::DrawFormat::DRAWSTALL,
+            drawFormat,
             false,
             highlighted
         );
@@ -433,7 +436,6 @@ void Canvas::handleHotspotHover(QMouseEvent* event)
     QWARNING(MainWindow::window && MainWindow::window->code_contents, "no contents", return );
     auto* contents = MainWindow::window->code_contents;
 
-    const int padding = 2;
     const int lineheight = QCodelist::lineheight();
     const int mouse_y = event->pos().y();
 
@@ -451,13 +453,19 @@ void Canvas::handleHotspotHover(QMouseEvent* event)
         auto line = *it;
         if (!line) continue;
 
-        auto ypos = lineheight * line->line_index + padding - scrollposy;
+        auto ypos = indexToYpos(line->line_index, lineheight);
         if (ypos > this->height()) break;
 
         // Check if mouse is vertically within this line's bounds
         if (mouse_y < ypos || mouse_y > ypos + lineheight - 2 * padding) continue;
 
-        std::string tooltip = line->hotspot.getTooltip();
+        std::string tooltip;
+        if (drawtype == DrawType::DrawStall)
+            tooltip = line->hotspot.getTooltip();
+        else if (drawtype == DrawType::DrawReasons)
+            tooltip = line->hotspot.getStallTip();
+        else if (drawtype == DrawType::DrawStallAndReason)
+            tooltip = line->hotspot.getTooltip() + line->hotspot.getStallTip();
 
         if (!tooltip.empty())
         {
@@ -472,7 +480,9 @@ void Canvas::handleHotspotHover(QMouseEvent* event)
 
 void Canvas::mouseMoveEvent(QMouseEvent* event)
 {
-    if (drawtype == DrawType::DrawStall) handleHotspotHover(event);
+    if (drawtype == DrawType::DrawStall || drawtype == DrawType::DrawReasons ||
+        drawtype == DrawType::DrawStallAndReason)
+        handleHotspotHover(event);
     QWidget::mouseMoveEvent(event);
 }
 

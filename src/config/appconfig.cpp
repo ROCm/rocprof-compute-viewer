@@ -65,3 +65,14 @@ void AppConfig::setDisplayScaling(bool enabled) { settings.setValue("DisplayOpti
 bool AppConfig::getSeparateLDSPipe() const { return settings.value("DisplayOptions/SeparateLDSPipe", false).toBool(); }
 
 void AppConfig::setSeparateLDSPipe(bool enabled) { settings.setValue("DisplayOptions/SeparateLDSPipe", enabled); }
+
+// Instruction Column Visibility
+bool AppConfig::getColumnVisible(int element, bool bDefault) const
+{
+    return settings.value(QString("InstructionColumns/Element%1").arg(element), bDefault).toBool();
+}
+
+void AppConfig::setColumnVisible(int element, bool enabled)
+{
+    settings.setValue(QString("InstructionColumns/Element%1").arg(element), enabled);
+}

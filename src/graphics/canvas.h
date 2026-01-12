@@ -54,8 +54,10 @@ public:
     enum class DrawType
     {
         DrawArrows,
-        DrawStall,
         DrawBranch,
+        DrawStall,
+        DrawReasons,
+        DrawStallAndReason,
         DrawLast
     };
 
@@ -74,6 +76,10 @@ public:
         scrollposy = posy;
         update();
     }
+
+    int indexToYpos(int line_index, int lineheight) const { return lineheight * line_index + padding - scrollposy; }
+
+    const int padding = 2;
 
 private:
     int max_wait_alloc = 0;

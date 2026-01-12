@@ -353,6 +353,53 @@ const std::vector<StyleColor>& TokenColors()
     return bDarkTheme ? colorset_dark.colors : colorset_light.colors;
 }
 
+const std::vector<StyleColor>& StallReasonColors()
+{
+    static ColorSet colorset_light(
+        []()
+        {
+            nlohmann::json def_token;
+            addpair(def_token, "NONE", "#a8a8a8");
+            addpair(def_token, "Inst Fetch", "#f0ff00");
+            addpair(def_token, "ALU Dep", "#006000");
+            addpair(def_token, "Waitcnt", "#8020ff");
+            addpair(def_token, "Internal", "#101010");
+            addpair(def_token, "Barrier", "#401080");
+            addpair(def_token, "ARB Loss", "#a0ffa0");
+            addpair(def_token, "Pipe Stall", "#ff7000");
+            addpair(def_token, "Other Wait", "#5038ff");
+            addpair(def_token, "Sleeping", "#80d0f8");
+            addpair(def_token, "UNKNOWN", "#ff0000");
+            addpair(def_token, "UNKNOWN", "#ff0000");
+            addpair(def_token, "UNKNOWN", "#ff0000");
+            return def_token;
+        }()
+    );
+
+    static ColorSet colorset_dark(
+        []()
+        {
+            nlohmann::json def_token;
+            addpair(def_token, "NONE", "#707070");
+            addpair(def_token, "Inst Fetch", "#f0c432");
+            addpair(def_token, "ALU Dep", "#006000");
+            addpair(def_token, "Waitcnt", "#8020f0");
+            addpair(def_token, "Internal", "#080000");
+            addpair(def_token, "Barrier", "#301070");
+            addpair(def_token, "ARB Loss", "#a0f0a0");
+            addpair(def_token, "Pipe Stall", "#f07000");
+            addpair(def_token, "Other Wait", "#5038f0");
+            addpair(def_token, "Sleeping", "#80d0f0");
+            addpair(def_token, "UNKNOWN", "#ff0000");
+            addpair(def_token, "UNKNOWN", "#ff0000");
+            addpair(def_token, "UNKNOWN", "#ff0000");
+            return def_token;
+        }()
+    );
+
+    return bDarkTheme ? colorset_dark.colors : colorset_light.colors;
+}
+
 const std::vector<std::pair<std::string, int>> CustomTokens()
 {
     static std::vector<std::pair<std::string, int>> replace = []()
