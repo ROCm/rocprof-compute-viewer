@@ -7,6 +7,7 @@ ROCprof Compute Viewer (RCV) is a tool for visualizing and analyzing GPU thread 
 ### Bug Fixes
 
 * Fixed minor display issue where some tokens would have darker lines separating them with display scaling
+* Fixed display issue in Qt5
 
 ### Added
 
@@ -33,6 +34,8 @@ ROCprof Compute Viewer (RCV) is a tool for visualizing and analyzing GPU thread 
   * Added toggle for these categories, as below.
 
 * Added a "Instruction Columns" frame under the "Options" tab to toggle which columns to be displayed.
+
+* Toogle for which counters to display in Options tab.
 
 ### Changed
 

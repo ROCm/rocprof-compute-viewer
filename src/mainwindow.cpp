@@ -216,11 +216,6 @@ MainWindow::MainWindow(std::string uidir) : QMainWindow(nullptr), ui(new Ui::Mai
         &QCustomScroll::onScroll
     );
 
-    QWidget* compute_unit_widget = new QWidget(this);
-    compute_unit_widget->setLayout(new QVBox());
-    compute_unit_widget->layout()->addWidget(cuwaves_v_scrollarea);
-    compute_unit_widget->layout()->addWidget(cuwaves_h_scrollarea);
-
     // ---- Utilization View ----
     ui->utilization_tab->setLayout(new QVBox());
     utilization_v_scrollarea = new QScrollArea(this);
@@ -234,12 +229,19 @@ MainWindow::MainWindow(std::string uidir) : QMainWindow(nullptr), ui(new Ui::Mai
     utilization_content = new QUtilization(utilization_h_scrollarea);
     utilization_v_scrollarea->setWidget(utilization_content);
 
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    // In Qt6, we use the accordion widget and need to reparent the scroll areas
+    // to container widgets that will be added to the accordion sections
+    QWidget* compute_unit_widget = new QWidget(this);
+    compute_unit_widget->setLayout(new QVBox());
+    compute_unit_widget->layout()->addWidget(cuwaves_v_scrollarea);
+    compute_unit_widget->layout()->addWidget(cuwaves_h_scrollarea);
+
     QWidget* ulitization_widget = new QWidget(this);
     ulitization_widget->setLayout(new QVBox());
     ulitization_widget->layout()->addWidget(utilization_v_scrollarea);
     ulitization_widget->layout()->addWidget(utilization_h_scrollarea);
 
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
     accordion->addSection("Counters", nullptr);
     accordion->addSection("Wave States", nullptr);
     accordion->addSection("Hotspot", nullptr);

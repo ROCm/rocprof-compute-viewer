@@ -294,33 +294,34 @@ make -j
 
 ### Linux
 
-Install Qt5 (or similar instructions for Qt6):
+Install Qt6 (Qt5 for ubuntu22):
 
 ```bash
 
 # Ubuntu 22.04
 sudo apt install -y qtbase5-dev qt5-qmake cmake build-essential
 
-# Ubuntu 24.04
-sudo apt install -y libgl1 qtbase5-dev qt5-qmake cmake build-essential
+# Ubuntu 24.04+
+sudo apt install -y libgl1 qt6-base-dev qmake6 build-essential
 
-# For other distributions, please follow https://doc.qt.io/qt-5/gettingstarted.html
 ```
 
 Configure cmake and build:
 
 ```bash
-mkdir build
-cd build
+mkdir build && cd build
+
+#Qt 6.4
+cmake .. -DQT_VERSION_MINOR=4
+#Qt 5.15
 cmake .. -DQT_VERSION_MAJOR=5
-# for qt6.4, use
-# cmake .. -DQT_VERSION_MAJOR=6 -DQT_VERSION_MINOR=4
+
 make -j
 ```
 
 ### Windows WSL
 
-* Requires Ubuntu 22+
+* Requires Ubuntu 24+
 * Follow the same instructions for Linux.
 * Recommended to use Qt6.4
 
