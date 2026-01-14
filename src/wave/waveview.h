@@ -25,10 +25,14 @@
 #include <QBoxLayout>
 #include <QWidget>
 #include <set>
+#include <map>
+#include <array>
+#include <vector>
 #include "data/wavemanager.h"
 #include "measure.h"
 #include "signal.h"
 #include "token.h"
+#include "wave/othersimd.h"
 
 //! A timeline view of a waveslot[0,9] within a SIMD.
 class QWaveView : public QWidget
@@ -114,6 +118,7 @@ public:
     virtual void paintEvent(QPaintEvent* event) override;
     QUtilView(class QCustomScroll* parent);
     void Add(Token token);
+    void AddTokens(const std::vector<Token>& tokens);
     void Compile(bool bAlwaysVisible);
 
     std::shared_ptr<TokenGroup> wave0{nullptr};
@@ -132,6 +137,10 @@ public:
     void AddTokens(int simd, const TokenMap& tokens);
     virtual void Clear() override;
     virtual void Compile();
+    void SetOtherSimdSources(OtherSimdFiles files);
+    void PopulateOtherSimdTokens(int se, int simd, int64_t clock_start, int64_t clock_end);
+    const std::vector<Token>& GetOtherSimdTokens() const { return other_simd.Tokens(); }
+    int GetOtherSimdId() const { return other_simd_id; }
 
     static bool bSeparateLDSPipe;
 
@@ -152,5 +161,10 @@ public:
     QUtilView* WMMA{};
     QUtilView* JUMP{};
 
+private:
+    OtherSimdData other_simd;
+    int other_simd_id = 0;
+
+    void ClearOtherSimd();
 signals:
 };

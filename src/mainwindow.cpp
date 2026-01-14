@@ -35,10 +35,13 @@
 #include <algorithm>
 #include <fstream>
 #include <future>
+#include <utility>
 #include <vector>
+#include <cstddef>
 #include "./ui_mainwindow.h"
 #include "button/historyentry.h"
 #include "button/jsonselector.h"
+#include "wave/othersimd.h"
 #include "code/qcodelist.h"
 #include "code/sourcefile.h"
 #include "collection/derivedcountereditor.h"
@@ -709,9 +712,10 @@ void MainWindow::ResetSelector()
         );
         QWARNING(false, "Invalid filename " << newpath, return );
     }
-
     ui_dir = dir.path().toStdString();
     if (!ui_dir.empty() && ui_dir.back() != '/') ui_dir.push_back('/');
+    auto other_simd_files = ParseOtherSimdFilenames(request->data["other_simd_filenames"], ui_dir);
+    if (utilization_content) utilization_content->SetOtherSimdSources(std::move(other_simd_files));
     lastPath = newpath;
 
     current_loaded_clk_start = -1;
@@ -1424,6 +1428,12 @@ void MainWindow::GatherWaves()
 
     cuwaves_content->Clear();
     utilization_content->Clear();
+    if (utilization_content)
+    {
+        utilization_content->PopulateOtherSimdTokens(
+            current_wave_coord_se, current_wave_coord_sm, current_loaded_clk_start, current_loaded_clk_end
+        );
+    }
 
     int vertical_size = WSTATE_HEIGHT() + WSTATE_POSY() + 4; // Padding
 
@@ -1500,6 +1510,18 @@ void MainWindow::GatherWaves()
 
         for (auto it = simd_views.begin(); it != simd_views.end(); it++)
             cuwaves_content->AddSlot(it->second.first, it->second.second, vertical_size);
+    }
+
+    if (utilization_content)
+    {
+        const auto& other_tokens = utilization_content->GetOtherSimdTokens();
+        if (!other_tokens.empty())
+        {
+            auto* view = new QUtilView(cuwaves_h_scrollarea);
+            std::string label = "SIMD" + std::to_string(utilization_content->GetOtherSimdId()) + ' ';
+            view->label = cuwaves_content->AddSlot(view, label, vertical_size);
+            view->AddTokens(other_tokens);
+        }
     }
 
     utilization_content->Compile();

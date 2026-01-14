@@ -27,11 +27,14 @@
 #include <QScrollArea>
 #include <QScrollBar>
 #include <QToolTip>
+#include <algorithm>
+#include <utility>
 #include <sstream>
 #include "code/qcodelist.h"
 #include "data/wavemanager.h"
 #include "mainwindow.h"
 #include "scroll.h"
+#include "util/jsonrequest.hpp"
 
 QWaveView::QWaveView(QCustomScroll* parent) : view(parent->view), tool(parent->tool)
 {
@@ -447,6 +450,23 @@ void QUtilView::Add(Token token)
     wave0->tokens.emplace_back(std::move(token));
 }
 
+void QUtilView::AddTokens(const std::vector<Token>& tokens)
+{
+    if (tokens.empty()) return;
+    std::unique_lock<std::mutex> lk(mut);
+
+    for (auto token : tokens)
+    {
+        token.stall = std::max<int>(0, std::min<int>(token.cycles - WaveInstance::BaseClock(), token.stall));
+        token.setHideStall(true);
+        token.cycles -= token.stall;
+        token.clock += token.stall;
+        token.slot = 0;
+
+        wave0->tokens.emplace_back(std::move(token));
+    }
+}
+
 void QUtilView::paintEvent(QPaintEvent* event)
 {
     wave0->wave_begin = QCustomScroll::clock_cutoff_start;
@@ -578,7 +598,8 @@ void QUtilization::Clear()
 {
     for (auto* view : all_views)
         if (view && view->wave0) view->wave0->tokens.clear();
-
+    ClearOtherSimd();
+  
     QPalette pal = QPalette();
     pal.setColor(QPalette::Window, WindowColors::TraceBackground());
     this->setPalette(pal);
@@ -588,6 +609,36 @@ void QUtilization::Compile()
 {
     for (auto* view : all_views)
         if (view) view->Compile(false);
+}
+
+// Cache the list of available other-SIMD files (per SE) and mark availability.
+void QUtilization::SetOtherSimdSources(OtherSimdFiles files)
+{
+    other_simd.SetFiles(std::move(files));
+    ClearOtherSimd();
+}
+
+// Load other-SIMD records for the given SE/SIMD and current clock window into the paired VMEM track.
+void QUtilization::PopulateOtherSimdTokens(int se, int simd, int64_t clock_start, int64_t clock_end)
+{
+    if (!other_simd.HasFiles()) return;
+
+    ClearOtherSimd();
+
+    other_simd_id = simd ^ 1;
+    if (other_simd_id < 0 || other_simd_id >= int(VMEM.size()) || VMEM.at(other_simd_id) == nullptr) return;
+    auto* target_view = VMEM.at(other_simd_id);
+    const auto& token_colors = Config::TokenColors();
+    const auto& tokens = other_simd.LoadTokens(
+        se, clock_start, clock_end, static_cast<int>(token_colors.size())
+    );
+    target_view->AddTokens(tokens);
+}
+
+void QUtilization::ClearOtherSimd()
+{
+    other_simd.Clear();
+    other_simd_id = 0;
 }
 
 void QUtilization::AddTokens(int simd, const TokenMap& tokens)
