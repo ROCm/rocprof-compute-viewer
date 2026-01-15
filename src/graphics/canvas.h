@@ -1,6 +1,6 @@
 // MIT License
 //
-// Copyright (c) 2024-2025 Advanced Micro Devices, Inc. All rights reserved.
+// Copyright (c) 2024-2026 Advanced Micro Devices, Inc. All rights reserved.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -58,6 +58,7 @@ public:
         DrawStall,
         DrawReasons,
         DrawStallAndReason,
+        MemoryLatency,
         DrawLast
     };
 
@@ -92,6 +93,7 @@ private:
     void paintArrows();
     void paintStalls();
     void paintBranch();
+    void paintMemoryLatency();
 
     std::vector<arrow_t> branches{};
     std::vector<arrow_t> arrows{};
@@ -100,4 +102,5 @@ private:
 public:
     static std::vector<QColor> arrow_colors;
     static DrawType drawtype;
+    static double max_memory_latency;
 };

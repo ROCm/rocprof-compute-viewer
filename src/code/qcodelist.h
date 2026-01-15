@@ -1,6 +1,6 @@
 // MIT License
 //
-// Copyright (c) 2024-2025 Advanced Micro Devices, Inc. All rights reserved.
+// Copyright (c) 2024-2026 Advanced Micro Devices, Inc. All rights reserved.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -92,7 +92,9 @@ public:
     void Highlight(int lbegin, int lend, bool bIntoView, const Color& color = WindowColors::LineSlowHighlight());
 
     void setColumnVisibility(ASMCodeline::Element elem, bool visible);
-    void updateColumnVisibility(); // Re-apply visibility based on current flags
+    void updateColumnVisibility();           // Re-apply visibility based on current flags
+    void updateMemoryLatencyEnabled();       // Enable/disable Memory Latency option in dropdown
+    void setDrawType(Canvas::DrawType type); // Set the current draw type in dropdown
 
     std::array<QElementList*, Element::ENUMTYPES> elements{};
 

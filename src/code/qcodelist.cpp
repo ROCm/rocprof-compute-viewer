@@ -1,6 +1,6 @@
 // MIT License
 //
-// Copyright (c) 2024-2025 Advanced Micro Devices, Inc. All rights reserved.
+// Copyright (c) 2024-2026 Advanced Micro Devices, Inc. All rights reserved.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -64,7 +64,7 @@ std::array<std::string, (int) CyclesLabel::Strategy::LAST> strategy_names = {
     "Latency: Max Wave"};
 
 std::array<std::string, (int) Canvas::DrawType::DrawLast> drawtype_names = {
-    "View: Waitcnt", "Branch targets", "All Latency", "Stall Reasons", "Latency + Stall"};
+    "View: Waitcnt", "Branch targets", "Inst Latency", "Stall Reasons", "Latency + Stall", "Memory Latency"};
 
 DrawTypeSelector::DrawTypeSelector(QCodelist* _parent) : parent(_parent)
 {
@@ -214,6 +214,29 @@ void QCodelist::updateColumnVisibility()
         setColumnVisibility(static_cast<Element>(e), config.getColumnVisible(e));
 }
 
+void QCodelist::updateMemoryLatencyEnabled()
+{
+    QWARNING(drawselector, "invalid selector", return );
+
+    auto* model = drawselector->model();
+    auto* view = qobject_cast<QListView*>(drawselector->view());
+    QWARNING(model && view, "no model/view", return );
+
+    int idx = (int) Canvas::DrawType::MemoryLatency;
+    bool hasData = Canvas::max_memory_latency > 0.0;
+    int enabled = static_cast<int>(Qt::ItemIsSelectable | Qt::ItemIsEnabled);
+    int flags = hasData ? enabled : static_cast<int>(Qt::NoItemFlags);
+    model->setData(model->index(idx, 0), flags, Qt::UserRole - 1);
+    view->setRowHidden(idx, !hasData);
+}
+
+void QCodelist::setDrawType(Canvas::DrawType type)
+{
+    QWARNING(drawselector, "invalid selector", return );
+    drawselector->setCurrentIndex((int) type);
+    drawselector->currentTextChanged(drawtype_names.at((int) type).c_str());
+}
+
 void QCodelist::Populate(const std::vector<CodeData>& code)
 {
     QPalette pal = QPalette();
@@ -257,6 +280,15 @@ void QCodelist::Populate(const std::vector<CodeData>& code)
         int flags = HorizontalHotspot::is_pcs_enabled ? enabled : static_cast<int>(Qt::NoItemFlags);
         model->setData(model->index(idx, 0), flags, Qt::UserRole - 1);
         view->setRowHidden(idx, !HorizontalHotspot::is_pcs_enabled);
+    }
+
+    // Memory Latency option - hidden until analysis is run
+    {
+        int idx = (int) Canvas::DrawType::MemoryLatency;
+        bool hasData = Canvas::max_memory_latency > 0.0;
+        int flags = hasData ? enabled : static_cast<int>(Qt::NoItemFlags);
+        model->setData(model->index(idx, 0), flags, Qt::UserRole - 1);
+        view->setRowHidden(idx, !hasData);
     }
 
     // Update column visibility based on data availability flags

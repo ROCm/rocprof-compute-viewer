@@ -25,4 +25,5 @@ enable_testing()
 # Add test subdirectories
 add_subdirectory(counters)
 add_subdirectory(editor)
+add_subdirectory(latency)
 add_subdirectory(widgets)

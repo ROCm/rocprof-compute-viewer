@@ -1,6 +1,6 @@
 // MIT License
 //
-// Copyright (c) 2024-2025 Advanced Micro Devices, Inc. All rights reserved.
+// Copyright (c) 2024-2026 Advanced Micro Devices, Inc. All rights reserved.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -47,6 +47,7 @@
 #include "collection/derivedcountereditor.h"
 #include "collection/histogramdelegate.h"
 #include "collection/jsonfilemodel.h"
+#include "collection/latencyanalysisdialog.h"
 #include "collection/license.h"
 #include "collection/options.h"
 #include "config/appconfig.h"
@@ -277,6 +278,21 @@ MainWindow::MainWindow(std::string uidir) : QMainWindow(nullptr), ui(new Ui::Mai
     connect(ui->actionJsons_folder, &QAction::triggered, this, &MainWindow::SetJsonsFolder);
     connect(ui->actionHotOptions, &QAction::triggered, this, &MainWindow::OpenOptionsDialog);
     connect(ui->actionDerived_counters, &QAction::triggered, this, &MainWindow::OpenDerivedCounterEditor);
+    connect(
+        ui->actionMemoryLatency,
+        &QAction::triggered,
+        this,
+        [this]()
+        {
+            if (ui_dir.empty())
+            {
+                QMessageBox::warning(this, "Error", "No UI directory loaded");
+                return;
+            }
+            LatencyAnalysisDialog dialog(ui_dir, this);
+            dialog.exec();
+        }
+    );
 
     connect(ui->waveview_spin, qOverload<int>(&QSpinBox::valueChanged), this, &MainWindow::SetWaveViewMipmap);
     connect(ui->global_spin, qOverload<int>(&QSpinBox::valueChanged), this, &MainWindow::SetGlobalViewMipmap);
@@ -722,6 +738,7 @@ void MainWindow::ResetSelector()
     current_loaded_clk_end = -1;
 
     ASMCodeline::Clear();
+    Canvas::max_memory_latency = 0.0;
     LoadSourceFiles();
     cuwaves_content->Clear();
     utilization_content->Clear();

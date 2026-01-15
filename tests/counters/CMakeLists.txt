@@ -2,7 +2,7 @@
 
 # Path to the src directory
 set(SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../src)
-set(GRAPHICS_DIR ${SRC_DIR}/graphics)
+set(GRAPHICS_DIR ${SRC_DIR}/analysis)
 
 set(TEST_SOURCES derived_counter_test.cpp ${GRAPHICS_DIR}/derived_counter.cpp)
 

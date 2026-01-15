@@ -1,6 +1,6 @@
 // MIT License
 //
-// Copyright (c) 2024-2025 Advanced Micro Devices, Inc. All rights reserved.
+// Copyright (c) 2024-2026 Advanced Micro Devices, Inc. All rights reserved.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -29,17 +29,21 @@
 #include <QThread>
 #include <QToolTip>
 #include <chrono>
+#include <iomanip>
 #include <map>
 #include <set>
+#include <sstream>
 #include <unordered_map>
 #include <unordered_set>
 #include "code/qcodelist.h"
+#include "config/config.hpp"
 #include "data/wavemanager.h"
 #include "mainwindow.h"
 
 #define ARROW_SPACING 5
 
 Canvas::DrawType Canvas::drawtype = Canvas::DrawType::DrawArrows;
+double Canvas::max_memory_latency = 0.0;
 
 struct PairHash
 {
@@ -251,6 +255,8 @@ void Canvas::paintEvent(QPaintEvent* event)
         paintArrows();
     else if (drawtype == DrawType::DrawStall || drawtype == DrawType::DrawReasons || drawtype == DrawType::DrawStallAndReason)
         paintStalls();
+    else if (drawtype == DrawType::MemoryLatency)
+        paintMemoryLatency();
     else
         paintBranch();
 
@@ -466,6 +472,20 @@ void Canvas::handleHotspotHover(QMouseEvent* event)
             tooltip = line->hotspot.getStallTip();
         else if (drawtype == DrawType::DrawStallAndReason)
             tooltip = line->hotspot.getTooltip() + line->hotspot.getStallTip();
+        else if (drawtype == DrawType::MemoryLatency && line->memory_latency.count > 0)
+        {
+            std::ostringstream ss;
+            ss << "<b>Average memory Latency:</b><br>"
+               << "<table>"
+               << "<tr><td>Exec to data:</td><td>" << std::fixed << std::setprecision(1) << line->memory_latency.mean
+               << " cycles</td></tr>"
+               << "<tr><td>Issue to Exec:</td><td>" << line->memory_latency.meanIssue << " cycles</td></tr>"
+               << "<tr><td>Stall to Issue:</td><td>" << line->memory_latency.meanStall << " cycles</td></tr>"
+               << "<tr><td>StdDev:</td><td>" << line->memory_latency.stdDev << "</td></tr>"
+               << "<tr><td>Error:</td><td>" << line->memory_latency.error << "</td></tr>"
+               << "</table>";
+            tooltip = ss.str();
+        }
 
         if (!tooltip.empty())
         {
@@ -481,7 +501,7 @@ void Canvas::handleHotspotHover(QMouseEvent* event)
 void Canvas::mouseMoveEvent(QMouseEvent* event)
 {
     if (drawtype == DrawType::DrawStall || drawtype == DrawType::DrawReasons ||
-        drawtype == DrawType::DrawStallAndReason)
+        drawtype == DrawType::DrawStallAndReason || drawtype == DrawType::MemoryLatency)
         handleHotspotHover(event);
     QWidget::mouseMoveEvent(event);
 }
@@ -510,5 +530,117 @@ void Canvas::paintBranch()
 
         QColor& color = arrow_colors.at(it->second % arrow_colors.size()); // pick color & increment
         Connect(painter, arrow.wait_number, arrow.mem_line, arrow.prev_slot_n, color);
+    }
+}
+
+void Canvas::paintMemoryLatency()
+{
+    if (max_memory_latency <= 0.0) return; // No data - run Memory Latency analysis first
+
+    QPainter painter(this);
+    MainWindow::getScaling(painter);
+
+    const int lineheight = QCodelist::lineheight();
+    const int barHeight = lineheight - 2 * padding;
+    const int maxBarWidth = width() - 3;
+
+    // Binary search for first visible line
+    int target_index = std::max(0, (scrollposy - padding) / lineheight);
+    auto start_it = std::lower_bound(
+        ASMCodeline::line_vec.begin(),
+        ASMCodeline::line_vec.end(),
+        target_index,
+        [](const auto& line, int idx) { return line && line->line_index < idx; }
+    );
+
+    for (auto it = start_it; it != ASMCodeline::line_vec.end(); ++it)
+    {
+        auto line = *it;
+        if (!line) continue;
+
+        auto ypos = indexToYpos(line->line_index, lineheight);
+        if (ypos > this->height()) break;
+
+        if (line->memory_latency.count <= 0) continue;
+
+        const auto& stats = line->memory_latency;
+        double meanRatio = stats.mean / max_memory_latency;
+        double stdRatio = stats.stdDev / max_memory_latency;
+
+        int meanWidth = static_cast<int>(meanRatio * maxBarWidth);
+        int stdWidth = static_cast<int>(stdRatio * maxBarWidth);
+
+        bool highlighted = (hovered_line_index == line->line_index);
+
+        // Calculate issue and stall widths based on their mean values
+        double issueRatio = stats.meanIssue / max_memory_latency;
+        double stallRatio = stats.meanStall / max_memory_latency;
+        int issueWidth = static_cast<int>(issueRatio * maxBarWidth);
+        int stallWidth = static_cast<int>(stallRatio * maxBarWidth);
+
+        // Use token colors: VMEM = light orange (#ffc432), LDS = dark orange (#ff7000)
+        QColor barColor;
+        if (line->memory_latency_type == LatencyAnalysis::CounterType::LDS)
+            barColor = QColor(0xff, 0x70, 0x00); // Dark orange for LDS
+        else
+            barColor = QColor(0xff, 0xc4, 0x32); // Light orange for VMEM
+
+        // Get colors from config
+        QColor issueColor = Config::IssueColor();
+        QColor stallColor = Config::StallColor();
+
+        if (highlighted)
+        {
+            barColor = barColor.lighter(130);
+            issueColor = issueColor.lighter(130);
+            stallColor = stallColor.lighter(130);
+        }
+
+        // Draw bars in order: Issue (green), Latency (orange), Stall (red)
+        painter.setPen(Qt::NoPen);
+
+        // Draw issue (green) rectangle first
+        painter.setBrush(issueColor);
+        painter.drawRect(2, ypos, issueWidth, barHeight);
+
+        // Draw mean latency bar (orange, based on counter type) after issue
+        painter.setBrush(barColor);
+        painter.drawRect(2 + issueWidth, ypos, meanWidth, barHeight);
+
+        // Draw stall (red) rectangle after latency
+        painter.setBrush(stallColor);
+        painter.drawRect(2 + issueWidth + meanWidth, ypos, stallWidth, barHeight);
+
+        // Total bar width for centering stddev and highlight
+        int totalBarWidth = issueWidth + meanWidth + stallWidth;
+
+        // Draw stdDev as horizontal "H" error bar centered at end of all bars
+        if (stdWidth > 0)
+        {
+            int stdCenter = 2 + totalBarWidth;
+            int stdStart = std::clamp(stdCenter - stdWidth, 2, maxBarWidth);
+            int stdEnd = std::clamp(stdCenter + stdWidth, 2, maxBarWidth);
+            int centerY = ypos + (barHeight + 1) / 2; // Round up to center properly
+            int capHeight = barHeight / 3;
+
+            QPen stdPen(Qt::black, 2);
+            painter.setPen(stdPen);
+            painter.setBrush(Qt::NoBrush);
+
+            // Horizontal line
+            painter.drawLine(stdStart, centerY, stdEnd, centerY);
+            // Left vertical cap (only if visible)
+            if (stdStart > 2) painter.drawLine(stdStart, centerY - capHeight, stdStart, centerY + capHeight);
+            // Right vertical cap (only if visible)
+            if (stdEnd < width() - 2) painter.drawLine(stdEnd, centerY - capHeight, stdEnd, centerY + capHeight);
+        }
+
+        // Draw highlight outline encompassing all bars
+        if (highlighted)
+        {
+            painter.setPen(QPen(Qt::white, 1));
+            painter.setBrush(Qt::NoBrush);
+            painter.drawRect(2, ypos, totalBarWidth, barHeight);
+        }
     }
 }

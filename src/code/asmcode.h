@@ -1,6 +1,6 @@
 // MIT License
 //
-// Copyright (c) 2024-2025 Advanced Micro Devices, Inc. All rights reserved.
+// Copyright (c) 2024-2026 Advanced Micro Devices, Inc. All rights reserved.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -27,6 +27,7 @@
 #include <QWidget>
 #include <map>
 #include <vector>
+#include "analysis/latency.hpp"
 #include "data/wavemanager.h"
 #include "hotspot.hpp"
 #include "textelement.h"
@@ -74,6 +75,8 @@ public:
     };
 
     HorizontalHotspot hotspot{};
+    LatencyAnalysis::LatencyStats memory_latency{};
+    LatencyAnalysis::CounterType memory_latency_type = LatencyAnalysis::CounterType::COUNT; // COUNT means no data
 
     static std::map<int, std::shared_ptr<ASMCodeline>> line_map;
     static std::vector<std::shared_ptr<ASMCodeline>> line_vec;

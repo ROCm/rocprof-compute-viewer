@@ -33,6 +33,15 @@ ROCprof Compute Viewer (RCV) is a tool for visualizing and analyzing GPU thread 
   * Added "Samples", "Issued" and "Stalls" categories in Instruction view.
   * Added toggle for these categories, as below.
 
+* CDNA: Added memory latency analysis
+  * Go to Analyze -> Memory Latency
+  * Requires collecting ATT with:
+    * rocprofv3 --att-perfcounter-ctrl 1 --att-perfcounters "SQ_INST_LEVEL_VMEM SQ_INST_LEVEL_LDS"
+    * If available, include --att-perfcounter-target-only True
+  * Displays memory latency per assembly line.
+    * Correctness requires ordered memory operations (no FLAT read/writes)
+    * Latency calculation is an estimate and results may be unreliable.
+
 * Added a "Instruction Columns" frame under the "Options" tab to toggle which columns to be displayed.
 
 * Toogle for which counters to display in Options tab.

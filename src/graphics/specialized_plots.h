@@ -1,6 +1,6 @@
 // MIT License
 //
-// Copyright (c) 2024-2025 Advanced Micro Devices, Inc. All rights reserved.
+// Copyright (c) 2024-2026 Advanced Micro Devices, Inc. All rights reserved.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -24,8 +24,8 @@
 #include <array>
 #include <memory>
 #include <unordered_set>
+#include "analysis/derived_counter.h"
 #include "container/datanode.h"
-#include "derived_counter.h"
 #include "plot.h"
 
 //! Class for visualizing wave states

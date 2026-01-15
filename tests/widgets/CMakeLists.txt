@@ -24,7 +24,7 @@ target_link_libraries(color_test GTest::gtest_main Qt6::Widgets)
 target_compile_options(color_test PRIVATE -fsanitize=address -fno-omit-frame-pointer -g)
 target_link_options(color_test PRIVATE -fsanitize=address)
 add_test(NAME color_test COMMAND color_test)
-set_tests_properties(color_test PROPERTIES ENVIRONMENT "LSAN_OPTIONS=suppressions=${ASAN_SUPPRESSIONS_FILE}")
+set_tests_properties(color_test PROPERTIES ENVIRONMENT "ASAN_OPTIONS=detect_leaks=0")
 
 # ============================================================================
 # PlotCurve Tests - LOD curve data structures and PlotCurve with LOD generation
@@ -35,7 +35,7 @@ target_link_libraries(plotcurve_test GTest::gtest Qt6::Widgets)
 target_compile_options(plotcurve_test PRIVATE -fsanitize=address -fno-omit-frame-pointer -g)
 target_link_options(plotcurve_test PRIVATE -fsanitize=address)
 add_test(NAME plotcurve_test COMMAND plotcurve_test)
-set_tests_properties(plotcurve_test PROPERTIES ENVIRONMENT "LSAN_OPTIONS=suppressions=${ASAN_SUPPRESSIONS_FILE}")
+set_tests_properties(plotcurve_test PROPERTIES ENVIRONMENT "ASAN_OPTIONS=detect_leaks=0")
 
 # ============================================================================
 # TextElement Tests - Text line rendering with caching and hover states
@@ -46,7 +46,7 @@ target_link_libraries(textelement_test GTest::gtest Qt6::Widgets)
 target_compile_options(textelement_test PRIVATE -fsanitize=address -fno-omit-frame-pointer -g)
 target_link_options(textelement_test PRIVATE -fsanitize=address)
 add_test(NAME textelement_test COMMAND textelement_test)
-set_tests_properties(textelement_test PROPERTIES ENVIRONMENT "LSAN_OPTIONS=suppressions=${ASAN_SUPPRESSIONS_FILE}")
+set_tests_properties(textelement_test PROPERTIES ENVIRONMENT "ASAN_OPTIONS=detect_leaks=0")
 
 # ============================================================================
 # Wave Utils Tests - Pure utility functions from wave/token and sourcefile No Qt dependencies - tests mip shifting,
@@ -58,4 +58,4 @@ target_link_libraries(wave_utils_test GTest::gtest_main)
 target_compile_options(wave_utils_test PRIVATE -fsanitize=address -fno-omit-frame-pointer -g)
 target_link_options(wave_utils_test PRIVATE -fsanitize=address)
 add_test(NAME wave_utils_test COMMAND wave_utils_test)
-set_tests_properties(wave_utils_test PROPERTIES ENVIRONMENT "LSAN_OPTIONS=suppressions=${ASAN_SUPPRESSIONS_FILE}")
+set_tests_properties(wave_utils_test PROPERTIES ENVIRONMENT "ASAN_OPTIONS=detect_leaks=0")

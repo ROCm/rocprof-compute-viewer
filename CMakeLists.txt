@@ -67,6 +67,7 @@ file(
     src/wave/*.cpp
     src/config/*.cpp
     src/summary/*.cpp
+    src/analysis/*.cpp
     src/mainwindow.ui
     icon.qrc
     ${CMAKE_CURRENT_BINARY_DIR}/src/collection/license_data.cpp)

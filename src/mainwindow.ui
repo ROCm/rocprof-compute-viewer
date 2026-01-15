@@ -1167,7 +1167,13 @@
      <string>Edit</string>
     </property>
     <addaction name="actionHotOptions"/>
+   </widget>
+   <widget class="QMenu" name="menuAnalyze">
+    <property name="title">
+     <string>Analyze</string>
+    </property>
     <addaction name="actionDerived_counters"/>
+    <addaction name="actionMemoryLatency"/>
    </widget>
    <widget class="QMenu" name="menuHelp">
     <property name="title">
@@ -1179,6 +1185,7 @@
    </widget>
    <addaction name="menuImport_2"/>
    <addaction name="menuEdit"/>
+   <addaction name="menuAnalyze"/>
    <addaction name="menuHelp"/>
   </widget>
   <action name="actionJsons_folder">
@@ -1209,6 +1216,11 @@
   <action name="actionDerived_counters">
    <property name="text">
     <string>Derived Counters</string>
+   </property>
+  </action>
+  <action name="actionMemoryLatency">
+   <property name="text">
+    <string>Memory Latency</string>
    </property>
   </action>
  </widget>

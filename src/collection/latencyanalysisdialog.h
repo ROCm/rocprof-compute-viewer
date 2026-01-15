@@ -22,26 +22,48 @@
 
 #pragma once
 
-struct occupancy_data
+#include "../analysis/latency.hpp"
+
+#include <QDialog>
+#include <array>
+#include <atomic>
+#include <future>
+#include <map>
+#include <string>
+
+class QProgressBar;
+class QLabel;
+class QTextEdit;
+class QTimer;
+
+class LatencyAnalysisDialog : public QDialog
 {
-    int64_t time{0};
-    uint8_t cu{0};
-    int8_t simd{0};
-    int8_t slot{0};
-    int8_t enable{0};
-    int kernel_id{0};
+    Q_OBJECT
 
-    occupancy_data() = default;
+public:
+    static constexpr int kNumCounters = static_cast<int>(LatencyAnalysis::CounterType::COUNT);
 
-    template <typename T> static occupancy_data build(T& v)
-    {
-        occupancy_data occ;
-        occ.time = (int64_t) v[0];
-        occ.cu = (uint8_t) v[1];
-        occ.simd = (int8_t) v[2];
-        occ.slot = (int8_t) v[3];
-        occ.enable = (int8_t) v[4];
-        occ.kernel_id = (int) v[5];
-        return occ;
-    };
+    explicit LatencyAnalysisDialog(const std::string& uidir, QWidget* parent = nullptr);
+    ~LatencyAnalysisDialog();
+
+private slots:
+    void updateProgress();
+    void analysisFinished();
+
+private:
+    void startAnalysis();
+
+    std::string m_uidir;
+    QProgressBar* m_progressBar;
+    QLabel* m_statusLabel;
+    QLabel* m_disclaimerLabel;
+    std::array<QTextEdit*, kNumCounters> m_resultsText;
+    QTimer* m_timer;
+
+    std::atomic<int> m_progress{0};
+    int m_totalFiles{0};
+    std::future<void> m_analysisFuture;
+
+    // Results stored after analysis: [counterType][codeIndex] -> (code, stats)
+    std::array<std::map<int, std::pair<std::string, LatencyAnalysis::LatencyStats>>, kNumCounters> m_results;
 };
