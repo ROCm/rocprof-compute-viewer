@@ -74,9 +74,10 @@ public:
     DerivedCounter::Tensor GetAvgRates();
 
     virtual std::string getBuiltin() const = 0;
+    virtual bool isBuiltin(const std::string& name) const = 0;
 
 protected:
-    void buildDerivedManager();
+    virtual void buildDerivedManager();
     std::shared_ptr<DerivedCounter::DerivedCounterManager> derivedmanager{nullptr};
 
     std::vector<std::unique_ptr<class GPUCounterNode>> rootnodes{};
@@ -118,7 +119,16 @@ public:
     TraceCounterPlotView(class QWidget* parent);
     virtual ~TraceCounterPlotView() = default;
 
-    void LoadCounterData(class JsonRequest& file, int SE);
+    void LoadCounterData(const std::string& dirpath, int SE);
 
     virtual std::string getBuiltin() const override;
+    virtual bool isBuiltin(const std::string& name) const override;
+
+protected:
+    virtual void buildDerivedManager() override;
+
+private:
+    // Maps SE to rclock samples
+    std::unordered_map<int, std::vector<std::pair<int64_t, int64_t>>> rclock{};
+    double rclock_frequency = 1E8;
 };

@@ -24,9 +24,9 @@
 
 #include <QBoxLayout>
 #include <QWidget>
-#include <set>
-#include <map>
 #include <array>
+#include <map>
+#include <set>
 #include <vector>
 #include "data/wavemanager.h"
 #include "measure.h"

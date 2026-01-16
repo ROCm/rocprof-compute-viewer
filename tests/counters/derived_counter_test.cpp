@@ -440,6 +440,39 @@ TEST_F(SelectTest, SelectLastTimeIndex)
     EXPECT_NEAR(selected.at(1, 1, 0, 0), 16.0f, kEpsilon);
 }
 
+TEST_F(SelectTest, SelectNegativeIndex)
+{
+    // Select time index -1 (last sample, equivalent to index 3)
+    Tensor selected = t.select(-1, Axis::Time);
+    EXPECT_EQ(selected.shape(), Shape(2, 2, 1, 1));
+    EXPECT_NEAR(selected.at(0, 0, 0, 0), 4.0f, kEpsilon);  // xcc=0,se=0,time=3
+    EXPECT_NEAR(selected.at(0, 1, 0, 0), 8.0f, kEpsilon);  // xcc=0,se=1,time=3
+    EXPECT_NEAR(selected.at(1, 0, 0, 0), 12.0f, kEpsilon); // xcc=1,se=0,time=3
+    EXPECT_NEAR(selected.at(1, 1, 0, 0), 16.0f, kEpsilon); // xcc=1,se=1,time=3
+
+    // Select time index -2 (second to last, equivalent to index 2)
+    Tensor selected2 = t.select(-2, Axis::Time);
+    EXPECT_EQ(selected2.shape(), Shape(2, 2, 1, 1));
+    EXPECT_NEAR(selected2.at(0, 0, 0, 0), 3.0f, kEpsilon);  // xcc=0,se=0,time=2
+    EXPECT_NEAR(selected2.at(0, 1, 0, 0), 7.0f, kEpsilon);  // xcc=0,se=1,time=2
+    EXPECT_NEAR(selected2.at(1, 0, 0, 0), 11.0f, kEpsilon); // xcc=1,se=0,time=2
+    EXPECT_NEAR(selected2.at(1, 1, 0, 0), 15.0f, kEpsilon); // xcc=1,se=1,time=2
+
+    // Select XCC index -1 (last XCC, equivalent to index 1)
+    Tensor selected3 = t.select(-1, Axis::XCC);
+    EXPECT_EQ(selected3.shape(), Shape(1, 2, 1, 4));
+    EXPECT_NEAR(selected3.at(0, 0, 0, 0), 9.0f, kEpsilon);  // xcc=1,se=0,time=0
+    EXPECT_NEAR(selected3.at(0, 1, 0, 3), 16.0f, kEpsilon); // xcc=1,se=1,time=3
+}
+
+TEST_F(SelectTest, SelectNegativeIndexOutOfRange)
+{
+    // Selecting an out-of-range negative index should throw
+    EXPECT_THROW(t.select(-5, Axis::Time), std::runtime_error); // Time has 4 elements
+    EXPECT_THROW(t.select(-3, Axis::XCC), std::runtime_error);  // XCC has 2 elements
+    EXPECT_THROW(t.select(-3, Axis::SE), std::runtime_error);   // SE has 2 elements
+}
+
 TEST_F(SelectTest, SelectOutOfRange)
 {
     // Selecting an out-of-range index should throw
@@ -897,6 +930,34 @@ TEST_F(SelectParsingTest, SelectThenSum)
     EXPECT_EQ(result.shape(), Shape(1, 2, 1, 1));
     EXPECT_NEAR(result.at(0, 0, 0, 0), 10.0f, kEpsilon); // 1 + 9 (xcc=0 and xcc=1 at time=0, se=0)
     EXPECT_NEAR(result.at(0, 1, 0, 0), 18.0f, kEpsilon); // 5 + 13 (xcc=0 and xcc=1 at time=0, se=1)
+}
+
+TEST_F(SelectParsingTest, SelectNegativeIndex)
+{
+    // Select last time index using -1
+    ExprPtr expr = parser.parseExpression("select[counter_A, -1, axis=TIME]");
+    Tensor result = expr->evaluate(ctx);
+    EXPECT_EQ(result.shape(), Shape(2, 2, 1, 1));
+    EXPECT_NEAR(result.at(0, 0, 0, 0), 4.0f, kEpsilon);  // last element of [1,2,3,4]
+    EXPECT_NEAR(result.at(0, 1, 0, 0), 8.0f, kEpsilon);  // last element of [5,6,7,8]
+    EXPECT_NEAR(result.at(1, 0, 0, 0), 12.0f, kEpsilon); // last element of [9,10,11,12]
+    EXPECT_NEAR(result.at(1, 1, 0, 0), 16.0f, kEpsilon); // last element of [13,14,15,16]
+
+    // Select second to last time index using -2
+    ExprPtr expr2 = parser.parseExpression("select[counter_A, -2, axis=TIME]");
+    Tensor result2 = expr2->evaluate(ctx);
+    EXPECT_EQ(result2.shape(), Shape(2, 2, 1, 1));
+    EXPECT_NEAR(result2.at(0, 0, 0, 0), 3.0f, kEpsilon);  // index 2 of [1,2,3,4]
+    EXPECT_NEAR(result2.at(0, 1, 0, 0), 7.0f, kEpsilon);  // index 2 of [5,6,7,8]
+    EXPECT_NEAR(result2.at(1, 0, 0, 0), 11.0f, kEpsilon); // index 2 of [9,10,11,12]
+    EXPECT_NEAR(result2.at(1, 1, 0, 0), 15.0f, kEpsilon); // index 2 of [13,14,15,16]
+
+    // Select last XCC using -1
+    ExprPtr expr3 = parser.parseExpression("select[counter_A, -1, axis=XCC]");
+    Tensor result3 = expr3->evaluate(ctx);
+    EXPECT_EQ(result3.shape(), Shape(1, 2, 1, 4));
+    EXPECT_NEAR(result3.at(0, 0, 0, 0), 9.0f, kEpsilon);  // xcc=1,se=0,time=0
+    EXPECT_NEAR(result3.at(0, 1, 0, 3), 16.0f, kEpsilon); // xcc=1,se=1,time=3
 }
 
 // ============================================================================

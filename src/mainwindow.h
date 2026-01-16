@@ -68,7 +68,7 @@ public:
     void CreateOccupancyPlot(bool bDispatch);
     void CreateWavesPlot();
     void setPlotBarPos(float x);
-    void UpdateGraphInfo(const std::string& name, int value);
+    void UpdateGraphInfo(const std::string& name, float value);
     void UpdateGraphAutoLod(int bAutoLod);
     void ToggleDisplayLineNumber(int display);
     void SetJsonsFolder();

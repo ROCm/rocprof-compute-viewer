@@ -150,8 +150,8 @@ public:
     Tensor min(Axis axis) const { return min(std::vector<Axis>{axis}); }
     Tensor sum(Axis axis) const { return sum(std::vector<Axis>{axis}); }
 
-    // Select a single index along an axis (reduces that axis to size 1)
-    Tensor select(size_t index, Axis axis) const;
+    // Select a single index along an axis (reduces that axis to size 1). Negative allowed.
+    Tensor select(int64_t index, Axis axis) const;
 
     // Select a range of indices along an axis (Python-style slicing: start:stop:step)
     // Returns tensor with selected indices concatenated along the axis
@@ -508,6 +508,9 @@ public:
     // Clear all derived counters
     void clearDerivedCounters();
 
+    // Clear only derived counters that had evaluation errors
+    void clearErrorDerivedCounters();
+
     // Get a counter value (evaluates derived counters as needed)
     // Returns shared_ptr for safe lifetime management
     std::shared_ptr<const Tensor> getCounter(const std::string& name);
@@ -535,6 +538,7 @@ private:
     std::unordered_map<std::string, ExprPtr> m_derivedCounters;
     mutable std::unordered_map<std::string, std::shared_ptr<const Tensor>> m_cache;
     std::unordered_set<std::string> m_evalInProgress;
+    std::unordered_set<std::string> m_errorCounters; // Derived counters that failed evaluation
 };
 
 // ============================================================================

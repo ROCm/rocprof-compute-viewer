@@ -170,7 +170,8 @@ int main(int argc, char* argv[])
             }
             outputFile = argv[i];
         }
-        else if (arg[0] != '-') uidir = arg;
+        else if (arg[0] != '-')
+            uidir = arg;
         else
         {
             std::cerr << "Unknown option: " << arg << "\n";

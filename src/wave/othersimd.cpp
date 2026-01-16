@@ -86,9 +86,12 @@ std::vector<OtherSimdInstruction> ReadOtherSimdInstructions(
             if (schema.is_string())
             {
                 const auto key = schema.get<std::string>();
-                if (key == "time") time_index = idx;
-                else if (key == "duration") duration_index = idx;
-                else if (key == "category") category_index = idx;
+                if (key == "time")
+                    time_index = idx;
+                else if (key == "duration")
+                    duration_index = idx;
+                else if (key == "category")
+                    category_index = idx;
             }
             idx++;
         }
@@ -123,14 +126,9 @@ void OtherSimdData::SetFiles(OtherSimdFiles files)
     tokens.clear();
 }
 
-void OtherSimdData::Clear()
-{
-    tokens.clear();
-}
+void OtherSimdData::Clear() { tokens.clear(); }
 
-const std::vector<Token>& OtherSimdData::LoadTokens(
-    int se, int64_t clock_start, int64_t clock_end, int color_count
-)
+const std::vector<Token>& OtherSimdData::LoadTokens(int se, int64_t clock_start, int64_t clock_end, int color_count)
 {
     tokens.clear();
     if (color_count <= 0) return tokens;
@@ -155,7 +153,7 @@ const std::vector<Token>& OtherSimdData::LoadTokens(
         {
             int type = instruction.category;
             bool valid_type = type >= 0 && type < color_count;
-            QWARNING(valid_type, "Unknown other SIMD token type " << type, continue );
+            QWARNING(valid_type, "Unknown other SIMD token type " << type, continue);
 
             Token token{};
             token.clock = instruction.time;

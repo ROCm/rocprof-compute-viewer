@@ -33,15 +33,14 @@
 #include <QSpinBox>
 #include <QTextStream>
 #include <algorithm>
+#include <cstddef>
 #include <fstream>
 #include <future>
 #include <utility>
 #include <vector>
-#include <cstddef>
 #include "./ui_mainwindow.h"
 #include "button/historyentry.h"
 #include "button/jsonselector.h"
-#include "wave/othersimd.h"
 #include "code/qcodelist.h"
 #include "code/sourcefile.h"
 #include "collection/derivedcountereditor.h"
@@ -59,6 +58,7 @@
 #include "summary/summaryview.h"
 #include "util/jsonrequest.hpp"
 #include "util/version.h"
+#include "wave/othersimd.h"
 #include "wave/scroll.h"
 #include "wave/waveglobal.h"
 #include "wave/waveview.h"
@@ -849,14 +849,7 @@ void MainWindow::CreateCountersPlot()
             if (it != list.end()) max_se = 1 + *it;
         }
 
-        for (int se_num = 0; se_num < max_se; se_num++)
-        {
-            std::string filename = GetUIDir() + "se" + std::to_string(se_num) + "_perfcounter.json";
-            JsonRequest file(filename, false);
-            if (!file.bValid) continue;
-
-            traceplot->LoadCounterData(file, se_num);
-        }
+        for (int se_num = 0; se_num < max_se; se_num++) traceplot->LoadCounterData(GetUIDir(), se_num);
     }
 
     if (this->counters_plot_layout) delete this->counters_plot_layout;
@@ -1152,13 +1145,23 @@ void MainWindow::setPlotBarPos(float x)
     if (dispatch_plot) dispatch_plot->SetBarPos(x);
 }
 
-void MainWindow::UpdateGraphInfo(const std::string& name, int value)
+void MainWindow::UpdateGraphInfo(const std::string& name, float value)
 {
     QLabel* v_label = counter_values_tableitem[name];
 
     if (!v_label) return;
 
-    v_label->setText(std::to_string(value).c_str());
+    std::ostringstream ss;
+    if (value == 0)
+        ss << 0;
+    else if (std::abs(value) >= 100 && std::abs(value) < 10000)
+        ss << static_cast<int>(value);
+    else if (std::abs(value) >= 1 && std::abs(value) < 100)
+        ss << std::fixed << std::setprecision(2) << value;
+    else
+        ss << std::scientific << std::setprecision(2) << value;
+
+    v_label->setText(ss.str().c_str());
 }
 
 void MainWindow::UpdateOccupancyInfo(const std::vector<std::pair<std::string, int>>& values, float norm)

@@ -34,6 +34,9 @@ using namespace std;
 
 constexpr size_t kMaxPlotsPerDerived = 10;
 
+static std::vector<std::string> UtilTypes = {"MISC", "FLAT", "SCA", "LDS", "VMEM", "VALU"};
+static std::vector<std::string> MopsTypes = {"I8", "F8", "F16", "BF16", "F32", "F64", "XF32", "F6F4"};
+
 std::vector<std::string> WavePlotView::state_names = {"Empty", "Idle", "Exec", "Wait", "Stall"};
 
 static QColor& DispatchColor(int id) { return MainWindow::dispatchcolors[id % MainWindow::dispatchcolors.size()]; }
@@ -100,24 +103,53 @@ void WavePlotView::UpdateGraphTable(float mousepos)
     }
 }
 
-void TraceCounterPlotView::LoadCounterData(JsonRequest& file, int shader_engine)
+void TraceCounterPlotView::LoadCounterData(const std::string& dirpath, int shader_engine)
 {
-    std::array<std::vector<CounterData>, 2> data{};
-    data[0].reserve(file.data["data"].size());
-    data[1].reserve(file.data["data"].size());
+    {
+        JsonRequest file(dirpath + "se" + std::to_string(shader_engine) + "_perfcounter.json", false);
+        if (!file.bValid) return;
 
-    for (auto& event : file.data["data"])
-        data.at(int8_t(event[6]) & 1)
-            .push_back(CounterData({
-                int64_t(event[0]),
-                int8_t(event[5]),
-                int8_t(shader_engine),
-                {float(event[1]), float(event[2]), float(event[3]), float(event[4])}
-        }));
+        std::array<std::vector<CounterData>, 2> data{};
+        data[0].reserve(file.data["data"].size());
+        data[1].reserve(file.data["data"].size());
 
-    while (rootnodes.size() < data.size()) rootnodes.emplace_back(std::make_unique<GPUCounterNode>());
-    for (int b = 0; b < data.size(); b++)
-        if (data[b].size()) rootnodes[b]->Insert(shader_engine, data[b]);
+        for (auto& event : file.data["data"])
+            data.at(int8_t(event[6]) & 1)
+                .push_back(CounterData({
+                    int64_t(event[0]),
+                    int8_t(event[5]),
+                    int8_t(shader_engine),
+                    {float(event[1]), float(event[2]), float(event[3]), float(event[4])}
+            }));
+
+        while (rootnodes.size() < data.size()) rootnodes.emplace_back(std::make_unique<GPUCounterNode>());
+        for (int b = 0; b < data.size(); b++)
+            if (data[b].size()) rootnodes[b]->Insert(shader_engine, data[b]);
+    }
+
+    if (rclock.empty())
+    {
+        try
+        {
+            JsonRequest file(dirpath + "realtime.json", false);
+            if (!file.bValid) return;
+
+            int64_t rfreq = int64_t(file.data["metadata"]["frequency"]);
+            if (rfreq != 0) rclock_frequency = static_cast<double>(rfreq);
+
+            for (auto& [SE, points] : file.data.items())
+            {
+                if (std::string(SE).find("SE") != 0) continue;
+
+                int se_number = stoi(std::string(SE).substr(2));
+                for (auto& p : points) rclock[se_number].push_back({int64_t(p[0]), int64_t(p[1])});
+            }
+        }
+        catch (std::exception& e)
+        {
+            QWARNING(false, e.what(), abort());
+        }
+    }
 }
 
 std::vector<double> CounterPlotView::GetPeakRates()
@@ -397,6 +429,43 @@ void CounterPlotView::buildDerivedManager()
     }
 }
 
+void TraceCounterPlotView::buildDerivedManager()
+{
+    using namespace DerivedCounter;
+
+    CounterPlotView::buildDerivedManager();
+
+    if (rclock.empty() || !derivedmanager) return;
+
+    int64_t initial_rclock = INT64_MAX;
+    size_t num_samples = 0;
+    int max_se = -1;
+
+    for (auto& [se_number, points] : rclock)
+    {
+        max_se = std::max(max_se, se_number);
+        num_samples = std::max(num_samples, points.size());
+        for (auto& [_, realtime] : points) initial_rclock = std::min(initial_rclock, realtime);
+    }
+
+    if (max_se < 0 || num_samples == 0) return;
+
+    auto tensor = std::make_shared<Tensor>(Shape(1, max_se + 1, 2, num_samples), 0);
+
+    for (auto& [se_number, points] : rclock)
+    {
+        size_t i = 0;
+        for (auto& [gfx, realtime] : points)
+        {
+            tensor->at(0, se_number, 0, i) = gfx;
+            tensor->at(0, se_number, 1, i) = realtime - initial_rclock;
+            i++;
+        }
+    }
+
+    derivedmanager->context().setCounter("RCLOCK", tensor);
+}
+
 std::vector<std::pair<std::string, std::shared_ptr<const DerivedCounter::Tensor>>> CounterPlotView::getDerived(
     const std::string& derived, bool suppress
 )
@@ -426,9 +495,10 @@ std::vector<std::pair<std::string, std::shared_ptr<const DerivedCounter::Tensor>
         }
         catch (const std::exception& e)
         {
-            // Derived counters may fail if required raw counters are missing
             std::cerr << "Warning: Failed to evaluate derived counter '" << derived_name << "': " << e.what()
                       << std::endl;
+
+            if (isBuiltin(derived_name)) continue;
             errors.append(QString("'%1': %2").arg(QString::fromStdString(derived_name), e.what()));
         }
     }
@@ -441,10 +511,31 @@ std::vector<std::pair<std::string, std::shared_ptr<const DerivedCounter::Tensor>
                 "Derived Counter Error",
                 QString("Failed to evaluate %1 derived counter(s):\n\n%2").arg(errors.size()).arg(errors.join("\n\n"))
             );
-        derivedmanager->context().clearDerivedCounters();
     }
 
+    derivedmanager->context().clearErrorDerivedCounters();
     return result;
+}
+
+bool TraceCounterPlotView::isBuiltin(const std::string& name) const
+{
+    if (name.empty()) return false;
+
+    if (name.find("_TFLOPS") != std::string::npos)
+        for (auto& mops : MopsTypes)
+            if (name == mops + "_TFLOPS") return true;
+
+    if (name.find("_util") != std::string::npos)
+    {
+        for (auto& util : UtilTypes)
+            if (name == util + "_util") return true;
+
+        if (name == "MFMA_util") return true;
+    }
+
+    if (name == "_reduce_busy") return true;
+
+    return false;
 }
 
 TraceCounterPlotView::TraceCounterPlotView(QWidget* parent) {}
@@ -588,10 +679,18 @@ std::string TraceCounterPlotView::getBuiltin() const
 {
     std::string derived = "_reduce_busy := sum[BUSY_CU_CYCLES, axis=[XCC,SE,CU]] + 1E-6";
 
-    for (std::string name : {"MISC", "FLAT", "SCA", "LDS", "VMEM", "VALU"})
+    for (const std::string& name : UtilTypes)
         derived += "\n" + name + "_util := 100 * sum[ACTIVE_INST_" + name + ", axis=[XCC,SE,CU]] / _reduce_busy";
 
     derived += "\nMFMA_util := 25 * sum[VALU_MFMA_BUSY_CYCLES, axis=[XCC,SE,CU]] / _reduce_busy";
+
+    derived += "\n_clock_delta := select[RCLOCK, -1, axis=TIME] - select[RCLOCK, 0, axis=TIME]";
+    derived += "\n_frequency := 1E8 * select[_clock_delta, 0, axis=CU] / select[_clock_delta, 1, axis=CU]";
+    derived += "\n_delta_seconds := min[delta[SCLOCK, axis=TIME]] / _frequency + 1E-13";
+
+    for (const std::string& name : MopsTypes)
+        derived += "\n" + name + "_TFLOPS := 512E-12 * sum[INSTS_VALU_MFMA_MOPS_" + name +
+                   ", axis=[XCC,SE,CU]] / _delta_seconds";
 
     return derived;
 }

@@ -24,6 +24,7 @@
 #include <cctype>
 #include <cmath>
 #include <fstream>
+#include <iostream>
 #include <limits>
 
 namespace DerivedCounter
@@ -294,12 +295,15 @@ Tensor Tensor::meanAll() const { return mean({Axis::All}); }
 Tensor Tensor::maxAll() const { return max({Axis::All}); }
 Tensor Tensor::minAll() const { return min({Axis::All}); }
 
-Tensor Tensor::select(size_t index, Axis axis) const
+Tensor Tensor::select(int64_t index, Axis axis) const
 {
     size_t axisIdx = static_cast<size_t>(axis);
-    size_t axisSize = m_shape.dimSize(axisIdx);
+    int64_t axisSize = static_cast<int64_t>(m_shape.dimSize(axisIdx));
 
-    if (index >= axisSize)
+    // Handle negative indexing
+    if (index < 0) index += axisSize;
+
+    if (index < 0 || index >= axisSize)
     {
         throw std::runtime_error(
             "Select index " + std::to_string(index) + " out of range for axis " + axisToString(axis) + " with size " +
@@ -1013,7 +1017,7 @@ Tensor SelectExpr::evaluate(CounterContext& ctx) const
 
     if (!indexTensor.isScalar()) throw std::runtime_error("select[] index must be a scalar");
 
-    size_t index = static_cast<size_t>(indexTensor.scalar());
+    int64_t index = static_cast<int64_t>(indexTensor.scalar());
     return operand.select(index, m_axis);
 }
 
@@ -1204,9 +1208,7 @@ std::shared_ptr<const Tensor> CounterContext::getCounter(const std::string& name
     if (derivedIt != m_derivedCounters.end())
     {
         if (m_evalInProgress.count(name) > 0)
-        {
             throw std::runtime_error("Cyclic derived counter definition detected at: " + name);
-        }
 
         struct EvalGuard
         {
@@ -1216,9 +1218,17 @@ std::shared_ptr<const Tensor> CounterContext::getCounter(const std::string& name
         } guard{m_evalInProgress, name};
 
         m_evalInProgress.insert(name);
-        auto tensor = std::make_shared<Tensor>(derivedIt->second->evaluate(*this));
-        m_cache[name] = tensor;
-        return tensor;
+        try
+        {
+            auto tensor = std::make_shared<Tensor>(derivedIt->second->evaluate(*this));
+            m_cache[name] = tensor;
+            return tensor;
+        }
+        catch (const std::exception&)
+        {
+            m_errorCounters.insert(name);
+            throw;
+        }
     }
 
     throw std::runtime_error("Unknown counter: " + name);
@@ -1234,6 +1244,17 @@ void CounterContext::clearDerivedCounters()
 {
     m_derivedCounters.clear();
     m_cache.clear();
+    m_errorCounters.clear();
+}
+
+void CounterContext::clearErrorDerivedCounters()
+{
+    for (const auto& name : m_errorCounters)
+    {
+        m_derivedCounters.erase(name);
+        m_cache.erase(name);
+    }
+    m_errorCounters.clear();
 }
 
 std::vector<std::string> CounterContext::rawCounterNames() const
@@ -1688,9 +1709,12 @@ ExprPtr Parser::ParserState::parseSelect()
 
     // Parse the first number/expression (could be index or start of slice)
     ExprPtr firstExpr;
+    bool negative = false;
+    if (match(TokenType::Minus)) negative = true;
     if (check(TokenType::Number))
     {
         float val = current().numValue;
+        if (negative) val = -val;
         advance();
         firstExpr = std::make_shared<LiteralExpr>(val);
     }
@@ -1698,13 +1722,15 @@ ExprPtr Parser::ParserState::parseSelect()
     {
         std::string varName = current().text;
         advance();
-        firstExpr = std::make_shared<VariableExpr>(varName);
+        firstExpr = negative ? ExprPtr(std::make_shared<UnaryExpr>(std::make_shared<VariableExpr>(varName)))
+                             : ExprPtr(std::make_shared<VariableExpr>(varName));
     }
     else if (check(TokenType::LParen))
     {
         advance();
-        firstExpr = parseExpr();
+        ExprPtr inner = parseExpr();
         expect(TokenType::RParen, "Expected ')'");
+        firstExpr = negative ? std::make_shared<UnaryExpr>(inner) : inner;
     }
     else
         throw std::runtime_error("Expected index or slice in select");
