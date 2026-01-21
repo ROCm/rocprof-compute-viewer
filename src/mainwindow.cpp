@@ -41,6 +41,7 @@
 #include "./ui_mainwindow.h"
 #include "button/historyentry.h"
 #include "button/jsonselector.h"
+#include "code/labelminimap.h"
 #include "code/qcodelist.h"
 #include "code/sourcefile.h"
 #include "collection/derivedcountereditor.h"
@@ -151,6 +152,19 @@ MainWindow::MainWindow(std::string uidir) : QMainWindow(nullptr), ui(new Ui::Mai
     this->history_table = ui->history_table;
     this->history_table->verticalHeader()->setDefaultSectionSize(16);
 
+    // --- Label Minimap ---
+    this->label_minimap = new LabelMinimap();
+    this->label_minimap->setMinimumHeight(100);
+    this->label_minimap->setMaximumHeight(200);
+    if (ui->verticalLayout_5)
+    {
+        int historyIndex = ui->verticalLayout_5->indexOf(ui->label_6);
+        if (historyIndex >= 0)
+            ui->verticalLayout_5->insertWidget(historyIndex, this->label_minimap);
+        else
+            ui->verticalLayout_5->addWidget(this->label_minimap);
+    }
+
     this->graph_info_table = ui->graph_info_table;
     this->graph_info_table->setColumnCount(2);
     this->graph_info_table->setRowCount(1);
@@ -254,7 +268,6 @@ MainWindow::MainWindow(std::string uidir) : QMainWindow(nullptr), ui(new Ui::Mai
     accordion->addSection("Compute Unit", compute_unit_widget, true);
     accordion->addSection("Utilization", ulitization_widget);
 
-    // Connect scroll updates to accordion plots
     connect(cuwaves_h_scrollarea, &QCustomScroll::valueupdated, accordion, &AccordionWidget::notifyPlotsUpdate);
 #endif
 
@@ -747,6 +760,7 @@ void MainWindow::ResetSelector()
 
     HorizontalHotspot::is_sqtt_enabled = true;
     HorizontalHotspot::is_pcs_enabled = false;
+    if (label_minimap) label_minimap->Clear();
     try
     {
         HorizontalHotspot::is_sqtt_enabled = request->data["thread_trace"];

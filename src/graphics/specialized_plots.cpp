@@ -173,7 +173,7 @@ std::vector<double> CounterPlotView::GetPeakRates()
 DerivedCounter::Tensor CounterPlotView::GetAvgRates()
 {
     size_t num_se = 0;
-    for (auto& node : rootnodes) num_se = std::max(num_se, node->numSEs());
+    for (auto& node : rootnodes) num_se = std::max(num_se, node->Nodes().size());
 
     DerivedCounter::Tensor result(DerivedCounter::Shape(1, num_se, NUM_CU, counter_names.size()), 0);
 
@@ -258,11 +258,16 @@ void CounterPlotView::UpdateDerivedCounters(const std::string& derivedDefinition
     // Rebuild derived manager to clear old definitions
     buildDerivedManager();
     auto derived = getDerived(builtin_derived, suppress);
-    if (derived.empty()) return;
 
-    // Update disabled state for raw counters based on derived success
-    if (derived.size() == derivedmanager->derivedCounterNames().size())
-        for (size_t i = 0; i < rawCounterCount && i < curves.size(); i++) curves[i].disabled = true;
+    {
+        int derived_count = 0;
+        for (auto& der : derived)
+            if (!der.first.empty() && der.first.at(0) != '_') derived_count++;
+        if (derived_count == 0) return;
+
+        if (derived_count >= 3)
+            for (size_t i = 0; i < rawCounterCount && i < curves.size(); i++) curves[i].disabled = true;
+    }
 
     int derived_index = counter_names.size();
     std::shared_ptr<const DerivedCounter::Tensor> time_data;
@@ -340,6 +345,7 @@ void CounterPlotView::buildDerivedManager()
     int64_t global_min_time = INT64_MAX;
     int64_t global_max_time = INT64_MIN;
     size_t max_num_ses = 0;
+    size_t max_num_cus = 1;
 
     for (auto& node : rootnodes)
     {
@@ -350,7 +356,12 @@ void CounterPlotView::buildDerivedManager()
             global_min_time = std::min(global_min_time, node_min);
             global_max_time = std::max(global_max_time, node_max);
         }
-        max_num_ses = std::max(max_num_ses, node->numSEs());
+        max_num_ses = std::max(max_num_ses, node->Nodes().size());
+
+        for (auto& se : node->Nodes())
+            if (se)
+                for (auto& cu : se->cu_nodes)
+                    if (cu && !cu->data.empty()) max_num_cus = std::max<size_t>(max_num_cus, 1 + cu->cu);
     }
 
     if (global_min_time == INT64_MAX || delta <= 0) return;
@@ -363,10 +374,9 @@ void CounterPlotView::buildDerivedManager()
     std::vector<float> time_data(num_time_samples);
     for (size_t i = 0; i < num_time_samples; i++) time_data[i] = static_cast<float>(global_min_time + i * delta);
 
-    // Shape: (1, num_SEs, NUM_CU, num_time_samples) - one tensor per counter
-    // Each counter only has data from its respective bank
     size_t num_banks = rootnodes.size();
-    DerivedCounter::Shape counterShape(1, max_num_ses, NUM_CU, num_time_samples);
+
+    DerivedCounter::Shape counterShape(1, max_num_ses, max_num_cus, num_time_samples);
 
     // Create tensors for each counter (num_banks * CNT_BANK total), filled with zeros initially
     size_t total_counters = num_banks * CNT_BANK;
@@ -379,19 +389,15 @@ void CounterPlotView::buildDerivedManager()
     for (size_t b = 0; b < num_banks; b++)
     {
         auto& node = rootnodes[b];
-        for (size_t se_idx = 0; se_idx < node->numSEs(); se_idx++)
+        for (auto& se_node : node->Nodes())
         {
-            SECounterNode* se_node = node->getSE(se_idx);
-            if (!se_node) continue;
+            if (!se_node || se_node->se >= max_num_ses) continue;
 
-            size_t se = static_cast<size_t>(se_node->se);
-            if (se >= max_num_ses) continue;
-
-            for (size_t cu = 0; cu < NUM_CU; cu++)
+            for (auto& cu_node : se_node->cu_nodes)
             {
-                if (!se_node->cu_nodes[cu]) continue;
+                if (!cu_node) continue;
 
-                for (const auto& counter : se_node->cu_nodes[cu]->data)
+                for (const auto& counter : cu_node->data)
                 {
                     // Calculate time index: maps interval [t-delta/4, t+3*delta/4] to same index
                     // Equivalent to: time_idx = (sample_time - min_time + delta/4) / delta
@@ -401,7 +407,7 @@ void CounterPlotView::buildDerivedManager()
                     for (int c = 0; c < CNT_BANK; c++)
                     {
                         size_t tensor_idx = c + b * CNT_BANK;
-                        counter_tensors[tensor_idx]->at(0, se, cu, time_idx) += counter.events[c];
+                        counter_tensors[tensor_idx]->at(0, se_node->se, cu_node->cu, time_idx) += counter.events[c];
                     }
                 }
             }
@@ -677,7 +683,7 @@ void DispatchPlotView::LoadOccupancyData(const std::string& filename)
 
 std::string TraceCounterPlotView::getBuiltin() const
 {
-    std::string derived = "_reduce_busy := sum[BUSY_CU_CYCLES, axis=[XCC,SE,CU]] + 1E-6";
+    std::string derived = "_reduce_busy := sum[max[BUSY_CU_CYCLES, axis=TIME], axis=[XCC,SE,CU]] + 1E-6";
 
     for (const std::string& name : UtilTypes)
         derived += "\n" + name + "_util := 100 * sum[ACTIVE_INST_" + name + ", axis=[XCC,SE,CU]] / _reduce_busy";
