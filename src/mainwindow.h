@@ -124,6 +124,7 @@ public:
     class QTableWidget* graph_info_table = nullptr;
     class QTableWidget* history_table = nullptr;
     class QWidget* hotspot_tab = nullptr;
+    class LabelMinimap* label_minimap = nullptr;
     class SourceFileTab* source_filetab = nullptr;
 
 #if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)

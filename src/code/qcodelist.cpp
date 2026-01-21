@@ -33,6 +33,7 @@
 #include "config/appconfig.h"
 #include "data/wavemanager.h"
 #include "graphics/canvas.h"
+#include "labelminimap.h"
 #include "mainwindow.h"
 #include "sourcefile.h"
 #include "util/custom_layouts.h"
@@ -293,6 +294,9 @@ void QCodelist::Populate(const std::vector<CodeData>& code)
 
     // Update column visibility based on data availability flags
     updateColumnVisibility();
+
+    // Update label minimap
+    if (MainWindow::window && MainWindow::window->label_minimap) MainWindow::window->label_minimap->Populate();
 }
 
 void QCodelist::resizeEvent(QResizeEvent* event)

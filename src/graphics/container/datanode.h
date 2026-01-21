@@ -103,13 +103,10 @@ public:
     void fillDelta(int64_t delta);
     std::vector<CounterData> AccumFromMask(uint64_t se_mask, uint64_t cu_mask);
     
-    // Get number of SEs and access to SE nodes for tensor creation
-    size_t numSEs() const { return se_nodes.size(); }
-    SECounterNode* getSE(size_t idx) { return idx < se_nodes.size() ? se_nodes[idx].get() : nullptr; }
-    const SECounterNode* getSE(size_t idx) const { return idx < se_nodes.size() ? se_nodes[idx].get() : nullptr; }
-    
     // Get time range info for tensor shape calculation
     void getTimeRange(int64_t delta, int64_t& min_time, int64_t& max_time) const;
+
+    const std::vector<std::unique_ptr<SECounterNode>>& Nodes() { return se_nodes; }
 
 protected:
     std::vector<std::unique_ptr<SECounterNode>> se_nodes;
