@@ -403,6 +403,8 @@ void Canvas::paintStalls()
                                                                : HorizontalHotspot::DrawFormat::DRAWSTALL;
     if (drawtype == DrawType::DrawReasons) drawFormat = HorizontalHotspot::DrawFormat::DRAWTYPE;
 
+    const double invscale = 1.0 / MainWindow::getScaling();
+
     for (auto it = start_it; it != ASMCodeline::line_vec.end(); ++it)
     {
         auto line = *it;
@@ -415,9 +417,9 @@ void Canvas::paintStalls()
         line->hotspot.paint(
             painter,
             0,
-            ypos,
-            width(),
-            lineheight - 2 * padding,
+            ypos * invscale,
+            width() * invscale,
+            (lineheight - 2 * padding) * invscale,
             contents->max_sqtt_latency,
             contents->max_pcs_latency,
             drawFormat,
@@ -540,9 +542,10 @@ void Canvas::paintMemoryLatency()
     QPainter painter(this);
     MainWindow::getScaling(painter);
 
+    const double invscale = 1.0 / MainWindow::getScaling();
     const int lineheight = QCodelist::lineheight();
-    const int barHeight = lineheight - 2 * padding;
-    const int maxBarWidth = width() - 3;
+    const int barHeight = (lineheight - 2 * padding) * invscale;
+    const int maxBarWidth = (width() - 3) * invscale;
 
     // Binary search for first visible line
     int target_index = std::max(0, (scrollposy - padding) / lineheight);
@@ -558,8 +561,8 @@ void Canvas::paintMemoryLatency()
         auto line = *it;
         if (!line) continue;
 
-        auto ypos = indexToYpos(line->line_index, lineheight);
-        if (ypos > this->height()) break;
+        auto ypos = indexToYpos(line->line_index, lineheight) * invscale;
+        if (ypos > this->height() * invscale) break;
 
         if (line->memory_latency.count <= 0) continue;
 
@@ -601,15 +604,15 @@ void Canvas::paintMemoryLatency()
 
         // Draw issue (green) rectangle first
         painter.setBrush(issueColor);
-        painter.drawRect(2, ypos, issueWidth, barHeight);
+        painter.drawRect(2 * invscale, ypos, issueWidth, barHeight);
 
         // Draw mean latency bar (orange, based on counter type) after issue
         painter.setBrush(barColor);
-        painter.drawRect(2 + issueWidth, ypos, meanWidth, barHeight);
+        painter.drawRect(2 * invscale + issueWidth, ypos, meanWidth, barHeight);
 
         // Draw stall (red) rectangle after latency
         painter.setBrush(stallColor);
-        painter.drawRect(2 + issueWidth + meanWidth, ypos, stallWidth, barHeight);
+        painter.drawRect(2 * invscale + issueWidth + meanWidth, ypos, stallWidth, barHeight);
 
         // Total bar width for centering stddev and highlight
         int totalBarWidth = issueWidth + meanWidth + stallWidth;
@@ -617,30 +620,30 @@ void Canvas::paintMemoryLatency()
         // Draw stdDev as horizontal "H" error bar centered at end of all bars
         if (stdWidth > 0)
         {
-            int stdCenter = 2 + totalBarWidth;
-            int stdStart = std::clamp(stdCenter - stdWidth, 2, maxBarWidth);
-            int stdEnd = std::clamp(stdCenter + stdWidth, 2, maxBarWidth);
-            int centerY = ypos + (barHeight + 1) / 2; // Round up to center properly
+            int stdCenter = 2 * invscale + totalBarWidth;
+            int stdStart = std::clamp(stdCenter - stdWidth, static_cast<int>(2 * invscale), maxBarWidth);
+            int stdEnd = std::clamp(stdCenter + stdWidth, static_cast<int>(2 * invscale), maxBarWidth);
+            int centerY = ypos + (barHeight + 1 * invscale) / 2; // Round up to center properly
             int capHeight = barHeight / 3;
 
-            QPen stdPen(Qt::black, 2);
+            QPen stdPen(Qt::black, 2 * invscale);
             painter.setPen(stdPen);
             painter.setBrush(Qt::NoBrush);
 
             // Horizontal line
             painter.drawLine(stdStart, centerY, stdEnd, centerY);
             // Left vertical cap (only if visible)
-            if (stdStart > 2) painter.drawLine(stdStart, centerY - capHeight, stdStart, centerY + capHeight);
+            if (stdStart > 2 * invscale) painter.drawLine(stdStart, centerY - capHeight, stdStart, centerY + capHeight);
             // Right vertical cap (only if visible)
-            if (stdEnd < width() - 2) painter.drawLine(stdEnd, centerY - capHeight, stdEnd, centerY + capHeight);
+            if (stdEnd < (width() - 2) * invscale) painter.drawLine(stdEnd, centerY - capHeight, stdEnd, centerY + capHeight);
         }
 
         // Draw highlight outline encompassing all bars
         if (highlighted)
         {
-            painter.setPen(QPen(Qt::white, 1));
+            painter.setPen(QPen(Qt::white, 1 * invscale));
             painter.setBrush(Qt::NoBrush);
-            painter.drawRect(2, ypos, totalBarWidth, barHeight);
+            painter.drawRect(2 * invscale, ypos, totalBarWidth, barHeight);
         }
     }
 }
