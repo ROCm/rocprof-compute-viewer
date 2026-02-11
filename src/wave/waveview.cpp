@@ -31,6 +31,7 @@
 #include <sstream>
 #include <utility>
 #include "code/qcodelist.h"
+#include "config/config.hpp"
 #include "data/wavemanager.h"
 #include "mainwindow.h"
 #include "scroll.h"
@@ -318,7 +319,7 @@ void QWaveSlots::keyPressEvent(QKeyEvent* event)
     }
 }
 
-QLabel* QWaveSlots::AddSlot(QWaveView* view, const std::string& name, int fixedsize)
+QLabel* QWaveSlots::AddSlot(QWidget* view, const std::string& name, int fixedsize)
 {
     view->setFixedHeight(fixedsize);
     view->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
@@ -666,4 +667,86 @@ void QUtilization::AddTokens(int simd, const TokenMap& tokens)
     {
         QWARNING(false, "Invalid token found!", );
     }
+}
+
+// --- QShaderDataView ---
+
+QShaderDataView::QShaderDataView(QCustomScroll* parent, ShaderDataRecordVec records) :
+view(parent->view), shaderdata_records(std::move(records))
+{
+    assert(parent);
+    setMouseTracking(true);
+    setAttribute(Qt::WA_AlwaysShowToolTips, true);
+    connect(parent, &QCustomScroll::valueupdated, this, &QShaderDataView::onupdatebar);
+}
+
+void QShaderDataView::paintEvent(QPaintEvent* event)
+{
+    QPainter painter(this);
+    MainWindow::getScaling(painter);
+
+    const int h = height();
+    const int w = width();
+
+    // Draw track guide lines
+    {
+        QPen guidePen;
+        guidePen.setWidth(1);
+        guidePen.setStyle(Qt::DotLine);
+        guidePen.setColor(QColor(80, 80, 80));
+        painter.setPen(guidePen);
+        painter.drawLine(0, 0, w, 0);
+        painter.drawLine(0, h - 1, w, h - 1);
+    }
+
+    if (!shaderdata_records || shaderdata_records->empty()) return;
+
+    painter.setRenderHint(QPainter::Antialiasing, false);
+
+    const auto& recs = *shaderdata_records;
+    const int markerWidth = std::max(Token::GetTokenSize(8), int64_t(2));
+
+    int64_t cutoff_start = QCustomScroll::clock_cutoff_start + view->start;
+    int64_t cutoff_end = std::min(cutoff_start + Token::PosToClock(w), QCustomScroll::clock_cutoff_end);
+
+    auto it_begin = std::lower_bound(
+        recs.begin(), recs.end(), cutoff_start, [](const ShaderDataRecord& r, int64_t c) { return r.time < c; }
+    );
+
+    const QBrush fill(WindowColors::ShaderDataColor());
+    const QPen edge(Qt::black, 0.5);
+
+    int last_pixel = INT_MIN;
+
+    for (auto it = it_begin; it != recs.end(); ++it)
+    {
+        if (it->time > cutoff_end) break;
+
+        int pos = Token::GetTokenSize(it->time - cutoff_start);
+
+        if (pos == last_pixel) continue;
+        last_pixel = pos;
+
+        QRect rect(pos, 1, markerWidth, h - 2);
+        painter.setPen(edge);
+        painter.fillRect(rect, fill);
+        painter.drawRect(rect);
+    }
+
+    painter.setRenderHint(QPainter::Antialiasing, true);
+}
+
+void QShaderDataView::mouseMoveEvent(QMouseEvent* event)
+{
+    this->Super::mouseMoveEvent(event);
+
+    IMPLEMENT_FPS_LIMITER();
+
+    int64_t clock = Token::PosToClock(event->pos().x()) + QCustomScroll::clock_cutoff_start + view->start;
+
+    const int markerWidth = std::max(Token::GetTokenSize(8), int64_t(2));
+    int idx = FindShaderDataRecord(shaderdata_records, clock, Token::PosToClock(markerWidth));
+    if (idx < 0) return;
+
+    QToolTip::showText(event->globalPos(), (*shaderdata_records)[idx].ToolTip().c_str());
 }

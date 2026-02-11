@@ -271,6 +271,8 @@ WaveInstance::WaveInstance(const std::string& _path) : path(_path)
     this->wave_begin = int64_t(data["wave"]["begin"]);
     this->wave_end = int64_t(data["wave"]["end"]);
 
+    if (data["wave"].contains("cu")) this->cu = int(data["wave"]["cu"]);
+
     int thrownLine = 0;
     int64_t maxtime = 0;
     int64_t prev_token_clock = wave_begin;

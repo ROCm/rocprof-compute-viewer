@@ -194,6 +194,12 @@ const QColor& MeasureTool()
     static QColor dark(255, 100, 100, 160);
     return bDarkTheme ? dark : white;
 }
+const QColor& ShaderDataColor()
+{
+    static QColor dark(139, 0, 0);
+    static QColor light(139, 0, 0);
+    return bDarkTheme ? dark : light;
+}
 const QColor& LatencyTextColor()
 {
     static QColor dark(255, 80, 80);

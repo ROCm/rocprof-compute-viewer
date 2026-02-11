@@ -776,6 +776,21 @@ void MainWindow::ResetSelector()
     catch (std::exception&)
     {}
 
+    // Load shaderdata early, before SESelector triggers GatherWaves
+    if (shaderdata_manager) { delete shaderdata_manager; shaderdata_manager = nullptr; }
+    try
+    {
+        if (request->data.contains("shaderdata_filenames"))
+        {
+            shaderdata_manager = new ShaderDataManager();
+            shaderdata_manager->Load(request->data["shaderdata_filenames"], GetUIDir());
+        }
+    }
+    catch (std::exception& e)
+    {
+        std::cout << "Warning: Failed to load shaderdata: " << e.what() << std::endl;
+    }
+
     if (this->seSelector) delete this->seSelector;
     this->seSelector = nullptr;
     this->seSelector = new SESelector(*request);
@@ -1324,19 +1339,10 @@ void MainWindow::CreateGlobalView()
     global_view_widget = new QGlobalView(GetUIDir() + "occupancy.json");
 
     // Load shaderdata from multiple threads before setting up the view
-    try
+    // (shaderdata_manager is already loaded in ResetSelector, just pass to global view)
+    if (shaderdata_manager && shaderdata_manager->HasData())
     {
-        JsonRequest filenames_req(GetUIDir() + "filenames.json", false);
-        if (filenames_req.bValid && filenames_req.data.contains("shaderdata_filenames"))
-        {
-            if (!shaderdata_manager) shaderdata_manager = new ShaderDataManager();
-            shaderdata_manager->Load(filenames_req.data["shaderdata_filenames"], GetUIDir());
-            global_view_widget->SetShaderData(*shaderdata_manager);
-        }
-    }
-    catch (std::exception& e)
-    {
-        std::cout << "Warning: Failed to load shaderdata: " << e.what() << std::endl;
+        global_view_widget->SetShaderData(*shaderdata_manager);
     }
 
     // Create sticky tick header (spans full width)
@@ -1527,9 +1533,11 @@ void MainWindow::GatherWaves()
         }
     }
 
+    int gathered_cu = -1; // CU extracted from any wave instance
+
     for (auto& [simd_name, simd_data] : se_data.items())
     {
-        std::map<int, std::pair<QWaveView*, std::string>> simd_views{};
+        std::map<int, std::pair<QWidget*, std::string>> simd_views{};
         int simd_value = std::stoi(simd_name);
 
         for (auto& [slot_name, slot_data] : simd_data.items())
@@ -1543,6 +1551,7 @@ void MainWindow::GatherWaves()
                 auto instance = WaveInstance::Get(GetUIDir() + std::string(wid_data[0]));
                 utilization_content->AddTokens(simd_value, instance->tokens);
                 waves[instance->wave_begin] = instance;
+                if (gathered_cu < 0 && instance->cu >= 0) gathered_cu = instance->cu;
             }
             if (!waves.size()) continue;
 
@@ -1552,7 +1561,8 @@ void MainWindow::GatherWaves()
             {
                 std::string filler = "-";
                 if (slot_name.size() <= 1) filler = "-0";
-                simd_views[std::stoi(slot_name)] = {view, "SM" + simd_name + filler + slot_name + " "};
+                int slot_n = std::stoi(slot_name);
+                simd_views[slot_n] = {view, "SM" + simd_name + filler + slot_name + " "};
             }
             catch (std::exception& e)
             {
@@ -1563,6 +1573,29 @@ void MainWindow::GatherWaves()
 
         for (auto it = simd_views.begin(); it != simd_views.end(); it++)
             cuwaves_content->AddSlot(it->second.first, it->second.second, vertical_size);
+    }
+
+    // Add shaderdata tracks for all SIMDs/slots that have data
+    if (shaderdata_manager && shaderdata_manager->HasData() && gathered_cu >= 0)
+    {
+        for (int sd_simd = 0; sd_simd < 4; sd_simd++)
+        {
+            for (int sd_slot = 0; sd_slot < 32; sd_slot++)
+            {
+                auto sd_records = shaderdata_manager->GetRecords(
+                    current_wave_coord_se, gathered_cu, sd_simd, sd_slot
+                );
+                if (sd_records && !sd_records->empty())
+                {
+                    auto* sd_view = new QShaderDataView(cuwaves_h_scrollarea, std::move(sd_records));
+                    std::string filler = sd_slot < 10 ? "-0" : "-";
+                    cuwaves_content->AddSlot(
+                        sd_view, "SD" + std::to_string(sd_simd) + filler + std::to_string(sd_slot) + " ",
+                        vertical_size / 2
+                    );
+                }
+            }
+        }
     }
 
     if (utilization_content)

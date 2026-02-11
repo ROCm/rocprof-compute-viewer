@@ -37,6 +37,7 @@ const QColor& GraphBkg();
 const QColor& HotspotBkg();
 const QColor& HotspotOutline();
 const QColor& MeasureTool();
+const QColor& ShaderDataColor();
 const QColor& LatencyTextColor();
 const QColor& UtilizationBarColor();
 const QColor& UtilizationBarColorBg();

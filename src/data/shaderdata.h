@@ -39,10 +39,20 @@ struct ShaderDataRecord
     int wave_id{0};
     int flags{0};
     int se{0}; // Shader Engine, derived from filename
+
+    /// Build a tooltip string for this record.
+    std::string ToolTip() const;
 };
 
 /// Shared, sorted vector of shaderdata records (avoids copying across views).
 using ShaderDataRecordVec = std::shared_ptr<const std::vector<ShaderDataRecord>>;
+
+/// Find a shaderdata record near a clock position within a sorted record vector.
+/// @param records  Shared pointer to sorted records (may be null/empty).
+/// @param clock_pos  The clock position to search around.
+/// @param hit_width  The hit-test width in clock units.
+/// @return Index of the matching record, or -1 if none found.
+int FindShaderDataRecord(const ShaderDataRecordVec& records, int64_t clock_pos, int64_t hit_width);
 
 /// Manages loading and querying shaderdata records from JSON files.
 class ShaderDataManager

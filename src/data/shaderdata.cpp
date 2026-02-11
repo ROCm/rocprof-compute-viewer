@@ -25,7 +25,17 @@
 #include <array>
 #include <future>
 #include <iostream>
+#include <sstream>
 #include "util/jsonrequest.hpp"
+
+std::string ShaderDataRecord::ToolTip() const
+{
+    std::stringstream ss;
+    ss << "Shaderdata Record"
+       << "\nSE:" << se << "  CU:" << cu << "  SIMD:" << simd << "  WaveID:" << wave_id << "\nTime: " << time
+       << "  Value: 0x" << std::hex << value << "  Flags: 0x" << flags << std::dec;
+    return ss.str();
+}
 
 std::vector<ShaderDataRecord> ShaderDataManager::LoadFile(const std::string& filepath, int se)
 {
@@ -131,4 +141,23 @@ ShaderDataRecordVec ShaderDataManager::GetRecords(int se, int cu, int simd, int 
     auto it = m_records_by_location.find(key);
     if (it != m_records_by_location.end()) return it->second;
     return nullptr;
+}
+
+int FindShaderDataRecord(const ShaderDataRecordVec& records, int64_t clock_pos, int64_t hit_width)
+{
+    if (!records || records->empty()) return -1;
+
+    const auto& recs = *records;
+
+    auto it = std::upper_bound(
+        recs.begin(), recs.end(), clock_pos, [](int64_t c, const ShaderDataRecord& r) { return c < r.time; }
+    );
+
+    if (it != recs.begin())
+    {
+        --it;
+        if (clock_pos <= it->time + hit_width) return static_cast<int>(it - recs.begin());
+    }
+
+    return -1;
 }

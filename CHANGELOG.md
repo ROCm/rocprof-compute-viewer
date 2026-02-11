@@ -15,6 +15,11 @@ ROCprof Compute Viewer (RCV) is a tool for visualizing and analyzing GPU thread 
   * Shaderdata records are displayed as black rectangles on matching wave tracks (SE/CU/SIMD/slot).
   * Hover tooltip shows time, value, wave ID, and flags.
 
+* Shaderdata record visualization in WaveView.
+  * Shaderdata is usually delayed with respect to the s_ttracedata instruction.
+  * Shows up as dedicated, small tracks for this record.
+  * This display method is temporary.
+
 * Vertical zoom for Global Wave View
   * Shift+Mousewheel scales track height (1–20 pixels).
 

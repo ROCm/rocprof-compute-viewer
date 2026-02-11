@@ -512,7 +512,7 @@ void QOutsideWaveView::DrawShaderDataMarkers(QPainter& painter, const QRect& are
 
     painter.save();
     painter.setPen(Qt::NoPen);
-    painter.setBrush(QColor(0, 0, 0)); // Black rectangles
+    painter.setBrush(WindowColors::ShaderDataColor());
 
     int last_pixel = INT_MIN; // For pixel deduplication
 
@@ -534,28 +534,8 @@ void QOutsideWaveView::DrawShaderDataMarkers(QPainter& painter, const QRect& are
 
 int QOutsideWaveView::FindShaderDataAt(int64_t clock_pos) const
 {
-    if (!shaderdata_records || shaderdata_records->empty()) return -1;
-
-    const auto& recs = *shaderdata_records;
-
-    // Match the drawn rectangle: starts at rec.time, extends markerWidth pixels right
     const int markerWidth = std::max<int64_t>(24 / QGlobalView::Delta(), 10);
-    const int64_t hit_width = QGlobalView::Delta() * markerWidth;
-
-    // Find the last record with time <= clock_pos
-    auto it = std::upper_bound(
-        recs.begin(), recs.end(), clock_pos, [](int64_t c, const ShaderDataRecord& r) { return c < r.time; }
-    );
-
-    // it points to first record with time > clock_pos; check the one before it
-    if (it != recs.begin())
-    {
-        --it;
-        // rec.time <= clock_pos; hit if clock_pos is within the rectangle's right edge
-        if (clock_pos <= it->time + hit_width) return static_cast<int>(it - recs.begin());
-    }
-
-    return -1;
+    return FindShaderDataRecord(shaderdata_records, clock_pos, QGlobalView::Delta() * markerWidth);
 }
 
 static QColor whiter(const QColor& a)
@@ -648,13 +628,7 @@ void QOutsideWaveView::mouseMoveEvent(QMouseEvent* event)
     int sd_idx = FindShaderDataAt(clock_pos);
     if (sd_idx >= 0)
     {
-        const auto& rec = (*shaderdata_records)[sd_idx];
-        std::stringstream tooltip;
-        tooltip << "Shaderdata Record"
-                << "\nSE:" << rec.se << "  CU:" << rec.cu << "  SIMD:" << rec.simd << "  WaveID:" << rec.wave_id
-                << "\nTime: " << rec.time << "  Value: 0x" << std::hex << rec.value << "  Flags: 0x" << rec.flags
-                << std::dec;
-        QToolTip::showText(event->globalPos(), tooltip.str().c_str());
+        QToolTip::showText(event->globalPos(), (*shaderdata_records)[sd_idx].ToolTip().c_str());
         return;
     }
 

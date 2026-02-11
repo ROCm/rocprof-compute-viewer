@@ -28,6 +28,7 @@
 #include <map>
 #include <set>
 #include <vector>
+#include "data/shaderdata.h"
 #include "data/wavemanager.h"
 #include "measure.h"
 #include "signal.h"
@@ -85,7 +86,7 @@ public:
         if (tool) tool->update_list.erase(this);
     }
 
-    class QLabel* AddSlot(QWaveView* view, const std::string& name, int fixedsize);
+    class QLabel* AddSlot(QWidget* view, const std::string& name, int fixedsize);
     virtual void Clear() { Reset(); };
 
     virtual void wheelEvent(QWheelEvent* event) override;
@@ -166,5 +167,27 @@ private:
     int other_simd_id = 0;
 
     void ClearOtherSimd();
+signals:
+};
+
+//! A track that displays shaderdata records as markers.
+class QShaderDataView : public QWidget
+{
+    Q_OBJECT
+    set_tracked();
+    using Super = QWidget;
+
+public:
+    QShaderDataView(class QCustomScroll* parent, ShaderDataRecordVec records);
+
+    virtual void paintEvent(QPaintEvent* event) override;
+    virtual void mouseMoveEvent(QMouseEvent* event) override;
+
+private:
+    std::shared_ptr<class ScrollValue> view;
+    ShaderDataRecordVec shaderdata_records;
+
+public slots:
+    void onupdatebar() { update(); }
 signals:
 };

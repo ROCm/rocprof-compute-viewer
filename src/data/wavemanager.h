@@ -73,6 +73,7 @@ struct WaveInstance : public TokenGroup
     std::vector<Canvas::WaitList> waitcnt;
     std::vector<WaveInfo> wave_info;
     std::string path;
+    int cu = -1;
 
     std::map<int, std::vector<int64_t>> line_to_clock{};
 
