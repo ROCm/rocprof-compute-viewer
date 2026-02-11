@@ -30,7 +30,7 @@
 #include <vector>
 #include "util/custom_layouts.h"
 
-#define NUM_CU 16
+#define NUM_CU   16
 #define CNT_BANK 4
 
 struct CounterData
@@ -102,7 +102,7 @@ public:
     int64_t getDelta() const;
     void fillDelta(int64_t delta);
     std::vector<CounterData> AccumFromMask(uint64_t se_mask, uint64_t cu_mask);
-    
+
     // Get time range info for tensor shape calculation
     void getTimeRange(int64_t delta, int64_t& min_time, int64_t& max_time) const;
 

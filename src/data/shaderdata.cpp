@@ -1,0 +1,134 @@
+// MIT License
+//
+// Copyright (c) 2024-2026 Advanced Micro Devices, Inc. All rights reserved.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in all
+// copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+#include "shaderdata.h"
+#include <algorithm>
+#include <array>
+#include <future>
+#include <iostream>
+#include "util/jsonrequest.hpp"
+
+std::vector<ShaderDataRecord> ShaderDataManager::LoadFile(const std::string& filepath, int se)
+{
+    std::vector<ShaderDataRecord> local;
+    try
+    {
+        JsonRequest request(filepath, false);
+        if (!request.bValid) return local;
+
+        auto& data = request.data;
+        if (!data.contains("records")) return local;
+
+        local.reserve(data.value("records_count", 0));
+
+        for (auto& record : data["records"])
+        {
+            if (record.size() < 6) continue;
+
+            ShaderDataRecord rec;
+            rec.time = static_cast<int64_t>(record[0]);
+            rec.value = static_cast<uint32_t>(record[1]);
+            rec.cu = static_cast<int>(record[2]);
+            rec.simd = static_cast<int>(record[3]);
+            rec.wave_id = static_cast<int>(record[4]);
+            rec.flags = static_cast<int>(record[5]);
+            rec.se = se;
+            local.push_back(rec);
+        }
+    }
+    catch (std::exception& e)
+    {
+        std::cout << "Warning: Failed to load shaderdata file " << filepath << ": " << e.what() << std::endl;
+    }
+    return local;
+}
+
+void ShaderDataManager::Load(const nlohmann::json& shaderdata_filenames, const std::string& base_dir)
+{
+    m_records_by_location.clear();
+    m_has_data = false;
+
+    // Collect all (filepath, se) pairs to load
+    std::vector<std::pair<std::string, int>> file_tasks;
+
+    for (auto& [se_str, file_list] : shaderdata_filenames.items())
+    {
+        int se = 0;
+        try
+        {
+            se = std::stoi(se_str);
+        }
+        catch (...)
+        {
+            continue;
+        }
+
+        for (auto& file_entry : file_list)
+        {
+            if (file_entry.size() < 3) continue;
+            std::string filename = file_entry[0];
+            file_tasks.push_back({base_dir + filename, se});
+        }
+    }
+
+    if (file_tasks.empty()) return;
+
+    // Load files in parallel (max 8 at a time)
+    constexpr size_t MAX_THREADS = 8;
+    std::map<std::tuple<int, int, int, int>, std::vector<ShaderDataRecord>> tmp;
+    std::array<std::future<std::vector<ShaderDataRecord>>, MAX_THREADS> futures;
+    std::array<int, MAX_THREADS> future_se{};
+
+    auto collect = [&](size_t idx)
+    {
+        for (auto& rec : futures.at(idx).get())
+            tmp[std::make_tuple(future_se.at(idx), rec.cu, rec.simd, rec.wave_id)].push_back(std::move(rec));
+    };
+
+    for (size_t i = 0; i < file_tasks.size(); i++)
+    {
+        size_t slot = i % MAX_THREADS;
+        if (i >= MAX_THREADS) collect(slot);
+        futures.at(slot) = std::async(std::launch::async, LoadFile, file_tasks[i].first, file_tasks[i].second);
+        future_se.at(slot) = file_tasks[i].second;
+    }
+
+    for (size_t i = 0; i < std::min(file_tasks.size(), MAX_THREADS); i++) collect(i);
+
+    // Sort each bucket by time and wrap in shared_ptr
+    auto cmp = [](const ShaderDataRecord& a, const ShaderDataRecord& b) { return a.time < b.time; };
+
+    for (auto& [key, records] : tmp)
+    {
+        std::sort(records.begin(), records.end(), cmp);
+        m_records_by_location[key] = std::make_shared<const std::vector<ShaderDataRecord>>(std::move(records));
+        m_has_data = true;
+    }
+}
+
+ShaderDataRecordVec ShaderDataManager::GetRecords(int se, int cu, int simd, int slot) const
+{
+    auto key = std::make_tuple(se, cu, simd, slot);
+    auto it = m_records_by_location.find(key);
+    if (it != m_records_by_location.end()) return it->second;
+    return nullptr;
+}

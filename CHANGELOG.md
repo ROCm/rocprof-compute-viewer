@@ -11,6 +11,13 @@ ROCprof Compute Viewer (RCV) is a tool for visualizing and analyzing GPU thread 
 
 ### Added
 
+* Shaderdata record visualization in Global Wave View
+  * Shaderdata records are displayed as black rectangles on matching wave tracks (SE/CU/SIMD/slot).
+  * Hover tooltip shows time, value, wave ID, and flags.
+
+* Vertical zoom for Global Wave View
+  * Shift+Mousewheel scales track height (1–20 pixels).
+
 * CDNA: Added option to have a separate LDS Pipe in utilization view. Options -> Display options -> "Separate LDS pipe" (SWDEV-564105)
 
 * RDNA: LDS, Raytrace (BVH), BRANCH and WMMA have their own separate pipes in Utilization View.

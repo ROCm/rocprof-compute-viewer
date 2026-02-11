@@ -36,6 +36,7 @@
 #include <cstddef>
 #include <fstream>
 #include <future>
+#include <iostream>
 #include <utility>
 #include <vector>
 #include "./ui_mainwindow.h"
@@ -52,6 +53,7 @@
 #include "collection/options.h"
 #include "config/appconfig.h"
 #include "config/config.hpp"
+#include "data/shaderdata.h"
 #include "data/wavedata.h"
 #include "graphics/canvas.h"
 #include "graphics/hotspot.h"
@@ -95,20 +97,20 @@ inline bool FileExists(const std::string& name)
 }
 
 std::vector<QColor> MainWindow::dispatchcolors = {
-    {  0, 255,   0},
-    {  0,   0, 255},
-    {255,   0,   0},
+    {0,   255, 0  },
+    {0,   0,   255},
+    {255, 0,   0  },
 
-    {255, 160,   0},
-    {255,   0, 160},
-    {  0, 160, 255},
-    {160,   0, 255},
-    {  0, 255, 160},
-    {160, 255,   0},
+    {255, 160, 0  },
+    {255, 0,   160},
+    {0,   160, 255},
+    {160, 0,   255},
+    {0,   255, 160},
+    {160, 255, 0  },
 
-    {255,  16, 255},
-    {255, 255,  16},
-    { 16, 255, 255},
+    {255, 16,  255},
+    {255, 255, 16 },
+    {16,  255, 255},
 };
 
 MainWindow* MainWindow::window = nullptr;
@@ -554,9 +556,9 @@ void MainWindow::SetMainWave(int se, int simd, int sl, int wid)
     summary_view->clearPieChartData();
     summary_view->setPieChartData(
         {
-            {      "Idle",  100 * idle / float(total)},
+            {"Idle",       100 * idle / float(total) },
             {"Stall/Wait", 100 * stall / float(total)},
-            {     "Issue",  100 * exec / float(total)}  // Rename Exec as Issue
+            {"Issue",      100 * exec / float(total) }  // Rename Exec as Issue
     },
         "Activity Distribution"
     );
@@ -819,6 +821,7 @@ MainWindow::~MainWindow()
     if (dispatch_plot_layout) delete dispatch_plot_layout;
     if (occupancy_plot_layout) delete occupancy_plot_layout;
 
+    if (shaderdata_manager) delete shaderdata_manager;
     if (seSelector) delete seSelector;
     if (widSelector) delete widSelector;
     if (ui) delete ui;
@@ -1319,6 +1322,22 @@ void MainWindow::CreateGlobalView()
     mainLayout->setSpacing(0);
 
     global_view_widget = new QGlobalView(GetUIDir() + "occupancy.json");
+
+    // Load shaderdata from multiple threads before setting up the view
+    try
+    {
+        JsonRequest filenames_req(GetUIDir() + "filenames.json", false);
+        if (filenames_req.bValid && filenames_req.data.contains("shaderdata_filenames"))
+        {
+            if (!shaderdata_manager) shaderdata_manager = new ShaderDataManager();
+            shaderdata_manager->Load(filenames_req.data["shaderdata_filenames"], GetUIDir());
+            global_view_widget->SetShaderData(*shaderdata_manager);
+        }
+    }
+    catch (std::exception& e)
+    {
+        std::cout << "Warning: Failed to load shaderdata: " << e.what() << std::endl;
+    }
 
     // Create sticky tick header (spans full width)
     QTickHeader* tickHeader = new QTickHeader(this);

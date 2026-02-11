@@ -138,6 +138,9 @@ public:
     class QGlobalView* global_view_widget = nullptr;
     static MainWindow* window;
 
+    /// Pre-loaded shaderdata, shared with global view and wave view.
+    class ShaderDataManager* shaderdata_manager = nullptr;
+
     static std::vector<QColor> dispatchcolors;
     static void getScaling(class QPainter& painter);
     static double getScaling();

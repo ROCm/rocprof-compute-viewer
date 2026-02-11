@@ -94,6 +94,7 @@ void TokenGroup::SetMipN(const std::vector<TokenArray>& previous, size_t M)
             if (token.type > 0) token_mip.at(M).emplace_back(token);
         }
         token_mip.at(M).Compile();
+        SetMipN(previous, M + 1);
         return;
     }
 
@@ -104,7 +105,9 @@ void TokenGroup::SetMipN(const std::vector<TokenArray>& previous, size_t M)
 
     for (auto& prev : previous)
     {
-        if (current_cycle + res / 2 <= prev.token.clock)
+        bool prev_end = prev.token.cycles + prev.token.clock - current.token.clock > 2 * res;
+        bool this_end = prev_end && current.token.cycles > res && prev.token.type != gettype(current.cycles);
+        if (current_cycle + res / 2 <= prev.token.clock || this_end)
         {
             if (current.token.cycles > 0)
             {

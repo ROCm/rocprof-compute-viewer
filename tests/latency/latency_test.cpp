@@ -117,7 +117,7 @@ TEST(LatencyAnalyzerTest, AnalyzeSimpleCase)
     std::vector<std::string> counterNames = {"SQ_WAVES", "SQ_INST_LEVEL_VMEM", "SQ_BUSY"};
 
     std::map<int, std::string> codeMap = {
-        {100,  "test.s:10: global_load_dword"},
+        {100, "test.s:10: global_load_dword" },
         {101, "test.s:20: global_store_dword"},
     };
 
@@ -135,8 +135,8 @@ TEST(LatencyAnalyzerTest, AnalyzeSimpleCase)
     std::vector<std::pair<int, std::vector<WaveInstructionData>>> waveFiles = {
         {0,
          {
-         WaveInstructionData(0, 3, 100, 0, 0),  // time = 0, code 100
-         WaveInstructionData(50, 3, 101, 0, 0), // time = 50, code 101
+             WaveInstructionData(0, 3, 100, 0, 0),  // time = 0, code 100
+             WaveInstructionData(50, 3, 101, 0, 0), // time = 50, code 101
          }},
     };
 
@@ -207,7 +207,7 @@ TEST(LatencyIntegrationTest, MatchesPythonOutput)
     std::vector<std::string> counterNames = {"SQ_WAVES", "SQ_INST_LEVEL_VMEM", "SQ_BUSY"};
 
     std::map<int, std::string> codeMap = {
-        {100,  "test.s:10: global_load_dword"},
+        {100, "test.s:10: global_load_dword" },
         {101, "test.s:20: global_store_dword"},
     };
 
@@ -226,8 +226,8 @@ TEST(LatencyIntegrationTest, MatchesPythonOutput)
     std::vector<std::pair<int, std::vector<WaveInstructionData>>> waveFiles = {
         {0,
          {
-         WaveInstructionData(0, 3, 100, 0, 0),  // time = 0, code 100
-         WaveInstructionData(50, 3, 101, 0, 0), // time = 50, code 101
+             WaveInstructionData(0, 3, 100, 0, 0),  // time = 0, code 100
+             WaveInstructionData(50, 3, 101, 0, 0), // time = 50, code 101
          }},
     };
 

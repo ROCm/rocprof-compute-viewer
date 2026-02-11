@@ -76,11 +76,11 @@ CounterType counterTypeFromString(const std::string& name)
 {
     static const std::unordered_map<std::string, CounterType> map = {
         {"SQ_INST_LEVEL_VMEM", CounterType::VMEM},
-        {              "VMEM", CounterType::VMEM},
+        {"VMEM",               CounterType::VMEM},
         {"SQ_INST_LEVEL_SMEM", CounterType::SMEM},
-        {              "SMEM", CounterType::SMEM},
-        { "SQ_INST_LEVEL_LDS",  CounterType::LDS},
-        {               "LDS",  CounterType::LDS},
+        {"SMEM",               CounterType::SMEM},
+        {"SQ_INST_LEVEL_LDS",  CounterType::LDS },
+        {"LDS",                CounterType::LDS },
     };
     return map.at(name);
 }
@@ -90,7 +90,7 @@ std::string counterTypeToString(CounterType type)
     static const std::unordered_map<CounterType, std::string> map = {
         {CounterType::VMEM, "SQ_INST_LEVEL_VMEM"},
         {CounterType::SMEM, "SQ_INST_LEVEL_SMEM"},
-        { CounterType::LDS,  "SQ_INST_LEVEL_LDS"},
+        {CounterType::LDS,  "SQ_INST_LEVEL_LDS" },
     };
     return map.at(type);
 }

@@ -31,6 +31,7 @@
 #include <QToolTip>
 #include "code/qcodelist.h"
 #include "config/config.hpp"
+#include "data/shaderdata.h"
 #include "data/wavedata.h"
 #include "data/wavemanager.h"
 #include "mainwindow.h"
@@ -39,6 +40,7 @@
 int64_t QGlobalView::begintime = 0;
 int64_t QGlobalView::maxtime = 0;
 int QGlobalView::mipmap_level = 10;
+int QGlobalView::height_scale = 4;
 
 // Column positions for SE|SA|CU|SM labels
 static constexpr int COL_SE = 3;
@@ -271,6 +273,7 @@ void QLabelPanel::paintEvent(QPaintEvent* event)
 
 void QGlobalView::setScrollArea(QScrollArea* sa)
 {
+    m_scrollArea = sa;
     if (!sa) return;
     if (tickHeader)
     {
@@ -404,20 +407,23 @@ QGlobalView::QGlobalView(const std::string& filename)
     if (tool) tool->update_list.insert(this);
 }
 
+void QGlobalView::SetShaderData(const ShaderDataManager& manager)
+{
+    if (!manager.HasData()) return;
+
+    for (auto* view : views)
+    {
+        auto records = manager.GetRecords(view->se, view->cu, view->simd, view->slot);
+        if (records) view->SetShaderData(std::move(records));
+    }
+}
+
 void QGlobalView::populateLabelPanel()
 {
     if (!labelPanel) return;
 
-    for (auto* view : views)
-    {
-        int se = view->getSE();
-        int sa = view->getSA();
-        int cu = view->getCU();
-        int simd = view->getSIMD();
-        int slot = view->getSlot();
+    for (auto* view : views) labelPanel->addRow(view->se, view->sa, view->cu, view->simd, view->slot);
 
-        labelPanel->addRow(se, sa, cu, simd, slot);
-    }
     labelPanel->finalize();
 }
 
@@ -486,6 +492,72 @@ se(_se), sa(_sa), cu(_cu), simd(_simd), slot(_slot), waves(_waves), tool(_tool)
     if (tool) tool->update_list.insert(this);
 }
 
+void QOutsideWaveView::SetShaderData(ShaderDataRecordVec records) { shaderdata_records = std::move(records); }
+
+void QOutsideWaveView::DrawShaderDataMarkers(QPainter& painter, const QRect& area)
+{
+    if (!shaderdata_records || shaderdata_records->empty()) return;
+
+    const auto& recs = *shaderdata_records;
+    const int waveheight = QGlobalView::HEIGHT();
+    const int markerWidth = std::max<int64_t>(24 / QGlobalView::Delta(), 10);
+
+    // Binary search: find the first record whose pixel position could be visible
+    const int64_t visible_clock_start = QGlobalView::PosToClock(area.left() - markerWidth);
+    const int64_t visible_clock_end = QGlobalView::PosToClock(area.right() + markerWidth);
+
+    auto it_begin = std::lower_bound(
+        recs.begin(), recs.end(), visible_clock_start, [](const ShaderDataRecord& r, int64_t c) { return r.time < c; }
+    );
+
+    painter.save();
+    painter.setPen(Qt::NoPen);
+    painter.setBrush(QColor(0, 0, 0)); // Black rectangles
+
+    int last_pixel = INT_MIN; // For pixel deduplication
+
+    for (auto it = it_begin; it != recs.end(); ++it)
+    {
+        if (it->time > visible_clock_end) break;
+
+        int pos = QGlobalView::ClockToPos(it->time);
+
+        // Skip if this record maps to the same pixel as the previous one
+        if (pos == last_pixel) continue;
+        last_pixel = pos;
+
+        painter.drawRect(pos, 0, markerWidth, waveheight);
+    }
+
+    painter.restore();
+}
+
+int QOutsideWaveView::FindShaderDataAt(int64_t clock_pos) const
+{
+    if (!shaderdata_records || shaderdata_records->empty()) return -1;
+
+    const auto& recs = *shaderdata_records;
+
+    // Match the drawn rectangle: starts at rec.time, extends markerWidth pixels right
+    const int markerWidth = std::max<int64_t>(24 / QGlobalView::Delta(), 10);
+    const int64_t hit_width = QGlobalView::Delta() * markerWidth;
+
+    // Find the last record with time <= clock_pos
+    auto it = std::upper_bound(
+        recs.begin(), recs.end(), clock_pos, [](int64_t c, const ShaderDataRecord& r) { return c < r.time; }
+    );
+
+    // it points to first record with time > clock_pos; check the one before it
+    if (it != recs.begin())
+    {
+        --it;
+        // rec.time <= clock_pos; hit if clock_pos is within the rectangle's right edge
+        if (clock_pos <= it->time + hit_width) return static_cast<int>(it - recs.begin());
+    }
+
+    return -1;
+}
+
 static QColor whiter(const QColor& a)
 {
     return QColor(2 * a.red() / 3 + 85, 2 * a.green() / 3 + 85, 2 * a.blue() / 3 + 85);
@@ -513,6 +585,9 @@ void QOutsideWaveView::paintEvent(QPaintEvent* event)
         path.addRect(QRect(tool->measure_start_x, 0, tool->measure_size_x, height()));
         painter.fillPath(path, WindowColors::MeasureTool());
     }
+
+    // Draw shaderdata triangle markers on top of waves
+    DrawShaderDataMarkers(painter, event->rect());
 
     // Draw 1-pixel separator line at the bottom of each slot
     QPen pen = painter.pen();
@@ -569,6 +644,20 @@ void QOutsideWaveView::mouseMoveEvent(QMouseEvent* event)
 
     const int64_t clock_pos = QGlobalView::PosToClock(event->pos().x());
 
+    // Check shaderdata records first (drawn on top, so higher priority)
+    int sd_idx = FindShaderDataAt(clock_pos);
+    if (sd_idx >= 0)
+    {
+        const auto& rec = (*shaderdata_records)[sd_idx];
+        std::stringstream tooltip;
+        tooltip << "Shaderdata Record"
+                << "\nSE:" << rec.se << "  CU:" << rec.cu << "  SIMD:" << rec.simd << "  WaveID:" << rec.wave_id
+                << "\nTime: " << rec.time << "  Value: 0x" << std::hex << rec.value << "  Flags: 0x" << rec.flags
+                << std::dec;
+        QToolTip::showText(event->globalPos(), tooltip.str().c_str());
+        return;
+    }
+
     int index = 0;
     while (index < waves.size() && waves[index].end < clock_pos) index++;
 
@@ -619,14 +708,55 @@ void QGlobalView::mouseReleaseEvent(QMouseEvent* event)
 
 void QGlobalView::wheelEvent(QWheelEvent* event)
 {
-    if (!(QApplication::keyboardModifiers() & Qt::ControlModifier))
+    bool ctrl = QApplication::keyboardModifiers() & Qt::ControlModifier;
+    bool shift = QApplication::keyboardModifiers() & Qt::ShiftModifier;
+
+    if (shift && !ctrl)
     {
-        this->Super::wheelEvent(event);
+        // Shift+Wheel: vertical track height
+        int inc = event->angleDelta().y() > 0 ? 1 : -1;
+        int new_scale = std::clamp(height_scale + inc, 1, 20);
+        if (new_scale != height_scale && m_scrollArea && m_scrollArea->verticalScrollBar())
+        {
+            int old_scroll = m_scrollArea->verticalScrollBar()->value();
+            int anchor_content_y = static_cast<int>(event->position().y());
+            int mouse_viewport_y = anchor_content_y - old_scroll;
+
+            // Scale the anchor position proportionally
+            // Actual track height is HEIGHT()+1 due to separator, so use that ratio
+            int old_track_h = height_scale + 1;
+            int new_track_h = new_scale + 1;
+            int new_anchor_y = anchor_content_y * new_track_h / old_track_h;
+            int new_scroll = std::max(0, new_anchor_y - mouse_viewport_y);
+
+            height_scale = new_scale;
+            for (auto* view : views) view->updateGeometry();
+            if (labelPanel) labelPanel->recalculatePositions();
+            this->updateGeometry();
+            this->repaint();
+
+            m_scrollArea->verticalScrollBar()->setValue(new_scroll);
+        }
+        else if (new_scale != height_scale)
+        {
+            height_scale = new_scale;
+            for (auto* view : views) view->updateGeometry();
+            if (labelPanel) labelPanel->recalculatePositions();
+            this->updateGeometry();
+            this->repaint();
+        }
         return;
     }
 
-    int mouse_x = event->position().x();
-    MainWindow::incrementGlobalViewMipmap(event->angleDelta().y() > 0 ? 1 : -1, mouse_x);
+    if (ctrl)
+    {
+        // Ctrl+Wheel: horizontal zoom
+        int mouse_x = event->position().x();
+        MainWindow::incrementGlobalViewMipmap(event->angleDelta().y() > 0 ? 1 : -1, mouse_x);
+        return;
+    }
+
+    this->Super::wheelEvent(event);
 }
 
 void QGlobalView::mouseMoveEvent(QMouseEvent* event)

@@ -175,7 +175,7 @@ void GPUCounterNode::getTimeRange(int64_t delta, int64_t& min_time, int64_t& max
 {
     min_time = INT64_MAX;
     max_time = INT64_MIN;
-    
+
     for (const auto& se_node : se_nodes)
     {
         if (!se_node) continue;
@@ -189,7 +189,7 @@ void GPUCounterNode::getTimeRange(int64_t delta, int64_t& min_time, int64_t& max
             }
         }
     }
-    
+
     // Align to delta boundaries
     if (min_time != INT64_MAX && delta > 0)
     {

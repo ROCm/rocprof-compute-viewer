@@ -26,6 +26,7 @@
 #include <iostream>
 #include <memory>
 #include <unordered_set>
+#include "data/shaderdata.h"
 #include "data/wavemanager.h"
 #include "measure.h"
 
@@ -70,23 +71,30 @@ public:
     virtual void mousePressEvent(QMouseEvent* event) override;
     virtual void mouseReleaseEvent(QMouseEvent* event) override;
 
-    int getSE() const { return se; }
-    int getSA() const { return sa; }
-    int getCU() const { return cu; }
-    int getSIMD() const { return simd; }
-    int getSlot() const { return slot; }
-
-    bool bIsVisible = true;
-
-protected:
-    float height_multiplier;
     const int se;
     const int sa;
     const int cu;
     const int simd;
     const int slot;
+
+    bool bIsVisible = true;
+
+    /// Set shaderdata records that match this view's SE/CU/SIMD (shared, zero-copy).
+    void SetShaderData(ShaderDataRecordVec records);
+
+protected:
+    float height_multiplier;
     const std::vector<WaveTraceData> waves;
     std::shared_ptr<MeasureTool> tool;
+
+    /// Shaderdata records overlapping this view's location (shared across slots)
+    ShaderDataRecordVec shaderdata_records;
+
+    /// Draw shaderdata triangle markers (only visible range, with pixel dedup)
+    void DrawShaderDataMarkers(QPainter& painter, const QRect& area);
+
+    /// Find shaderdata record near a clock position (for tooltip). Returns index or -1.
+    int FindShaderDataAt(int64_t clock_pos) const;
 
 public:
 signals:
@@ -157,7 +165,7 @@ public:
     static int64_t PosToClock(int64_t value) { return value * Delta() + begintime; }
     static int64_t ClockToPos(int64_t value) { return (value - begintime) / Delta(); }
     static int64_t Delta() { return 1 << mipmap_level; }
-    static int64_t HEIGHT() { return 5 - mipmap_level / 6; }
+    static int64_t HEIGHT() { return height_scale; }
 
     static int GetMip() { return mipmap_level; }
     static int SpinToMip(int spinValue) { return std::max(0, std::min(15 - spinValue, 15)); }
@@ -188,11 +196,16 @@ private:
     static int64_t maxtime;
     static int64_t begintime;
     static int mipmap_level;
+    static int height_scale;
     std::vector<QOutsideWaveView*> views;
+    QScrollArea* m_scrollArea = nullptr;
 
 public:
     QTickHeader* tickHeader = nullptr;   // External header widget for sticky ticks
     QLabelPanel* labelPanel = nullptr;   // External label panel for sticky labels
     void setScrollArea(QScrollArea* sa); // Connect to scroll area for sync
     void populateLabelPanel();           // Fill labelPanel with label data
+
+    /// Distribute pre-loaded shaderdata records to matching wave views.
+    void SetShaderData(const ShaderDataManager& manager);
 };

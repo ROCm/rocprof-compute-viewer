@@ -44,9 +44,9 @@ static QColor& DispatchColor(int id) { return MainWindow::dispatchcolors[id % Ma
 std::vector<QColor> WavePlotView::colors = {
     {255, 255, 255},
     {150, 150, 150},
-    { 32, 255,  32},
-    {255, 255,   0},
-    {255,  32,  32}
+    {32,  255, 32 },
+    {255, 255, 0  },
+    {255, 32,  32 }
 };
 
 void WavePlotView::LoadWaveStateData(const std::string& pathname, int SE)
