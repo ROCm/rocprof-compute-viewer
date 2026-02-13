@@ -319,11 +319,17 @@ void QWaveSlots::keyPressEvent(QKeyEvent* event)
     }
 }
 
-QLabel* QWaveSlots::AddSlot(QWidget* view, const std::string& name, int fixedsize)
+QLabel* QWaveSlots::AddSlot(QWidget* view, const std::string& name, int fixedsize, bool useMonospace)
 {
     view->setFixedHeight(fixedsize);
     view->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     QLabel* label = new QLabel(name.c_str());
+    if (useMonospace)
+    {
+        QFont monoFont("monospace");
+        monoFont.setStyleHint(QFont::Monospace);
+        label->setFont(monoFont);
+    }
     label->setFixedHeight(fixedsize);
 
     if (names_layout) names_layout->addWidget(label);
@@ -510,13 +516,13 @@ QUtilization::QUtilization(QCustomScroll* parent) : QWaveSlots(parent)
     auto createView = [&](const std::string& name)
     {
         auto* view = all_views.emplace_back(new QUtilView(parent));
-        view->label = AddSlot(view, name, WSTATE_HEIGHT() + WSTATE_POSY() + 1);
+        view->label = AddSlot(view, name, WSTATE_HEIGHT() + WSTATE_POSY() + 1, true);
         return view;
     };
 
     int vertical_size = WSTATE_HEIGHT() + WSTATE_POSY() + 1;
 
-    WMMA = createView("WMMA ");
+    for (int i = 0; i < 4; i++) WMMA.at(i) = createView("WMMA" + std::to_string(i));
     for (int i = 0; i < 4; i++) VALU.at(i) = createView("VALU" + std::to_string(i) + ' ');
 
     for (int i = 0; i < 4; i++) LDS.at(i) = createView("LDS" + std::to_string(i));
@@ -575,7 +581,7 @@ QUtilization::QUtilization(QCustomScroll* parent) : QWaveSlots(parent)
 
         if (sfind("WMMA") || sfind("MFMA") || sfind("MATRIX"))
         {
-            for (size_t simd = 0; simd < 4; simd++) expanded_token_defs.at(i).at(simd) = WMMA;
+            for (size_t simd = 0; simd < 4; simd++) expanded_token_defs.at(i).at(simd) = WMMA.at(simd);
         }
 
         if (sfind("LDS"))

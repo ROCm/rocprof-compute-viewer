@@ -86,7 +86,7 @@ public:
         if (tool) tool->update_list.erase(this);
     }
 
-    class QLabel* AddSlot(QWidget* view, const std::string& name, int fixedsize);
+    class QLabel* AddSlot(QWidget* view, const std::string& name, int fixedsize, bool useMonospace = false);
     virtual void Clear() { Reset(); };
 
     virtual void wheelEvent(QWheelEvent* event) override;
@@ -159,7 +159,7 @@ public:
     // Expanded defs
     std::array<QUtilView*, 4> LDS{};
     std::array<QUtilView*, 4> RT{};
-    QUtilView* WMMA{};
+    std::array<QUtilView*, 4> WMMA{};
     QUtilView* JUMP{};
 
 private:
