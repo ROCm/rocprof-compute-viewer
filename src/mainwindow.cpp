@@ -46,6 +46,7 @@
 #include "code/qcodelist.h"
 #include "code/sourcefile.h"
 #include "collection/derivedcountereditor.h"
+#include "collection/flamegraphwidget.h"
 #include "collection/histogramdelegate.h"
 #include "collection/jsonfilemodel.h"
 #include "collection/latencyanalysisdialog.h"
@@ -471,6 +472,7 @@ void MainWindow::UpdateWaveViewRange()
 
     if (source_filetab) source_filetab->resetLatency();
     if (WaveInstance::main_wave && code_contents) code_contents->Populate(WaveInstance::main_wave->code);
+    if (flameGraph) flameGraph->rebuild();
 }
 
 void MainWindow::SetMainWave(int se, int simd, int sl, int wid)
@@ -686,10 +688,14 @@ void recursive_load(
 void MainWindow::LoadSourceFiles()
 {
     QWARNING(source_filetab, "No source file tab", return );
-    if (ui->fileExplorer_tab->layout()) delete ui->fileExplorer_tab->layout();
+
+    if (ui->fileExplorer_tab->layout())
+    {
+        delete ui->fileExplorer_tab->layout();
+        flameGraph = nullptr;
+    }
 
     source_filetab->clear();
-    hotspotSummary = nullptr;
 
     try
     {
@@ -771,13 +777,18 @@ void MainWindow::ResetSelector()
         {
             auto code = CodeData::LoadCode(ui_dir + "code.json");
             if (!code.empty()) code_contents->Populate(code);
+            if (flameGraph) flameGraph->rebuild();
         }
     }
     catch (std::exception&)
     {}
 
     // Load shaderdata early, before SESelector triggers GatherWaves
-    if (shaderdata_manager) { delete shaderdata_manager; shaderdata_manager = nullptr; }
+    if (shaderdata_manager)
+    {
+        delete shaderdata_manager;
+        shaderdata_manager = nullptr;
+    }
     try
     {
         if (request->data.contains("shaderdata_filenames"))
@@ -1340,10 +1351,7 @@ void MainWindow::CreateGlobalView()
 
     // Load shaderdata from multiple threads before setting up the view
     // (shaderdata_manager is already loaded in ResetSelector, just pass to global view)
-    if (shaderdata_manager && shaderdata_manager->HasData())
-    {
-        global_view_widget->SetShaderData(*shaderdata_manager);
-    }
+    if (shaderdata_manager && shaderdata_manager->HasData()) global_view_widget->SetShaderData(*shaderdata_manager);
 
     // Create sticky tick header (spans full width)
     QTickHeader* tickHeader = new QTickHeader(this);
@@ -1582,15 +1590,14 @@ void MainWindow::GatherWaves()
         {
             for (int sd_slot = 0; sd_slot < 32; sd_slot++)
             {
-                auto sd_records = shaderdata_manager->GetRecords(
-                    current_wave_coord_se, gathered_cu, sd_simd, sd_slot
-                );
+                auto sd_records = shaderdata_manager->GetRecords(current_wave_coord_se, gathered_cu, sd_simd, sd_slot);
                 if (sd_records && !sd_records->empty())
                 {
                     auto* sd_view = new QShaderDataView(cuwaves_h_scrollarea, std::move(sd_records));
                     std::string filler = sd_slot < 10 ? "-0" : "-";
                     cuwaves_content->AddSlot(
-                        sd_view, "SD" + std::to_string(sd_simd) + filler + std::to_string(sd_slot) + " ",
+                        sd_view,
+                        "SD" + std::to_string(sd_simd) + filler + std::to_string(sd_slot) + " ",
                         vertical_size / 2
                     );
                 }
@@ -1632,97 +1639,14 @@ void MainWindow::loadJsonFileTree(const char* streambytes)
         return;
     }
 
-    // Create horizontal splitter
-    QSplitter* horizontalSplitter = new QSplitter(Qt::Horizontal);
+    flameGraph = new FlameGraphWidget();
+    QScrollArea* flameScroll = new QScrollArea();
+    flameScroll->setWidget(flameGraph);
+    flameScroll->setWidgetResizable(true);
 
-    // Create new tree view
-    fileExplorer = new QTreeView();
-    fileExplorer->setHeaderHidden(true);
-    fileExplorer->setUniformRowHeights(true);
-    connect(fileExplorer, &QTreeView::clicked, this, &MainWindow::onFileClicked);
-
-    // Set the fileExplorer to be more compact
-    fileExplorer->setMaximumWidth(600);
-    fileExplorer->setColumnWidth(0, 400);
-
-    // Add fileExplorer to the left side of the splitter
-    horizontalSplitter->addWidget(fileExplorer);
-
-    // Create a placeholder for the hotspot summary
-    hotspotSummary = new HotspotSummaryWidget();
-    horizontalSplitter->addWidget(hotspotSummary);
-
-    // make explorer about 40% of the width
-    horizontalSplitter->setSizes(QList<int>({4, 6}));
-
-    // Add the splitter to the layout
     QVBoxLayout* layout = new QVBox();
     ui->fileExplorer_tab->setLayout(layout);
-    layout->addWidget(horizontalSplitter);
-
-    // Create new model
-    auto* fileModel = new JsonFileModel(fileExplorer, fileExplorer);
-    fileExplorer->setModel(fileModel);
-
-    HistogramDelegate* delegate = new HistogramDelegate(this);
-    fileExplorer->setItemDelegate(delegate);
-
-    // Set the JSON data to the model
-    fileModel->setJson(jsonDoc.object());
-    // Expand all nodes
-    QModelIndex rootIndex = fileExplorer->model()->index(0, 0);
-    expandChildNodes(rootIndex);
-}
-
-void MainWindow::expandChildNodes(const QModelIndex& index)
-{
-    if (!index.isValid()) return;
-
-    fileExplorer->expand(index);
-
-    int rowCount = fileExplorer->model()->rowCount(index);
-    for (int row = 0; row < rowCount; ++row)
-    {
-        QModelIndex childIndex = fileExplorer->model()->index(row, 0, index);
-        expandChildNodes(childIndex);
-    }
-}
-
-void MainWindow::onFileClicked(const QModelIndex& index)
-{
-    JsonFileModel::Node* node = static_cast<JsonFileModel::Node*>(index.internalPointer());
-    if (!node || node->value.isObject()) return; // Only handle file nodes
-
-    QString nodeName = node->value.toString();
-    std::string fileName = nodeName.toStdString();
-
-    // Find the profiling path using mapping
-    std::string uiPath = ui_dir + fileName;
-    std::string profilingPath = "";
-
-    if (source_filetab)
-    {
-        auto it = source_filetab->snap_to_filename.find(uiPath);
-        if (it != source_filetab->snap_to_filename.end()) { profilingPath = it->second; }
-    }
-
-    QWARNING(!profilingPath.empty(), "ERROR: No profiling path found for:" << nodeName.toStdString(), return );
-
-    // Find position of the last path separator
-    size_t pos = profilingPath.find_last_of("/\\");
-
-    // Extract the filename
-    std::string displayFilename = (pos != std::string::npos) ? profilingPath.substr(pos + 1) : profilingPath;
-
-    // Find or create hotspot summary widget
-    QSplitter* horizontalSplitter = nullptr;
-    if (ui->fileExplorer_tab->layout())
-    {
-        QLayoutItem* item = ui->fileExplorer_tab->layout()->itemAt(0);
-        if (item && item->widget()) { horizontalSplitter = qobject_cast<QSplitter*>(item->widget()); }
-    }
-
-    if (horizontalSplitter && hotspotSummary) hotspotSummary->setFile(profilingPath, displayFilename);
+    layout->addWidget(flameScroll);
 }
 
 void MainWindow::paintEvent(QPaintEvent* event) { QMainWindow::paintEvent(event); }

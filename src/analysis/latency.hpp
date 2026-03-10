@@ -147,15 +147,15 @@ public:
      * @brief Construct a new Latency Analyzer
      * @param counterNames List of counter names from filenames.json
      * @param codeMap Mapping from code index to code string
-     * @param counterName Performance counter name (default: SQ_INST_LEVEL_VMEM)
-     * @param targetCu CU to filter by (default: 1)
+     * @param counterName Performance counter name
+     * @param targetCu CU to filter by
      * @param perfInterval Sampling interval (default: 40 for MI300)
      */
     explicit LatencyAnalyzer(
         const std::vector<std::string>& counterNames,
         const std::map<int, std::string>& codeMap,
-        const std::string& counterName = "SQ_INST_LEVEL_VMEM",
-        int targetCu = 1,
+        const std::string& counterName,
+        int targetCu,
         int perfInterval = 40
     );
 
@@ -214,13 +214,13 @@ public:
      */
     static bool hasCounter(const std::vector<std::string>& counterNames, CounterType type);
 
-    /**
-     * @brief Load wave files in parallel
-     * @param waveFiles Vector of (path, simd) pairs for wave files
-     * @param progress Optional atomic counter incremented after each wave file is loaded
-     * @return Vector of (simd, wave_data) pairs
-     */
-    static std::vector<std::pair<int, std::vector<WaveInstructionData>>> loadWaveFiles(
+    struct LoadedWaveData
+    {
+        std::vector<std::pair<int, std::vector<WaveInstructionData>>> waves;
+        int cu{-1};
+    };
+
+    static LoadedWaveData loadWaveFiles(
         const std::vector<std::pair<std::string, int>>& waveFiles, std::atomic<int>* progress = nullptr
     );
 
@@ -233,17 +233,15 @@ public:
 
     // Getters
     CounterType getCounterType() const { return m_counterType; }
-    int getTargetCu() const { return m_targetCu; }
-    int getPerfInterval() const { return m_perfInterval; }
 
 private:
     // Configuration (set in constructor, shared across all SEs)
     std::vector<std::string> m_counterNames;
     std::map<int, std::string> m_codeMap;
-    CounterType m_counterType;
-    int m_targetCu;
-    int m_perfInterval;
-    int m_levelIndex; ///< Cached counter index
+    CounterType m_counterType{};
+    int m_targetCu{-1};
+    int m_perfInterval{40};
+    int m_levelIndex{-1}; ///< Cached counter index
 
     // Accumulated state across analyze() calls
     std::set<int> m_usedIndex;                 ///< Code indices already seen

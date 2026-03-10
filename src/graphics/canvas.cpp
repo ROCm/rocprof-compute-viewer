@@ -635,7 +635,8 @@ void Canvas::paintMemoryLatency()
             // Left vertical cap (only if visible)
             if (stdStart > 2 * invscale) painter.drawLine(stdStart, centerY - capHeight, stdStart, centerY + capHeight);
             // Right vertical cap (only if visible)
-            if (stdEnd < (width() - 2) * invscale) painter.drawLine(stdEnd, centerY - capHeight, stdEnd, centerY + capHeight);
+            if (stdEnd < (width() - 2) * invscale)
+                painter.drawLine(stdEnd, centerY - capHeight, stdEnd, centerY + capHeight);
         }
 
         // Draw highlight outline encompassing all bars

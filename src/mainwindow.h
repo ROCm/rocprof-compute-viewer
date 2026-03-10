@@ -37,7 +37,6 @@
 #include <string_view>
 #include <unordered_set>
 #include <vector>
-#include "collection/hotspotsummarywidget.h"
 #include "graphics/hotspot.h"
 #include "util/custom_layouts.h"
 
@@ -187,9 +186,8 @@ private:
     int64_t current_loaded_clk_start = 0;
     int64_t current_loaded_clk_end = 0;
 
-    QTreeView* fileExplorer;
+    class FlameGraphWidget* flameGraph = nullptr;
     void loadJsonFileTree(const char* streambytes);
-    void expandChildNodes(const QModelIndex& index);
 
     void loadConfigSettings();
     void setupConfigConnections();
@@ -206,11 +204,6 @@ private:
     // Instruction column visibility
     void saveColumnVisibilitySetting(int element, bool visible);
 
-    class HotspotSummaryWidget* hotspotSummary = nullptr;
-
     static std::optional<int> parseLineEditInt(const QLineEdit* edit);
     static std::optional<int64_t> parseLineEditInt64(const QLineEdit* edit);
-
-private slots:
-    void onFileClicked(const QModelIndex& index);
 };
