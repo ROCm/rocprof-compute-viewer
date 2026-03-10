@@ -689,6 +689,7 @@ std::string TraceCounterPlotView::getBuiltin() const
         derived += "\n" + name + "_util := 100 * sum[ACTIVE_INST_" + name + ", axis=[XCC,SE,CU]] / _reduce_busy";
 
     derived += "\nMFMA_util := 25 * sum[VALU_MFMA_BUSY_CYCLES, axis=[XCC,SE,CU]] / _reduce_busy";
+    derived += "\nGPUutil := max(2*LDS_util, 2*VMEM_util, MFMA_util, min(VALU_util / (1.7 - MFMA_util/100), 100))";
 
     derived += "\n_clock_delta := select[RCLOCK, -1, axis=TIME] - select[RCLOCK, 0, axis=TIME]";
     derived += "\n_frequency := 1E8 * select[_clock_delta, 0, axis=CU] / select[_clock_delta, 1, axis=CU]";

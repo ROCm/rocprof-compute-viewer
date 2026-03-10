@@ -47,8 +47,6 @@
 #include "code/sourcefile.h"
 #include "collection/derivedcountereditor.h"
 #include "collection/flamegraphwidget.h"
-#include "collection/histogramdelegate.h"
-#include "collection/jsonfilemodel.h"
 #include "collection/latencyanalysisdialog.h"
 #include "collection/license.h"
 #include "collection/options.h"
