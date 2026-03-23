@@ -1136,7 +1136,7 @@
         </widget>
         <widget class="QWidget" name="fileExplorer_tab">
          <attribute name="title">
-          <string>Explorer</string>
+          <string>Flamegraph</string>
          </attribute>
          <layout class="QVBoxLayout" name="fileExplorerLayout"/>
         </widget>

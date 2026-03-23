@@ -487,6 +487,26 @@ private:
     ExprPtr m_right;
 };
 
+// Element-wise function call: max(A, B, ...), min(A, B, ...)
+class ElementWiseFuncExpr : public Expression
+{
+public:
+    enum class FuncType
+    {
+        Max,
+        Min
+    };
+
+    ElementWiseFuncExpr(FuncType type, std::vector<ExprPtr> operands) : m_type(type), m_operands(std::move(operands)) {}
+
+    Tensor evaluate(CounterContext& ctx) const override;
+    std::string toString() const override;
+
+private:
+    FuncType m_type;
+    std::vector<ExprPtr> m_operands;
+};
+
 // ============================================================================
 // Counter context - holds counter data and derived definitions
 // ============================================================================
@@ -621,6 +641,7 @@ private:
         ExprPtr parseRemove();
         ExprPtr parseDelta();
         ExprPtr parseLinear();
+        ExprPtr parseElementWiseFunc();
         std::vector<Axis> parseAxisList();
 
         const Token& current() const;

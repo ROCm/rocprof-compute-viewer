@@ -1950,3 +1950,175 @@ TEST(DerivedCounterManagerTest, DetectsCyclicDefinitions)
     mgr.loadDefinitions("A := B\nB := A\n");
     EXPECT_THROW({ (void) mgr.evaluate("A"); }, std::runtime_error);
 }
+
+// ============================================================================
+// Test element-wise max/min functions: max(A, B, ...), min(A, B, ...)
+// ============================================================================
+
+TEST(ElementWiseFuncTest, MaxOfTwoTensors)
+{
+    DerivedCounterManager mgr;
+    Shape shape(1, 1, 1, 4);
+    auto a = std::make_shared<Tensor>(shape, std::vector<float>{1.0f, 5.0f, 3.0f, 7.0f});
+    auto b = std::make_shared<Tensor>(shape, std::vector<float>{4.0f, 2.0f, 6.0f, 0.0f});
+    mgr.context().setCounter("A", a);
+    mgr.context().setCounter("B", b);
+
+    mgr.loadDefinitions("C := max(A, B)\n");
+    auto c = mgr.evaluate("C");
+    ASSERT_EQ(c->shape(), shape);
+    EXPECT_NEAR(c->at(0, 0, 0, 0), 4.0f, kEpsilon);
+    EXPECT_NEAR(c->at(0, 0, 0, 1), 5.0f, kEpsilon);
+    EXPECT_NEAR(c->at(0, 0, 0, 2), 6.0f, kEpsilon);
+    EXPECT_NEAR(c->at(0, 0, 0, 3), 7.0f, kEpsilon);
+}
+
+TEST(ElementWiseFuncTest, MinOfTwoTensors)
+{
+    DerivedCounterManager mgr;
+    Shape shape(1, 1, 1, 4);
+    auto a = std::make_shared<Tensor>(shape, std::vector<float>{1.0f, 5.0f, 3.0f, 7.0f});
+    auto b = std::make_shared<Tensor>(shape, std::vector<float>{4.0f, 2.0f, 6.0f, 0.0f});
+    mgr.context().setCounter("A", a);
+    mgr.context().setCounter("B", b);
+
+    mgr.loadDefinitions("C := min(A, B)\n");
+    auto c = mgr.evaluate("C");
+    ASSERT_EQ(c->shape(), shape);
+    EXPECT_NEAR(c->at(0, 0, 0, 0), 1.0f, kEpsilon);
+    EXPECT_NEAR(c->at(0, 0, 0, 1), 2.0f, kEpsilon);
+    EXPECT_NEAR(c->at(0, 0, 0, 2), 3.0f, kEpsilon);
+    EXPECT_NEAR(c->at(0, 0, 0, 3), 0.0f, kEpsilon);
+}
+
+TEST(ElementWiseFuncTest, MaxOfThreeTensors)
+{
+    DerivedCounterManager mgr;
+    Shape shape(1, 1, 1, 3);
+    auto a = std::make_shared<Tensor>(shape, std::vector<float>{1.0f, 9.0f, 3.0f});
+    auto b = std::make_shared<Tensor>(shape, std::vector<float>{5.0f, 2.0f, 8.0f});
+    auto c = std::make_shared<Tensor>(shape, std::vector<float>{3.0f, 7.0f, 4.0f});
+    mgr.context().setCounter("A", a);
+    mgr.context().setCounter("B", b);
+    mgr.context().setCounter("C", c);
+
+    mgr.loadDefinitions("D := max(A, B, C)\n");
+    auto d = mgr.evaluate("D");
+    ASSERT_EQ(d->shape(), shape);
+    EXPECT_NEAR(d->at(0, 0, 0, 0), 5.0f, kEpsilon);
+    EXPECT_NEAR(d->at(0, 0, 0, 1), 9.0f, kEpsilon);
+    EXPECT_NEAR(d->at(0, 0, 0, 2), 8.0f, kEpsilon);
+}
+
+TEST(ElementWiseFuncTest, MaxWithBroadcasting)
+{
+    DerivedCounterManager mgr;
+    Shape shapeA(2, 1, 1, 3);
+    Shape shapeB(1, 1, 1, 3);
+    auto a = std::make_shared<Tensor>(shapeA, std::vector<float>{1.0f, 5.0f, 3.0f, 4.0f, 2.0f, 6.0f});
+    auto b = std::make_shared<Tensor>(shapeB, std::vector<float>{3.0f, 3.0f, 3.0f});
+    mgr.context().setCounter("A", a);
+    mgr.context().setCounter("B", b);
+
+    mgr.loadDefinitions("C := max(A, B)\n");
+    auto c = mgr.evaluate("C");
+    ASSERT_EQ(c->shape(), shapeA);
+    // xcc=0: max([1,5,3], [3,3,3]) = [3,5,3]
+    EXPECT_NEAR(c->at(0, 0, 0, 0), 3.0f, kEpsilon);
+    EXPECT_NEAR(c->at(0, 0, 0, 1), 5.0f, kEpsilon);
+    EXPECT_NEAR(c->at(0, 0, 0, 2), 3.0f, kEpsilon);
+    // xcc=1: max([4,2,6], [3,3,3]) = [4,3,6]
+    EXPECT_NEAR(c->at(1, 0, 0, 0), 4.0f, kEpsilon);
+    EXPECT_NEAR(c->at(1, 0, 0, 1), 3.0f, kEpsilon);
+    EXPECT_NEAR(c->at(1, 0, 0, 2), 6.0f, kEpsilon);
+}
+
+TEST(ElementWiseFuncTest, MaxWithScalarLiteral)
+{
+    DerivedCounterManager mgr;
+    Shape shape(1, 1, 1, 4);
+    auto a = std::make_shared<Tensor>(shape, std::vector<float>{1.0f, 5.0f, 3.0f, 7.0f});
+    mgr.context().setCounter("A", a);
+
+    mgr.loadDefinitions("C := max(A, 4.0)\n");
+    auto c = mgr.evaluate("C");
+    ASSERT_EQ(c->shape(), shape);
+    EXPECT_NEAR(c->at(0, 0, 0, 0), 4.0f, kEpsilon);
+    EXPECT_NEAR(c->at(0, 0, 0, 1), 5.0f, kEpsilon);
+    EXPECT_NEAR(c->at(0, 0, 0, 2), 4.0f, kEpsilon);
+    EXPECT_NEAR(c->at(0, 0, 0, 3), 7.0f, kEpsilon);
+}
+
+TEST(ElementWiseFuncTest, MaxWithExpressionArgs)
+{
+    DerivedCounterManager mgr;
+    Shape shape(1, 1, 1, 3);
+    auto a = std::make_shared<Tensor>(shape, std::vector<float>{1.0f, 5.0f, 3.0f});
+    auto b = std::make_shared<Tensor>(shape, std::vector<float>{4.0f, 2.0f, 6.0f});
+    mgr.context().setCounter("A", a);
+    mgr.context().setCounter("B", b);
+
+    // max(A + 1, B) => max([2,6,4], [4,2,6]) = [4,6,6]
+    mgr.loadDefinitions("C := max(A + 1, B)\n");
+    auto c = mgr.evaluate("C");
+    ASSERT_EQ(c->shape(), shape);
+    EXPECT_NEAR(c->at(0, 0, 0, 0), 4.0f, kEpsilon);
+    EXPECT_NEAR(c->at(0, 0, 0, 1), 6.0f, kEpsilon);
+    EXPECT_NEAR(c->at(0, 0, 0, 2), 6.0f, kEpsilon);
+}
+
+TEST(ElementWiseFuncTest, MinWithScalarLiteral)
+{
+    DerivedCounterManager mgr;
+    Shape shape(1, 1, 1, 4);
+    auto a = std::make_shared<Tensor>(shape, std::vector<float>{1.0f, 5.0f, 3.0f, 7.0f});
+    mgr.context().setCounter("A", a);
+
+    mgr.loadDefinitions("C := min(A, 4.0)\n");
+    auto c = mgr.evaluate("C");
+    ASSERT_EQ(c->shape(), shape);
+    EXPECT_NEAR(c->at(0, 0, 0, 0), 1.0f, kEpsilon);
+    EXPECT_NEAR(c->at(0, 0, 0, 1), 4.0f, kEpsilon);
+    EXPECT_NEAR(c->at(0, 0, 0, 2), 3.0f, kEpsilon);
+    EXPECT_NEAR(c->at(0, 0, 0, 3), 4.0f, kEpsilon);
+}
+
+TEST(ElementWiseFuncTest, MaxReductionStillWorks)
+{
+    // Ensure max[A] reduction syntax is not broken
+    DerivedCounterManager mgr;
+    Shape shape(1, 1, 1, 4);
+    auto a = std::make_shared<Tensor>(shape, std::vector<float>{1.0f, 5.0f, 3.0f, 7.0f});
+    mgr.context().setCounter("A", a);
+
+    mgr.loadDefinitions("M := max[A]\n");
+    auto m = mgr.evaluate("M");
+    ASSERT_TRUE(m->isScalar());
+    EXPECT_NEAR(m->scalar(), 7.0f, kEpsilon);
+}
+
+TEST(ElementWiseFuncTest, MinReductionStillWorks)
+{
+    // Ensure min[A] reduction syntax is not broken
+    DerivedCounterManager mgr;
+    Shape shape(1, 1, 1, 4);
+    auto a = std::make_shared<Tensor>(shape, std::vector<float>{1.0f, 5.0f, 3.0f, 7.0f});
+    mgr.context().setCounter("A", a);
+
+    mgr.loadDefinitions("M := min[A]\n");
+    auto m = mgr.evaluate("M");
+    ASSERT_TRUE(m->isScalar());
+    EXPECT_NEAR(m->scalar(), 1.0f, kEpsilon);
+}
+
+TEST(ElementWiseFuncTest, MaxTooFewArgumentsFails)
+{
+    Parser parser;
+    EXPECT_THROW(parser.parseExpression("max(A)"), std::runtime_error);
+}
+
+TEST(ElementWiseFuncTest, MinTooFewArgumentsFails)
+{
+    Parser parser;
+    EXPECT_THROW(parser.parseExpression("min(A)"), std::runtime_error);
+}

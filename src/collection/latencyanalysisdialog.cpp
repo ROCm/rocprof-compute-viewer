@@ -272,12 +272,12 @@ void LatencyAnalysisDialog::startAnalysis()
                         std::async(std::launch::async, LatencyAnalysis::LatencyAnalyzer::loadPerfData, perfPath);
 
                     // Load wave files in parallel
-                    auto waveData = LatencyAnalysis::LatencyAnalyzer::loadWaveFiles(waveFilePaths, &m_progress);
+                    auto loaded = LatencyAnalysis::LatencyAnalyzer::loadWaveFiles(waveFilePaths, &m_progress);
 
                     // Get perf data (should be ready by now)
                     auto perfData = perfFuture.get();
 
-                    // Run analysis for each counter type using already-loaded data
+                    // Run analysis for each counter type
                     for (int i = 0; i < kNumCounters; ++i)
                     {
                         auto type = static_cast<LatencyAnalysis::CounterType>(i);
@@ -286,9 +286,9 @@ void LatencyAnalysisDialog::startAnalysis()
                         if (!LatencyAnalysis::LatencyAnalyzer::hasCounter(counterNames, type)) continue;
 
                         LatencyAnalysis::LatencyAnalyzer analyzer(
-                            counterNames, codeMap, LatencyAnalysis::counterTypeToString(type)
+                            counterNames, codeMap, LatencyAnalysis::counterTypeToString(type), loaded.cu
                         );
-                        analyzer.analyze(perfData, waveData);
+                        analyzer.analyze(perfData, loaded.waves);
 
                         auto results = analyzer.getResults();
 

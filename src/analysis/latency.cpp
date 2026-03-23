@@ -408,8 +408,15 @@ std::vector<PerfDataEntry> LatencyAnalyzer::loadPerfData(const std::string& path
     return entries;
 }
 
-// File-local helper function for loading a single wave file
-static std::pair<int, std::vector<WaveInstructionData>> loadWaveFile(const std::string& path, int simd)
+// File-local helper struct for loading a single wave file
+struct WaveFileResult
+{
+    int simd{0};
+    int cu{-1};
+    std::vector<WaveInstructionData> instructions;
+};
+
+static WaveFileResult loadWaveFile(const std::string& path, int simd)
 {
     std::ifstream file(path);
     if (!file.is_open()) throw std::runtime_error("Failed to open: " + path);
@@ -417,7 +424,10 @@ static std::pair<int, std::vector<WaveInstructionData>> loadWaveFile(const std::
     nlohmann::json waveJson;
     file >> waveJson;
 
-    std::vector<WaveInstructionData> instructions;
+    WaveFileResult result;
+    result.simd = simd;
+    if (waveJson["wave"].contains("cu")) result.cu = waveJson["wave"]["cu"].get<int>();
+
     for (const auto& instr : waveJson["wave"]["instructions"])
     {
         WaveInstructionData data;
@@ -426,10 +436,10 @@ static std::pair<int, std::vector<WaveInstructionData>> loadWaveFile(const std::
         data.stall = instr[2].get<int>();  // inst[2] is stall
         data.cycles = instr[3].get<int>(); // inst[3] is total cycles (duration)
         data.codeIndex = instr[4].get<int>();
-        instructions.push_back(data);
+        result.instructions.push_back(data);
     }
 
-    return {simd, std::move(instructions)};
+    return result;
 }
 
 bool LatencyAnalyzer::hasCounter(const std::vector<std::string>& counterNames, CounterType type)
@@ -437,13 +447,14 @@ bool LatencyAnalyzer::hasCounter(const std::vector<std::string>& counterNames, C
     return findCounterIndex(counterNames, counterTypeToString(type)) != -1;
 }
 
-std::vector<std::pair<int, std::vector<WaveInstructionData>>> LatencyAnalyzer::loadWaveFiles(
+LatencyAnalyzer::LoadedWaveData LatencyAnalyzer::loadWaveFiles(
     const std::vector<std::pair<std::string, int>>& waveFiles, std::atomic<int>* progress
 )
 {
-    std::vector<std::pair<int, std::vector<WaveInstructionData>>> waveData(waveFiles.size());
+    LoadedWaveData result;
+    result.waves.resize(waveFiles.size());
 
-    std::vector<std::pair<size_t, std::future<std::pair<int, std::vector<WaveInstructionData>>>>> active;
+    std::vector<std::pair<size_t, std::future<WaveFileResult>>> active;
     active.reserve(MAX_THREADS);
 
     size_t nextToLaunch = 0;
@@ -463,7 +474,9 @@ std::vector<std::pair<int, std::vector<WaveInstructionData>>> LatencyAnalyzer::l
         {
             if (it->second.wait_for(std::chrono::microseconds(100)) == std::future_status::ready)
             {
-                waveData[it->first] = it->second.get();
+                auto loaded = it->second.get();
+                result.waves[it->first] = {loaded.simd, std::move(loaded.instructions)};
+                result.cu = loaded.cu;
                 if (progress) ++(*progress);
                 active.erase(it);
 
@@ -478,20 +491,17 @@ std::vector<std::pair<int, std::vector<WaveInstructionData>>> LatencyAnalyzer::l
         }
     }
 
-    return waveData;
+    return result;
 }
 
 void LatencyAnalyzer::analyzeFiles(
     const std::string& perfFile, const std::vector<std::pair<std::string, int>>& waveFiles, std::atomic<int>* progress
 )
 {
-    // Load perf data (single file)
     auto perfFuture = std::async(std::launch::async, loadPerfData, perfFile);
-
-    // Load wave files in parallel
-    auto waveData = loadWaveFiles(waveFiles, progress);
-
-    analyze(perfFuture.get(), waveData);
+    auto loaded = loadWaveFiles(waveFiles, progress);
+    m_targetCu = loaded.cu;
+    analyze(perfFuture.get(), loaded.waves);
 }
 
 std::vector<std::pair<std::string, int>> LatencyAnalyzer::collectWaveFilePaths(const std::string& uidir, int se)

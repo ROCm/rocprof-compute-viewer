@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.16...3.22)
 project(
     rocprof-compute-viewer
-    VERSION 0.1.5
+    VERSION 0.1.7
     LANGUAGES CXX)
 
 set(CMAKE_AUTOUIC ON)

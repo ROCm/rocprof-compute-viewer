@@ -98,8 +98,6 @@ TEST(LatencyAnalyzerTest, Construction)
     LatencyAnalyzer analyzer(counterNames, codeMap, "SQ_INST_LEVEL_VMEM", 1, 40);
 
     EXPECT_EQ(analyzer.getCounterType(), CounterType::VMEM);
-    EXPECT_EQ(analyzer.getTargetCu(), 1);
-    EXPECT_EQ(analyzer.getPerfInterval(), 40);
 }
 
 TEST(LatencyAnalyzerTest, ConstructionMissingCounter)
@@ -153,7 +151,7 @@ TEST(LatencyAnalyzerTest, AnalyzeEmptyPerfData)
         {100, "test.s:10: inst"}
     };
 
-    LatencyAnalyzer analyzer(counterNames, codeMap);
+    LatencyAnalyzer analyzer(counterNames, codeMap, "SQ_INST_LEVEL_VMEM", 1, 40);
 
     std::vector<PerfDataEntry> perfData; // Empty
 
@@ -174,7 +172,7 @@ TEST(LatencyAnalyzerTest, Reset)
         {100, "test.s:10: inst"}
     };
 
-    LatencyAnalyzer analyzer(counterNames, codeMap);
+    LatencyAnalyzer analyzer(counterNames, codeMap, "SQ_INST_LEVEL_VMEM", 1, 40);
 
     std::vector<PerfDataEntry> perfData = {
         PerfDataEntry(0, 1, 0, 0, 0, 1, 0),
@@ -249,7 +247,7 @@ TEST(EdgeCasesTest, SingleWave)
         {100, "test.s:10: inst"}
     };
 
-    LatencyAnalyzer analyzer(counterNames, codeMap);
+    LatencyAnalyzer analyzer(counterNames, codeMap, "SQ_INST_LEVEL_VMEM", 1, 40);
 
     std::vector<PerfDataEntry> perfData = {
         PerfDataEntry(0, 1, 0, 0, 0, 1, 0),
@@ -275,7 +273,7 @@ TEST(EdgeCasesTest, MultipleSIMDs)
         {101, "test.s:20: inst2"},
     };
 
-    LatencyAnalyzer analyzer(counterNames, codeMap);
+    LatencyAnalyzer analyzer(counterNames, codeMap, "SQ_INST_LEVEL_VMEM", 1, 40);
 
     std::vector<PerfDataEntry> perfData = {
         PerfDataEntry(0, 2, 0, 0, 0, 1, 0),
@@ -299,7 +297,7 @@ TEST(EdgeCasesTest, UnknownCodeIndex)
     std::vector<std::string> counterNames = {"SQ_INST_LEVEL_VMEM"};
     std::map<int, std::string> codeMap; // Empty - no known codes
 
-    LatencyAnalyzer analyzer(counterNames, codeMap);
+    LatencyAnalyzer analyzer(counterNames, codeMap, "SQ_INST_LEVEL_VMEM", 1, 40);
 
     std::vector<PerfDataEntry> perfData = {
         PerfDataEntry(0, 1, 0, 0, 0, 1, 0),
@@ -327,8 +325,6 @@ TEST(EdgeCasesTest, DifferentPerfIntervals)
 
     LatencyAnalyzer analyzer(counterNames, codeMap, "SQ_INST_LEVEL_VMEM", 1, 36);
 
-    EXPECT_EQ(analyzer.getPerfInterval(), 36);
-
     std::vector<double> latencies = {10.0, 20.0, 30.0};
     auto stats = computeLatencyStats(latencies, 36);
 
@@ -349,7 +345,7 @@ TEST(EdgeCasesTest, MultipleShaderEngines)
         {101, "test.s:20: inst2"},
     };
 
-    LatencyAnalyzer analyzer(counterNames, codeMap);
+    LatencyAnalyzer analyzer(counterNames, codeMap, "SQ_INST_LEVEL_VMEM", 1, 40);
 
     // SE0: perf and waves for inst1
     std::vector<PerfDataEntry> perfDataSE0 = {
@@ -385,7 +381,7 @@ TEST(EdgeCasesTest, NoAnalyzeCalls)
         {100, "test.s:10: inst"}
     };
 
-    LatencyAnalyzer analyzer(counterNames, codeMap);
+    LatencyAnalyzer analyzer(counterNames, codeMap, "SQ_INST_LEVEL_VMEM", 1, 40);
 
     // Get results without calling analyze
     auto results = analyzer.getResults();

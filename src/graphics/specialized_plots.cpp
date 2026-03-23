@@ -34,7 +34,14 @@ using namespace std;
 
 constexpr size_t kMaxPlotsPerDerived = 10;
 
-static std::vector<std::string> UtilTypes = {"MISC", "FLAT", "SCA", "LDS", "VMEM", "VALU"};
+static std::vector<std::pair<std::string, int>> UtilTypes = {
+    {"MISC", 100},
+    {"FLAT", 200},
+    {"SCA",  100},
+    {"LDS",  200},
+    {"VMEM", 200},
+    {"VALU", 100}
+};
 static std::vector<std::string> MopsTypes = {"I8", "F8", "F16", "BF16", "F32", "F64", "XF32", "F6F4"};
 
 std::vector<std::string> WavePlotView::state_names = {"Empty", "Idle", "Exec", "Wait", "Stall"};
@@ -152,6 +159,17 @@ void TraceCounterPlotView::LoadCounterData(const std::string& dirpath, int shade
     }
 }
 
+static double GetUtilScale(const std::string& counter_name)
+{
+    if (counter_name.find("ACTIVE_INST_") == 0)
+    {
+        std::string suffix = counter_name.substr(std::string("ACTIVE_INST_").size());
+        for (auto& [name, mult] : UtilTypes)
+            if (name == suffix) return mult / 100.0;
+    }
+    return 1.0;
+}
+
 std::vector<double> CounterPlotView::GetPeakRates()
 {
     std::vector<double> result{};
@@ -162,8 +180,11 @@ std::vector<double> CounterPlotView::GetPeakRates()
 
         for (int c = 0; c < CNT_BANK; c++)
         {
+            size_t index = result.size();
             auto& maxv = result.emplace_back(0);
             for (auto& counter : counters) maxv = std::max<double>(maxv, counter.events[c]);
+
+            if (index < counter_names.size()) maxv *= GetUtilScale(counter_names[index]);
         }
     }
 
@@ -189,11 +210,12 @@ DerivedCounter::Tensor CounterPlotView::GetAvgRates()
         if (!counter_tensor) continue;
 
         auto summed = counter_tensor->sum(DerivedCounter::Axis::Time);
+        double scale = GetUtilScale(counter_names[i]);
 
         for (size_t xcc = 0; xcc < summed.shape().getXCC(); xcc++)
             for (size_t se = 0; se < summed.shape().getSE(); se++)
                 for (size_t cu = 0; cu < summed.shape().getCU(); cu++)
-                    result.at(xcc, se, cu, i) += summed.at(xcc, se, cu, 0);
+                    result.at(xcc, se, cu, i) += summed.at(xcc, se, cu, 0) * scale;
     }
 
     return result;
@@ -533,7 +555,7 @@ bool TraceCounterPlotView::isBuiltin(const std::string& name) const
 
     if (name.find("_util") != std::string::npos)
     {
-        for (auto& util : UtilTypes)
+        for (auto& [util, _] : UtilTypes)
             if (name == util + "_util") return true;
 
         if (name == "MFMA_util") return true;
@@ -685,10 +707,13 @@ std::string TraceCounterPlotView::getBuiltin() const
 {
     std::string derived = "_reduce_busy := sum[max[BUSY_CU_CYCLES, axis=TIME], axis=[XCC,SE,CU]] + 1E-6";
 
-    for (const std::string& name : UtilTypes)
-        derived += "\n" + name + "_util := 100 * sum[ACTIVE_INST_" + name + ", axis=[XCC,SE,CU]] / _reduce_busy";
+    for (auto& [name, mult] : UtilTypes)
+        derived += "\n" + name + "_util := " + std::to_string(mult) + " * sum[ACTIVE_INST_" + name +
+                   ", axis=[XCC,SE,CU]] / _reduce_busy";
 
     derived += "\nMFMA_util := 25 * sum[VALU_MFMA_BUSY_CYCLES, axis=[XCC,SE,CU]] / _reduce_busy";
+    derived +=
+        "\nGPUutil := max(LDS_util, VMEM_util, FLAT_util, MFMA_util, min(VALU_util / (1.7 - MFMA_util/100), 100))";
 
     derived += "\n_clock_delta := select[RCLOCK, -1, axis=TIME] - select[RCLOCK, 0, axis=TIME]";
     derived += "\n_frequency := 1E8 * select[_clock_delta, 0, axis=CU] / select[_clock_delta, 1, axis=CU]";

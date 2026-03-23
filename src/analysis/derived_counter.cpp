@@ -1145,6 +1145,104 @@ std::string LogicalExpr::toString() const
     return "(" + m_left->toString() + " " + opStr + " " + m_right->toString() + ")";
 }
 
+// ElementWiseFuncExpr implementation
+Tensor ElementWiseFuncExpr::evaluate(CounterContext& ctx) const
+{
+    if (m_operands.size() < 2) throw std::runtime_error("Element-wise function requires at least 2 arguments");
+
+    Tensor result = m_operands[0]->evaluate(ctx);
+
+    for (size_t i = 1; i < m_operands.size(); ++i)
+    {
+        Tensor operand = m_operands[i]->evaluate(ctx);
+        switch (m_type)
+        {
+            case FuncType::Max:
+            {
+                // Element-wise max with broadcasting
+                Shape resultShape = Shape::broadcastShape(result.shape(), operand.shape());
+                Tensor tmp(resultShape);
+                for (size_t xcc = 0; xcc < resultShape[0]; ++xcc)
+                {
+                    for (size_t se = 0; se < resultShape[1]; ++se)
+                    {
+                        for (size_t cu = 0; cu < resultShape[2]; ++cu)
+                        {
+                            for (size_t sample = 0; sample < resultShape[3]; ++sample)
+                            {
+                                size_t aXcc = result.shape()[0] == 1 ? 0 : xcc;
+                                size_t aSe = result.shape()[1] == 1 ? 0 : se;
+                                size_t aCu = result.shape()[2] == 1 ? 0 : cu;
+                                size_t aSample = result.shape()[3] == 1 ? 0 : sample;
+                                size_t bXcc = operand.shape()[0] == 1 ? 0 : xcc;
+                                size_t bSe = operand.shape()[1] == 1 ? 0 : se;
+                                size_t bCu = operand.shape()[2] == 1 ? 0 : cu;
+                                size_t bSample = operand.shape()[3] == 1 ? 0 : sample;
+                                float a = result.at(aXcc, aSe, aCu, aSample);
+                                float b = operand.at(bXcc, bSe, bCu, bSample);
+                                tmp.at(xcc, se, cu, sample) = std::max(a, b);
+                            }
+                        }
+                    }
+                }
+                result = std::move(tmp);
+                break;
+            }
+            case FuncType::Min:
+            {
+                Shape resultShape = Shape::broadcastShape(result.shape(), operand.shape());
+                Tensor tmp(resultShape);
+                for (size_t xcc = 0; xcc < resultShape[0]; ++xcc)
+                {
+                    for (size_t se = 0; se < resultShape[1]; ++se)
+                    {
+                        for (size_t cu = 0; cu < resultShape[2]; ++cu)
+                        {
+                            for (size_t sample = 0; sample < resultShape[3]; ++sample)
+                            {
+                                size_t aXcc = result.shape()[0] == 1 ? 0 : xcc;
+                                size_t aSe = result.shape()[1] == 1 ? 0 : se;
+                                size_t aCu = result.shape()[2] == 1 ? 0 : cu;
+                                size_t aSample = result.shape()[3] == 1 ? 0 : sample;
+                                size_t bXcc = operand.shape()[0] == 1 ? 0 : xcc;
+                                size_t bSe = operand.shape()[1] == 1 ? 0 : se;
+                                size_t bCu = operand.shape()[2] == 1 ? 0 : cu;
+                                size_t bSample = operand.shape()[3] == 1 ? 0 : sample;
+                                float a = result.at(aXcc, aSe, aCu, aSample);
+                                float b = operand.at(bXcc, bSe, bCu, bSample);
+                                tmp.at(xcc, se, cu, sample) = std::min(a, b);
+                            }
+                        }
+                    }
+                }
+                result = std::move(tmp);
+                break;
+            }
+        }
+    }
+
+    return result;
+}
+
+std::string ElementWiseFuncExpr::toString() const
+{
+    std::string name;
+    switch (m_type)
+    {
+        case FuncType::Max: name = "max"; break;
+        case FuncType::Min: name = "min"; break;
+    }
+
+    std::string result = name + "(";
+    for (size_t i = 0; i < m_operands.size(); ++i)
+    {
+        if (i > 0) result += ", ";
+        result += m_operands[i]->toString();
+    }
+    result += ")";
+    return result;
+}
+
 // ============================================================================
 // CounterContext implementation
 // ============================================================================
@@ -1551,6 +1649,9 @@ ExprPtr Parser::ParserState::parsePrimary()
 
         // Check for linear function: linear(...)
         if (name == "linear" && check(TokenType::LParen)) return parseLinear();
+
+        // Check for element-wise function call: max(...), min(...), add(...), sub(...)
+        if ((name == "max" || name == "min") && check(TokenType::LParen)) return parseElementWiseFunc();
 
         // Check for function call: name[...]
         if (check(TokenType::LBracket))
@@ -2098,6 +2199,34 @@ ExprPtr Parser::ParserState::parseLinear()
     expect(TokenType::RParen, "Expected ')' after linear arguments");
 
     return std::make_shared<LinearExpr>(sizeExpr, axis);
+}
+
+ExprPtr Parser::ParserState::parseElementWiseFunc()
+{
+    // We've already parsed the function name, current token is '('
+    std::string funcName = peek(-1).text;
+
+    ElementWiseFuncExpr::FuncType type;
+    if (funcName == "max")
+        type = ElementWiseFuncExpr::FuncType::Max;
+    else if (funcName == "min")
+        type = ElementWiseFuncExpr::FuncType::Min;
+    else
+        throw std::runtime_error("Unknown element-wise function: " + funcName);
+
+    expect(TokenType::LParen, "Expected '(' after '" + funcName + "'");
+
+    // Parse comma-separated list of expressions
+    std::vector<ExprPtr> operands;
+    operands.push_back(parseExpr());
+
+    while (match(TokenType::Comma)) { operands.push_back(parseExpr()); }
+
+    if (operands.size() < 2) throw std::runtime_error(funcName + "() requires at least 2 arguments");
+
+    expect(TokenType::RParen, "Expected ')' after " + funcName + " arguments");
+
+    return std::make_shared<ElementWiseFuncExpr>(type, std::move(operands));
 }
 
 Parser::Definition Parser::parseDefinition(const std::string& line)
