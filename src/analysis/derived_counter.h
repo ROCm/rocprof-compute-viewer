@@ -553,12 +553,17 @@ public:
     float getBuiltinScalar(const std::string& name) const;
     bool isBuiltinScalar(const std::string& name) const;
 
+    // Track which raw counters were accessed during evaluation
+    const std::unordered_set<std::string>& accessedRawCounters() const { return m_accessedRawCounters; }
+    void clearAccessedRawCounters() { m_accessedRawCounters.clear(); }
+
 private:
     std::unordered_map<std::string, std::shared_ptr<Tensor>> m_rawCounters;
     std::unordered_map<std::string, ExprPtr> m_derivedCounters;
     mutable std::unordered_map<std::string, std::shared_ptr<const Tensor>> m_cache;
     std::unordered_set<std::string> m_evalInProgress;
     std::unordered_set<std::string> m_errorCounters; // Derived counters that failed evaluation
+    std::unordered_set<std::string> m_accessedRawCounters;
 };
 
 // ============================================================================

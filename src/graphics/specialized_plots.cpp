@@ -39,8 +39,7 @@ static std::vector<std::pair<std::string, int>> UtilTypes = {
     {"FLAT", 200},
     {"SCA",  100},
     {"LDS",  200},
-    {"VMEM", 200},
-    {"VALU", 100}
+    {"VMEM", 200}
 };
 static std::vector<std::string> MopsTypes = {"I8", "F8", "F16", "BF16", "F32", "F64", "XF32", "F6F4"};
 
@@ -287,8 +286,9 @@ void CounterPlotView::UpdateDerivedCounters(const std::string& derivedDefinition
             if (!der.first.empty() && der.first.at(0) != '_') derived_count++;
         if (derived_count == 0) return;
 
-        if (derived_count >= 3)
-            for (size_t i = 0; i < rawCounterCount && i < curves.size(); i++) curves[i].disabled = true;
+        auto& accessed = derivedmanager->context().accessedRawCounters();
+        for (size_t i = 0; i < rawCounterCount && i < curves.size(); i++)
+            if (accessed.count(curves[i].fullname)) curves[i].disabled = true;
     }
 
     int derived_index = counter_names.size();
@@ -711,9 +711,12 @@ std::string TraceCounterPlotView::getBuiltin() const
         derived += "\n" + name + "_util := " + std::to_string(mult) + " * sum[ACTIVE_INST_" + name +
                    ", axis=[XCC,SE,CU]] / _reduce_busy";
 
-    derived += "\nMFMA_util := 25 * sum[VALU_MFMA_BUSY_CYCLES, axis=[XCC,SE,CU]] / _reduce_busy";
-    derived +=
-        "\nGPUutil := max(LDS_util, VMEM_util, FLAT_util, MFMA_util, min(VALU_util / (1.7 - MFMA_util/100), 100))";
+    derived += "\n_mfmabusy := sum[VALU_MFMA_BUSY_CYCLES, axis=[XCC,SE,CU]] / _reduce_busy / 4"
+               "\n_valubusy := sum[ACTIVE_INST_VALU, axis=[XCC,SE,CU]] / _reduce_busy\n"
+               "\nVALU_util := 100 * _valubusy"
+               "\nMFMA_util := 100 * _mfmabusy\n"
+               "\nGPUutil := max(LDS_util, VMEM_util, FLAT_util, min(MFMA_util + VALU_util * (1 - _mfmabusy) / (1.7 - "
+               "_mfmabusy), 100))";
 
     derived += "\n_clock_delta := select[RCLOCK, -1, axis=TIME] - select[RCLOCK, 0, axis=TIME]";
     derived += "\n_frequency := 1E8 * select[_clock_delta, 0, axis=CU] / select[_clock_delta, 1, axis=CU]";

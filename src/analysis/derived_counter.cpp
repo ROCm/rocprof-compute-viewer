@@ -1299,7 +1299,11 @@ std::shared_ptr<const Tensor> CounterContext::getCounter(const std::string& name
 
     // Check raw counters (includes SCLOCK, RCLOCK) - return stored shared_ptr
     auto rawIt = m_rawCounters.find(name);
-    if (rawIt != m_rawCounters.end()) return rawIt->second;
+    if (rawIt != m_rawCounters.end())
+    {
+        m_accessedRawCounters.insert(name);
+        return rawIt->second;
+    }
 
     // Check derived counters - evaluate and cache
     auto derivedIt = m_derivedCounters.find(name);
