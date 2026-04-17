@@ -59,6 +59,8 @@ std::string basename(const std::string& path)
     return (pos != std::string::npos) ? path.substr(pos + 1) : path;
 }
 
+constexpr const char* kUnassignedFile = "[Unassigned]";
+
 constexpr std::array<QColor, 10> kFileColors = {
     {
      QColor(0x40, 0x60, 0xD0), // Muted blue
@@ -129,30 +131,10 @@ void FlameGraphWidget::rebuild()
     auto* tab = MainWindow::window->source_filetab;
     if (tab->files.empty()) return;
 
-    // ---- Step 1: Build per-file StackNodes ----
-    // Key: filename -> StackNode (file level)
+    // ---- Step 1+2: For each ASM instruction, build inline call-stack paths under files ----
+    // File nodes are created on-demand and their latency is accumulated from rooted instructions.
     std::map<std::string, std::shared_ptr<StackNode>> fileNodes;
 
-    // First, create file-level nodes from source files with latency
-    for (auto& [filename, filePair] : tab->files)
-    {
-        auto* sf = filePair.second;
-        if (!sf) continue;
-
-        int64_t fileLat = sf->latency.combined();
-        if (fileLat <= 0) continue;
-
-        auto node = std::make_shared<StackNode>();
-        node->key = filename;
-        node->label = basename(filename);
-        node->filename = filename;
-        node->latency = fileLat;
-        fileNodes[filename] = node;
-    }
-
-    if (fileNodes.empty()) return;
-
-    // ---- Step 2: For each ASM instruction, build inline call-stack paths under files ----
     for (auto& asmLine : ASMCodeline::line_vec)
     {
         if (!asmLine) continue;
@@ -162,52 +144,97 @@ void FlameGraphWidget::rebuild()
         auto* asmElem = dynamic_cast<ASMLine*>(asmLine->elements.at(ASMCodeline::Element::EASM).get());
         if (!asmElem) continue;
 
-        // Get the inline call stack (outermost first -> innermost last)
+        // Get the inline call stack (outermost/definition first -> innermost/call-site last)
         const auto& refs = asmElem->line_ref;
-        if (refs.empty()) continue;
 
-        // Find the outermost file
-        auto outerRef = refs.front().lock();
-        if (!outerRef || !outerRef->parent) continue;
+        // Determine the innermost file. If no SourceLine resolved, fall back to the
+        // raw source-ref text already stored in ESOURCEREF: take everything before
+        // the last ':' as the file (so "myfile.cpp:?" → file "myfile.cpp", line "?").
+        // If that text is empty, group under "[Unassigned]".
+        std::string innerFile;
+        bool resolvedInner = false;
+        if (!refs.empty())
+            if (auto r = refs.back().lock(); r && r->parent && !r->parent->filename.empty())
+            {
+                innerFile = r->parent->filename;
+                resolvedInner = true;
+            }
 
-        std::string outerFile = outerRef->parent->filename;
-        auto fileIt = fileNodes.find(outerFile);
-        if (fileIt == fileNodes.end()) continue;
-
-        // Walk down the inline chain, building/finding child StackNodes
-        StackNode* current = fileIt->second.get();
-
-        for (size_t i = 0; i < refs.size(); i++)
+        if (innerFile.empty())
         {
-            auto locked = refs[i].lock();
-            if (!locked) continue;
+            // cppline is "outer.cpp:N -> ... -> inner.cpp:?". Look only at the
+            // innermost segment (after the last " -> "); take everything before
+            // its last ':' as the file name.
+            std::string_view src = asmLine->elements.at(ASMCodeline::Element::ESOURCEREF)->getStdText();
+            if (auto a = src.rfind(" -> "); a != std::string_view::npos) src.remove_prefix(a + 4);
+            auto colon = src.rfind(':');
+            if (colon != std::string_view::npos && colon > 0) innerFile = std::string(src.substr(0, colon));
+            else innerFile = kUnassignedFile;
+        }
 
-            std::string srcFile = locked->parent ? locked->parent->filename : "Unknown";
-            std::string shortFile = basename(srcFile);
-            // line_number is 0-based; display as 1-based
-            int displayLine = locked->line_number + 1;
-            std::string key = srcFile + ":" + std::to_string(locked->line_number);
-            std::string location = shortFile + ":" + std::to_string(displayLine);
+        const bool unassigned = (innerFile == kUnassignedFile);
 
-            // Get source text for context
-            std::string srcText = trimLeadingWhitespace(locked->getStdText());
+        auto& fileNode = fileNodes[innerFile];
+        if (!fileNode)
+        {
+            fileNode = std::make_shared<StackNode>();
+            fileNode->key = innerFile;
+            fileNode->label = unassigned ? innerFile : basename(innerFile);
+            fileNode->filename = unassigned ? std::string() : innerFile;
+        }
+        fileNode->latency += lat;
 
+        StackNode* current = fileNode.get();
+
+        if (resolvedInner)
+        {
+            // Walk the inline chain in reverse (call-site first, then inlined frames going up)
+            for (size_t i = refs.size(); i-- > 0;)
+            {
+                auto locked = refs[i].lock();
+                if (!locked) continue;
+
+                std::string srcFile = locked->parent ? locked->parent->filename : "Unknown";
+                int displayLine = locked->line_number + 1; // line_number is 0-based
+                std::string key = srcFile + ":" + std::to_string(locked->line_number);
+                std::string location = basename(srcFile) + ":" + std::to_string(displayLine);
+
+                auto& child = current->children[key];
+                if (!child)
+                {
+                    child = std::make_shared<StackNode>();
+                    child->key = key;
+                    child->label = location;
+                    child->content = trimLeadingWhitespace(locked->getStdText());
+                    child->fullLocation = srcFile + ":" + std::to_string(displayLine);
+                    child->filename = srcFile;
+                    child->lineNumber = locked->line_number;
+                }
+                child->latency += lat;
+                current = child.get();
+            }
+        }
+        else
+        {
+            // No resolved SourceLine: one synthetic "<file>:?" row above the file row.
+            // ASM entries are merged-by-label below so we end up with one frame per
+            // unique instruction text instead of one per ASM line.
+            std::string key = innerFile + ":?";
             auto& child = current->children[key];
             if (!child)
             {
                 child = std::make_shared<StackNode>();
                 child->key = key;
-                child->label = location;  // bar label is just location
-                child->content = srcText; // content stored separately
-                child->fullLocation = srcFile + ":" + std::to_string(displayLine);
-                child->filename = srcFile;
-                child->lineNumber = locked->line_number;
+                child->label = (unassigned ? innerFile : basename(innerFile)) + ":?";
+                child->fullLocation = innerFile + ":?";
+                child->filename = unassigned ? std::string() : innerFile;
+                child->lineNumber = -1;
             }
             child->latency += lat;
             current = child.get();
         }
 
-        // Add ASM entry at the leaf
+        // Build the AsmEntry for this instruction.
         StackNode::AsmEntry entry;
         entry.label = trimLeadingWhitespace(asmElem->getStdText());
         entry.latency = lat;
@@ -226,7 +253,20 @@ void FlameGraphWidget::rebuild()
         }
         entry.tokenType = bestType;
 
-        current->asmEntries.push_back(entry);
+        if (resolvedInner)
+        {
+            // Resolved path: keep one entry per ASM line (existing behavior).
+            current->asmEntries.push_back(std::move(entry));
+        }
+        else
+        {
+            // Fallback path: merge by label so identical instructions collapse.
+            // The first asmIndex is kept as a representative so the tooltip can
+            // still show codeobj/vaddr for one instance of this instruction.
+            auto [it, inserted] = current->asmIndexByLabel.try_emplace(entry.label, current->asmEntries.size());
+            if (inserted) current->asmEntries.push_back(std::move(entry));
+            else current->asmEntries[it->second].latency += entry.latency;
+        }
     }
 
     // ---- Step 3: Calculate total latency and determine max depth ----
@@ -519,8 +559,18 @@ void FlameGraphWidget::mouseMoveEvent(QMouseEvent* event)
 
             double pct = m_totalLatency > 0 ? 100.0 * hovered->latency / m_totalLatency : 0;
 
+            // For ASM frames, prefix with "<codeobj> / 0x<vaddr>  " before cycles.
+            QString prefix;
+            if (hovered->asmIndex >= 0)
+            {
+                auto it = ASMCodeline::line_map.find(hovered->asmIndex);
+                if (it != ASMCodeline::line_map.end())
+                    if (auto* a = dynamic_cast<ASMLine*>(it->second->elements.at(ASMCodeline::Element::EASM).get()))
+                        prefix = QString("%1 / 0x%2 - ").arg(a->codeobj).arg(a->addr, 0, 16);
+            }
+
             // Build tooltip: cycles on top, then location, then content
-            QString tip = latStr + QString(" (%1%)").arg(pct, 0, 'f', 1);
+            QString tip = prefix + latStr + QString(" (%1%)").arg(pct, 0, 'f', 1);
             if (!hovered->location.empty()) tip += "\n" + QString::fromStdString(hovered->location);
             if (!hovered->content.empty()) tip += "\n" + QString::fromStdString(hovered->content);
             QToolTip::showText(event->globalPos(), tip, this);

@@ -28,6 +28,7 @@
 #include <map>
 #include <memory>
 #include <string>
+#include <unordered_map>
 #include <vector>
 #include "code/hotspot.hpp"
 
@@ -103,6 +104,10 @@ private:
             int tokenType = 0; ///< Index into Config::TokenColors()
         };
         std::vector<AsmEntry> asmEntries;
+        /// Optional: when populated, asmEntries are merged-by-label via this index.
+        /// Used for fallback ([Unassigned] / file:?) nodes to collapse identical
+        /// instructions into one frame each, instead of one per ASM line.
+        std::unordered_map<std::string, size_t> asmIndexByLabel;
     };
 
     void buildFrames();
