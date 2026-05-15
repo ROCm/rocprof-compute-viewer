@@ -1,0 +1,117 @@
+name: CMake
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [amd-mainline]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref_name != 'amd-mainline' }}
+
+permissions:
+  contents: read
+
+env:
+  # Customize the CMake build type here (Release, Debug, RelWithDebInfo, etc.)
+  BUILD_TYPE: Release
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        system: [
+          {name: 'windows-x86', runner: windows-2022, host: 'windows', arch: 'win64_msvc2022_64', cmake: '', cmd: ''},
+          {name: 'macos-x86', runner: macos-15-intel, host: 'mac', arch: 'clang_64', cmake: '-DCMAKE_OSX_ARCHITECTURES=x86_64 -DCMAKE_OSX_DEPLOYMENT_TARGET="12.7.3"', cmd: 'x86'},
+          {name: 'ubuntu-22-x86', runner: ubuntu-22.04, host: 'linux', arch: 'linux_gcc_64', cmake: '', cmd: ''},
+          {name: 'ubuntu-24-x86', runner: ubuntu-24.04, host: 'linux', arch: 'linux_gcc_64', cmake: '', cmd: ''},
+          {name: 'macos-arm64', runner: macos-14, host: 'mac', arch: 'clang_64', cmake: '-DCMAKE_OSX_ARCHITECTURES="arm64" -DCMAKE_OSX_DEPLOYMENT_TARGET="12.7.3"', cmd: 'arm64'}
+        ]
+
+    runs-on: ${{ matrix.system.runner }}
+
+    steps:
+    - uses: actions/checkout@v6
+      timeout-minutes: 5
+
+    - name: Install Req
+      if: ${{ contains(matrix.system.host, 'linux') }}
+      timeout-minutes: 10
+      run: |
+        sudo apt update
+        sudo apt install -y cmake rpm
+        sudo cat /etc/os-release
+
+    - name: Install Qt
+      uses: jurplel/install-qt-action@48d3ad6db93f3627c8ee7a0454bc6f3744f7e730 # v4.3.1
+      timeout-minutes: 15
+      with:
+        aqtversion: '==3.1.*'
+        version: '6.8.0'
+        host: ${{ matrix.system.host }}
+        target: 'desktop'
+        arch: ${{ matrix.system.arch }}
+        cache: true
+
+    - name: Configure CMake
+      timeout-minutes: 15
+      run: cmake -B ${{github.workspace}}/build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} -DBUILD_LOCATION=${{github.workspace}}/build ${{ matrix.system.cmake }}
+
+    - name: Build
+      timeout-minutes: 10
+      run: cmake --build ${{github.workspace}}/build --config ${{env.BUILD_TYPE}} --parallel 16
+
+    - name: Configure Tests
+      if: ${{ contains(matrix.system.host, 'linux') }}
+      timeout-minutes: 15
+      run: cmake -S ${{github.workspace}}/tests -B ${{github.workspace}}/build-tests -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}}
+
+    - name: Build Tests
+      if: ${{ contains(matrix.system.host, 'linux') }}
+      timeout-minutes: 5
+      run: cmake --build ${{github.workspace}}/build-tests --config ${{env.BUILD_TYPE}} --parallel 16
+
+    - name: Run Tests
+      if: ${{ contains(matrix.system.host, 'linux') }}
+      timeout-minutes: 10
+      env:
+        QT_QPA_PLATFORM: offscreen
+      run: ctest --test-dir ${{github.workspace}}/build-tests --output-on-failure --build-config ${{env.BUILD_TYPE}}
+
+    - name: Building Packages
+      timeout-minutes: 10
+      run: cmake --build ${{github.workspace}}/build --config ${{env.BUILD_TYPE}} --target package --parallel 16
+
+    - name: Rename Packages
+      if: ${{ contains(matrix.system.host, 'mac') }}
+      timeout-minutes: 5
+      run: cd ${{github.workspace}}/build; find . -depth -name "*.sh" -exec sh -c 'f="{}"; mv -- "$f" "${f%.sh}-${{ matrix.system.cmd }}.sh"' \;
+
+    - name: Verify Packages
+      shell: bash
+      timeout-minutes: 5
+      working-directory: ${{github.workspace}}/build
+      run: |
+        shopt -s nullglob
+        packages=( *.exe *.sh *.deb *.rpm *.pkg )
+        ls -lah
+        if (( ${#packages[@]} == 0 )); then
+          echo "No package artifacts found."
+          exit 1
+        fi
+        printf 'Found package artifact: %s\n' "${packages[@]}"
+
+    - name: Archive production artifacts
+      uses: actions/upload-artifact@v7
+      timeout-minutes: 10
+      with:
+        name: Binaries_${{ matrix.system.name }}
+        path: |
+          ${{github.workspace}}/build/*.exe
+          ${{github.workspace}}/build/*.sh
+          ${{github.workspace}}/build/*.deb
+          ${{github.workspace}}/build/*.rpm
+          ${{github.workspace}}/build/*.pkg
+        retention-days: 30
