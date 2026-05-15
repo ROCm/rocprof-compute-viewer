@@ -76,7 +76,12 @@ set(QT_V Qt${QT_VERSION_MAJOR})
 
 if(${QT_VERSION_MAJOR} EQUAL 6 AND ${QT_VERSION_MINOR} GREATER_EQUAL 8)
 
-    if(WIN32 AND MSVC)
+    if(APPLE)
+        set(RCVIEWER_MACOS_ICON_FILE amd.icns)
+        set(RCVIEWER_MACOS_ICON_PATH "${CMAKE_CURRENT_SOURCE_DIR}/${RCVIEWER_MACOS_ICON_FILE}")
+        set_source_files_properties(${RCVIEWER_MACOS_ICON_PATH} PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
+        list(APPEND RCVIEWER_SOURCE_FILES ${RCVIEWER_MACOS_ICON_PATH})
+    elseif(WIN32 AND MSVC)
         list(APPEND RCVIEWER_SOURCE_FILES icon.rc)
     endif()
     qt_add_executable(${PROJECT_NAME} ${RCVIEWER_SOURCE_FILES})
@@ -86,7 +91,8 @@ if(${QT_VERSION_MAJOR} EQUAL 6 AND ${QT_VERSION_MINOR} GREATER_EQUAL 8)
     if(APPLE)
         # App bundles on macOS have an .app suffix
         set(executable_path "$<TARGET_FILE_NAME:${PROJECT_NAME}>.app")
-        set_target_properties(${PROJECT_NAME} PROPERTIES MACOSX_BUNDLE TRUE)
+        set_target_properties(${PROJECT_NAME}
+            PROPERTIES MACOSX_BUNDLE TRUE MACOSX_BUNDLE_ICON_FILE ${RCVIEWER_MACOS_ICON_FILE})
     elseif(WIN32)
         set(executable_path "$<TARGET_FILE:${PROJECT_NAME}>")
         set_target_properties(${PROJECT_NAME} PROPERTIES WIN32_EXECUTABLE TRUE RC_FILE icon.rc)
