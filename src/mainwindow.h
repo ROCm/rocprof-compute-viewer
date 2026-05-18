@@ -33,12 +33,17 @@
 #include <QMetaObject>
 #include <QStyleFactory>
 #include <QTreeView>
+#include <memory>
 #include <optional>
 #include <string_view>
 #include <unordered_set>
 #include <vector>
-#include "graphics/hotspot.h"
+#include "graphics/hotspot_view.h"
 #include "util/custom_layouts.h"
+#include "util/diagnostic_log.h"
+
+class DataStore;
+struct InputInfo;
 
 QT_BEGIN_NAMESPACE
 namespace Ui
@@ -51,26 +56,41 @@ class MainWindow : public QMainWindow
 {
     Q_OBJECT
     friend class OptionsDialogH;
+    friend class FlameGraphWidget;
 
 public:
+    enum class LoadStatus
+    {
+        Success,
+        InvalidInput,
+        UnsupportedInput,
+        LoadFailed
+    };
+
+    struct LoadResult
+    {
+        LoadStatus status = LoadStatus::Success;
+        QString message;
+    };
+
     MainWindow(std::string uidir);
     virtual ~MainWindow();
     virtual void paintEvent(QPaintEvent* event) override;
     virtual void showEvent(QShowEvent* event) override;
 
     static std::string GetUIDir();
-    std::string GetDisplayDir();
     void ResetSelector();
 
     void CreateCountersPlot();
     void UpdateCountersPlotSelection();
     void CreateOccupancyPlot(bool bDispatch);
-    void CreateWavesPlot();
     void setPlotBarPos(float x);
     void UpdateGraphInfo(const std::string& name, float value);
     void UpdateGraphAutoLod(int bAutoLod);
     void ToggleDisplayLineNumber(int display);
     void SetJsonsFolder();
+    void OpenAttFiles();
+    void OpenRocpd();
     void OpenOptionsDialog();
     void OpenDerivedCounterEditor();
     void SetWaveViewMipmap(int value);
@@ -92,6 +112,7 @@ public:
     void NextSearch();
     void SetSearchText(const std::string& text);
     void SourceHotspotSizeEdited();
+    LoadResult LoadInputForTests(InputInfo info, const std::string& display_path);
 
     void LoadSourceFiles();
 
@@ -104,9 +125,7 @@ public:
     class QUtilization* utilization_content = nullptr;
     class QScrollArea* utilization_v_scrollarea = nullptr;
     class QScrollArea* code_scrollarea = nullptr;
-    class QWidget* wv_states = nullptr;
     class CounterPlotView* counters_plot = nullptr;
-    class WavePlotView* waves_plot = nullptr;
     class OccupancyPlotView* occupancy_plot = nullptr;
     class OccupancyPlotView* dispatch_plot = nullptr;
     class HotspotView* hotspot_view = nullptr;
@@ -116,7 +135,6 @@ public:
     class QScrollArea* global_view_scrollarea = nullptr;
     class SummaryView* summary_view = nullptr;
 
-    class QGridLayout* waves_plot_layout = nullptr;
     class QGridLayout* counters_plot_layout = nullptr;
     class QGridLayout* occupancy_plot_layout = nullptr;
     class QGridLayout* dispatch_plot_layout = nullptr;
@@ -137,6 +155,9 @@ public:
     class QGlobalView* global_view_widget = nullptr;
     static MainWindow* window;
 
+    /// Central data store, populated by emitters (JSON, trace-decoder, rocpd).
+    std::unique_ptr<DataStore> data_store;
+
     /// Pre-loaded shaderdata, shared with global view and wave view.
     class ShaderDataManager* shaderdata_manager = nullptr;
 
@@ -154,6 +175,10 @@ public:
 
     static QString default_font;
 
+    /// CLI override paths (set from main.cpp before window creation)
+    static std::string cli_code_json_override;
+    static std::string cli_snapshots_json_override;
+
 private:
     static double _paint_scale;
     static int _scaling_var;
@@ -166,6 +191,15 @@ private:
     std::unordered_map<std::string, std::pair<class QLabel*, class QLabel*>> occupancy_values_tableitem;
 
     std::string ui_dir;
+    /// Path the user opened (directory or single file). Replaces the old
+    /// ConfigNameEdit lineedit as the source-of-truth for "what is loaded".
+    std::string current_path;
+
+    /// Apply a fully-built InputInfo (from detectInput or one of the file pickers).
+    /// Centralises the loading sequence so menu handlers can construct InputInfo
+    /// directly without round-tripping through detectInput.
+    void LoadInput(InputInfo info, const std::string& display_path);
+    LoadResult LoadInputImpl(InputInfo info, const std::string& display_path, bool show_dialogs);
     int hotspot_n_bins = 32;
     int hotspot_begin = 0;
     int hotspot_end = 1000000;
@@ -187,7 +221,8 @@ private:
     int64_t current_loaded_clk_end = 0;
 
     class FlameGraphWidget* flameGraph = nullptr;
-    void loadJsonFileTree(const char* streambytes);
+    class MarkerFlameGraphWidget* markerFlameGraph = nullptr;
+    void ensureFlameGraphWidget();
 
     void loadConfigSettings();
     void setupConfigConnections();

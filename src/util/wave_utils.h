@@ -25,6 +25,8 @@
 #include <cstdint>
 #include <string>
 
+#include "diagnostic_log.h"
+
 namespace WaveUtils
 {
 
@@ -77,6 +79,7 @@ inline int getLineNumber(const std::string& linepath)
     }
     catch (...)
     {
+        RCV_LOG();
         return -1;
     }
 }

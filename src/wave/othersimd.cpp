@@ -43,6 +43,7 @@ OtherSimdFiles ParseOtherSimdFilenames(const nlohmann::json& filenames, const st
         }
         catch (...)
         {
+            RCV_LOG();
             continue;
         }
 
@@ -126,6 +127,12 @@ void OtherSimdData::SetFiles(OtherSimdFiles files)
     tokens.clear();
 }
 
+void OtherSimdData::SetRecords(std::map<int, std::vector<OtherSimdInstruction>> records)
+{
+    in_memory_records = std::move(records);
+    tokens.clear();
+}
+
 void OtherSimdData::Clear() { tokens.clear(); }
 
 const std::vector<Token>& OtherSimdData::LoadTokens(int se, int64_t clock_start, int64_t clock_end, int color_count)
@@ -133,6 +140,29 @@ const std::vector<Token>& OtherSimdData::LoadTokens(int se, int64_t clock_start,
     tokens.clear();
     if (color_count <= 0) return tokens;
 
+    // In-memory path (decoder)
+    auto mem_it = in_memory_records.find(se);
+    if (mem_it != in_memory_records.end())
+    {
+        for (const auto& instruction : mem_it->second)
+        {
+            int64_t end_time = instruction.time + instruction.cycles;
+            if (end_time < clock_start || instruction.time > clock_end) continue;
+
+            int type = instruction.category;
+            bool valid_type = type >= 0 && type < color_count;
+            QWARNING(valid_type, "Unknown other SIMD token type " << type, continue);
+
+            Token token{};
+            token.clock = instruction.time;
+            token.cycles = std::max(0, instruction.cycles);
+            token.type = type;
+            tokens.push_back(token);
+        }
+        return tokens;
+    }
+
+    // File-based path (JSON)
     auto files_it = files.find(se);
     if (files_it == files.end())
     {

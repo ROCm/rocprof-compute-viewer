@@ -29,6 +29,7 @@
 #include <vector>
 #include "json/include/nlohmann/json.hpp"
 #include "memtracker.h"
+#include "util/diagnostic_log.h"
 
 //! Class containing a string to be parsed by WaveReader. Can be requested by disk or network.
 class StreamRequest : public QObject,

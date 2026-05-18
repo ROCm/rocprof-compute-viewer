@@ -20,7 +20,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-#include "hotspot.h"
+#include "hotspot_view.h"
 #include <wave/token.h>
 #include <QMouseEvent>
 #include <QPainter>
@@ -98,7 +98,9 @@ void HotspotView::mousePressEvent(QMouseEvent* ev)
             end = ASMCodeline::line_map.at(end)->line_index;
         }
         catch (...)
-        {}
+        {
+            RCV_LOG();
+        }
 
         QASSERT(QCodelist::singleton, "Invalid codelist");
         QCodelist::singleton->Highlight(begin, end, true);

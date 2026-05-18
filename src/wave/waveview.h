@@ -26,8 +26,12 @@
 #include <QWidget>
 #include <array>
 #include <map>
+#include <memory>
 #include <set>
 #include <vector>
+#include "data/marker_colors.h"
+#include "data/marker_types.h"
+#include "data/records.h"
 #include "data/shaderdata.h"
 #include "data/wavemanager.h"
 #include "measure.h"
@@ -58,14 +62,22 @@ public:
     void onScroll(int value) { update(); }
 
     void Reset();
+    void SetDecoderEvents(
+        const std::vector<trace_event_record_t>* events, const std::vector<dispatch_record_t>* dispatches, int se = -1
+    );
     std::shared_ptr<class ScrollValue> view;
     std::map<int64_t, std::shared_ptr<TokenGroup>> waves;
 
 private:
     void setLineHover(int line_index, bool hover);
     void clearLineHover();
+    void DrawDecoderEvents(class QPainter& painter, int64_t clock_start, int64_t clock_end, int height);
+    bool ShowDecoderEventTooltip(const QPoint& global_pos, int64_t clock);
 
     std::shared_ptr<MeasureTool> tool;
+    const std::vector<trace_event_record_t>* trace_events = nullptr;
+    const std::vector<dispatch_record_t>* dispatch_records = nullptr;
+    int decoder_event_se = -1;
     int hovering_line_index = -1;
 public slots:
     void onupdatebar() { update(); }
@@ -138,7 +150,11 @@ public:
     void AddTokens(int simd, const TokenMap& tokens);
     virtual void Clear() override;
     virtual void Compile();
+    void SetDecoderEvents(
+        const std::vector<trace_event_record_t>* events, const std::vector<dispatch_record_t>* dispatches, int se = -1
+    );
     void SetOtherSimdSources(OtherSimdFiles files);
+    void SetOtherSimdRecords(std::map<int, std::vector<OtherSimdInstruction>> records);
     void PopulateOtherSimdTokens(int se, int simd, int64_t clock_start, int64_t clock_end);
     const std::vector<Token>& GetOtherSimdTokens() const { return other_simd.Tokens(); }
     int GetOtherSimdId() const { return other_simd_id; }
@@ -180,12 +196,26 @@ class QShaderDataView : public QWidget
 public:
     QShaderDataView(class QCustomScroll* parent, ShaderDataRecordVec records);
 
+    /// Set decoded marker spans for this bucket. When non-null+non-empty the
+    /// view switches into typed marker rendering; otherwise the legacy
+    /// red-rect raw-record path is used. Pre-computes per-span color and
+    /// max_depth once — paint and mouse never recompute.
+    void SetMarkers(MarkerSpanVec spans);
+
     virtual void paintEvent(QPaintEvent* event) override;
     virtual void mouseMoveEvent(QMouseEvent* event) override;
+
+    /// Suggested per-track height when in marker mode (depth-aware).
+    /// Returns the legacy default when no markers are set.
+    int suggestedHeight(int legacy_height) const;
 
 private:
     std::shared_ptr<class ScrollValue> view;
     ShaderDataRecordVec shaderdata_records;
+
+    /// Decoded marker spans + derived render data. When non-empty the view
+    /// switches to typed marker rendering; otherwise the raw red-rect path runs.
+    MarkerRenderCache markers;
 
 public slots:
     void onupdatebar() { update(); }

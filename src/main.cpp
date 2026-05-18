@@ -22,6 +22,8 @@
 
 #include <QIcon>
 #include <QPixmap>
+#include <filesystem>
+#include <string>
 #include "mainwindow.h"
 
 int main(int argc, char* argv[])
@@ -36,7 +38,23 @@ int main(int argc, char* argv[])
         a.setStyle(QStyleFactory::create("Fusion"));
 #endif
 
-        MainWindow w((argc >= 2 && argv[1]) ? argv[1] : "");
+        // Parse CLI arguments: positional paths auto-detected by filename
+        // Recognizes: code.json, snapshots.json, directories, .rocpd files
+        std::string input_path;
+        for (int i = 1; i < argc; i++)
+        {
+            std::string arg = argv[i];
+            std::string basename = arg.substr(arg.find_last_of("/\\") + 1);
+
+            if (basename == "code.json")
+                MainWindow::cli_code_json_override = std::filesystem::absolute(arg).string();
+            else if (basename == "snapshots.json")
+                MainWindow::cli_snapshots_json_override = std::filesystem::absolute(arg).string();
+            else if (input_path.empty())
+                input_path = arg;
+        }
+
+        MainWindow w(input_path);
         w.setWindowIcon(icon);
         w.show();
         res = a.exec();

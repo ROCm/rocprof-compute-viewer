@@ -22,10 +22,10 @@
 
 #include "mainwindow.h"
 #include <stdlib.h>
-#include <sys/stat.h>
 #include <QCheckBox>
 #include <QDir>
 #include <QFileDialog>
+#include <QFileInfo>
 #include <QFontDatabase>
 #include <QMessageBox>
 #include <QPainterPath>
@@ -34,9 +34,11 @@
 #include <QTextStream>
 #include <algorithm>
 #include <cstddef>
+#include <filesystem>
 #include <fstream>
 #include <future>
 #include <iostream>
+#include <set>
 #include <utility>
 #include <vector>
 #include "./ui_mainwindow.h"
@@ -45,25 +47,36 @@
 #include "code/labelminimap.h"
 #include "code/qcodelist.h"
 #include "code/sourcefile.h"
+#include "collection/attselector.h"
 #include "collection/derivedcountereditor.h"
 #include "collection/flamegraphwidget.h"
 #include "collection/latencyanalysisdialog.h"
 #include "collection/license.h"
+#include "collection/markerflamegraphwidget.h"
 #include "collection/options.h"
 #include "config/appconfig.h"
 #include "config/config.hpp"
+#include "data/datastore.h"
+#include "data/input_detector.h"
+#include "data/json_emitter.h"
+#include "data/record_handlers.h"
+#ifdef RCV_HAS_TRACE_DECODER
+#    include "data/rocpd_emitter.h"
+#    include "data/trace_decoder_emitter.h"
+#endif
 #include "data/shaderdata.h"
 #include "data/wavedata.h"
 #include "graphics/canvas.h"
-#include "graphics/hotspot.h"
+#include "graphics/hotspot_view.h"
 #include "graphics/specialized_plots.h"
 #include "summary/summaryview.h"
-#include "util/jsonrequest.hpp"
 #include "util/version.h"
 #include "wave/othersimd.h"
 #include "wave/scroll.h"
 #include "wave/waveglobal.h"
 #include "wave/waveview.h"
+
+namespace fs = std::filesystem;
 
 #if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
 #    include "util/accordionwidget.h"
@@ -76,24 +89,11 @@
 #    include <QDesktopWidget>
 #endif
 
-inline bool FileExists(const std::string& name)
-{
-    if (name.find("http://") != std::string::npos)
-    {
-        try
-        {
-            // TODO: Only check if file exists on the server.
-            JsonRequest try_request(name);
-        }
-        catch (std::exception& e)
-        {
-            return false;
-        }
-        return true;
-    }
-    struct stat buffer;
-    return stat(name.c_str(), &buffer) == 0;
-}
+// Maximum number of instructions to load into Compute Unit / Utilization views at once.
+// When all wave data is in memory (decoder path), GatherWaves will expand the clock
+// window to show more waves, up to this budget. Tokens are ~24 bytes each and are
+// duplicated across the WaveInstance cache and the Utilization view (~3x multiplier).
+constexpr size_t GATHER_INSTRUCTION_BUDGET = 50'000'000;
 
 std::vector<QColor> MainWindow::dispatchcolors = {
     {0,   255, 0  },
@@ -113,6 +113,8 @@ std::vector<QColor> MainWindow::dispatchcolors = {
 };
 
 MainWindow* MainWindow::window = nullptr;
+std::string MainWindow::cli_code_json_override;
+std::string MainWindow::cli_snapshots_json_override;
 
 QString MainWindow::default_font{};
 
@@ -262,7 +264,6 @@ MainWindow::MainWindow(std::string uidir) : QMainWindow(nullptr), ui(new Ui::Mai
     ulitization_widget->layout()->addWidget(utilization_h_scrollarea);
 
     accordion->addSection("Counters", nullptr);
-    accordion->addSection("Wave States", nullptr);
     accordion->addSection("Hotspot", nullptr);
     accordion->addSection("Occupancy", nullptr);
     accordion->addSection("Kernel Dispatch", nullptr);
@@ -282,14 +283,15 @@ MainWindow::MainWindow(std::string uidir) : QMainWindow(nullptr), ui(new Ui::Mai
     // --- MENU ---
     if (uidir != "")
     {
-        ui->ConfigNameEdit->setText(uidir.c_str());
+        current_path = uidir;
         ResetSelector();
     }
 
-    connect(ui->ConfigNameEdit, &QLineEdit::editingFinished, this, &MainWindow::ResetSelector);
     connect(ui->lod_checkBox, &QCheckBox::stateChanged, this, &MainWindow::UpdateGraphAutoLod);
 
     connect(ui->actionJsons_folder, &QAction::triggered, this, &MainWindow::SetJsonsFolder);
+    connect(ui->actionAttFiles, &QAction::triggered, this, &MainWindow::OpenAttFiles);
+    connect(ui->actionRocpd, &QAction::triggered, this, &MainWindow::OpenRocpd);
     connect(ui->actionHotOptions, &QAction::triggered, this, &MainWindow::OpenOptionsDialog);
     connect(ui->actionDerived_counters, &QAction::triggered, this, &MainWindow::OpenDerivedCounterEditor);
     connect(
@@ -447,7 +449,6 @@ void MainWindow::ToggleDisplayLineNumber(int display)
     source_filetab->setVisible(true);
 }
 
-std::string MainWindow::GetDisplayDir() { return QDir::cleanPath(ui->ConfigNameEdit->displayText()).toStdString(); }
 std::string MainWindow::GetUIDir()
 {
     QASSERT(window, "");
@@ -483,13 +484,15 @@ void MainWindow::SetMainWave(int se, int simd, int sl, int wid)
     current_wave_coord_sm = simd;
     current_wave_coord_sl = sl;
 
-    std::stringstream wave_name;
-    wave_name << GetUIDir() << "se" << se << "_sm" << simd << "_sl" << sl << "_wv" << wid << ".json";
-
-    auto main_wave = WaveInstance::Get(wave_name.str());
+    QWARNING(data_store, "No data store", return );
+    auto& entry = data_store->wave_hierarchy[se][simd][sl][wid];
+    auto main_wave = data_store->getWave(entry);
     WaveInstance::main_wave = main_wave;
 
     QWARNING(main_wave && code_contents && code_contents->connector, "invalid code_contents", return );
+
+    // Compute waitcnt on demand for the selected wave (decoder path)
+    main_wave->buildWaitcnt(data_store->gfxip);
 
     auto thread_wait = std::async(
         std::launch::async,
@@ -503,6 +506,33 @@ void MainWindow::SetMainWave(int se, int simd, int sl, int wid)
 
     ui->wview_range_min->setText(std::to_string(main_wave->wave_begin).c_str());
     ui->wview_range_max->setText(std::to_string(main_wave->wave_end + WAVE_END_ROOM).c_str());
+
+    // Decoder path: wave data is already in memory, so expand the clock window
+    // to show all waves in this SE (if within the instruction budget).
+    if (!data_store->wave_records.empty())
+    {
+        int64_t se_min = INT64_MAX, se_max = INT64_MIN;
+        size_t total_instructions = 0;
+
+        auto se_it = data_store->wave_hierarchy.find(se);
+        if (se_it != data_store->wave_hierarchy.end())
+            for (auto& [_, simd_data] : se_it->second)
+                for (auto& [__, slot_data] : simd_data)
+                    for (auto& [___, entry] : slot_data)
+                    {
+                        auto rec_it = data_store->wave_records.find(entry.id);
+                        if (rec_it == data_store->wave_records.end()) continue;
+                        total_instructions += rec_it->second.instructions.size();
+                        se_min = std::min(se_min, entry.begin);
+                        se_max = std::max(se_max, entry.end);
+                    }
+
+        if (total_instructions <= GATHER_INSTRUCTION_BUDGET && se_min < se_max)
+        {
+            ui->wview_range_min->setText(std::to_string(se_min).c_str());
+            ui->wview_range_max->setText(std::to_string(se_max + WAVE_END_ROOM).c_str());
+        }
+    }
 
     UpdateWaveViewRange();
     force_gather = false;
@@ -613,6 +643,7 @@ void MainWindow::OpenDerivedCounterEditor()
             }
             catch (const std::exception& e)
             {
+                RCV_LOG();
                 // Skip counters that fail to load
                 rawCounterList.push_back({QString::fromStdString(name), "error", {}});
             }
@@ -642,6 +673,7 @@ void MainWindow::OpenDerivedCounterEditor()
             }
             catch (const std::exception& e)
             {
+                RCV_LOG();
                 // Add with error indicator if evaluation fails
                 derivedCounterList.push_back({QString::fromStdString(name), QString("error: %1").arg(e.what()), {}});
             }
@@ -664,23 +696,78 @@ void MainWindow::OpenDerivedCounterEditor()
 void MainWindow::SetJsonsFolder()
 {
     std::string jsons_dir = QFileDialog::getExistingDirectory(this, "Select Dir", ui_dir.c_str()).toStdString();
-    ui->ConfigNameEdit->setText(jsons_dir.c_str());
+    if (jsons_dir.empty()) return;
+    current_path = jsons_dir;
     ResetSelector();
 }
 
-void recursive_load(
-    const std::string& path, nlohmann::json& data, std::vector<std::pair<std::string, std::string>>& widgets
-)
+void MainWindow::OpenAttFiles()
 {
-    for (auto& [key, value] : data.items())
-    {
-        std::string newpath = path;
-        if (!path.empty() && path.back() != '/') newpath += '/';
-        newpath += key;
+#ifndef RCV_HAS_TRACE_DECODER
+    QMessageBox::warning(
+        this,
+        "Unsupported",
+        "This build was compiled without trace-decoder support.\n"
+        "Rebuild with -DTRACE_DECODER_ROOT=... to load .att/.out files."
+    );
+    return;
+#else
+    QStringList picked = QFileDialog::getOpenFileNames(
+        this, "Select ATT Trace Files", ui_dir.c_str(), "ATT Trace Files (*.att);;All Files (*)"
+    );
+    if (picked.isEmpty()) return;
 
-        if (value.is_string()) { widgets.push_back({newpath, std::string(value)}); }
-        else { recursive_load(newpath, value, widgets); }
-    }
+    InputInfo info;
+    info.type = InputType::ATT_FILES;
+    info.att_files.reserve(picked.size());
+    for (const QString& p : picked) info.att_files.push_back(p.toStdString());
+    std::sort(info.att_files.begin(), info.att_files.end());
+
+    // Keep att_file_info parallel to att_files (same order, same length) so the
+    // dispatch selector and any future consumer can rely on the documented
+    // invariant in input_detector.h:57. detectInput() does this for directory
+    // inputs; the file-picker path was previously skipping it.
+    info.att_file_info.reserve(info.att_files.size());
+    for (const auto& p : info.att_files) info.att_file_info.push_back(parseAttFilename(p));
+
+    // Common parent dir as base_path so the lazy .out scan inside
+    // TraceDecoderEmitter can find sibling codeobj_<id>.out files. When the
+    // user picks files from multiple directories we just use the first one's
+    // parent; only that directory's .out siblings get scanned, which matches
+    // the explicit-file-list intent.
+    info.base_path = fs::path(info.att_files.front()).parent_path().string();
+
+    // Capture display path BEFORE moving info — argument evaluation order is
+    // unspecified, so reading info.att_files.front() after std::move(info) on
+    // the same call is undefined behaviour (and segfaulted in practice).
+    std::string display = info.att_files.front();
+    LoadInput(std::move(info), display);
+#endif
+}
+
+void MainWindow::OpenRocpd()
+{
+#ifndef RCV_HAS_TRACE_DECODER
+    QMessageBox::warning(
+        this,
+        "Unsupported",
+        "This build was compiled without trace-decoder support.\n"
+        "Rebuild with -DTRACE_DECODER_ROOT=... to load .rocpd files."
+    );
+    return;
+#else
+    QString picked = QFileDialog::getOpenFileName(
+        this, "Select ROCpd Database", ui_dir.c_str(), "ROCpd Database (*.rocpd);;All Files (*)"
+    );
+    if (picked.isEmpty()) return;
+
+    InputInfo info;
+    info.type = InputType::ROCPD;
+    info.rocpd_path = picked.toStdString();
+    info.base_path = picked.toStdString();
+    std::string display = info.rocpd_path;
+    LoadInput(std::move(info), display);
+#endif
 }
 
 void MainWindow::LoadSourceFiles()
@@ -695,28 +782,21 @@ void MainWindow::LoadSourceFiles()
 
     source_filetab->clear();
 
-    try
+    const bool has_sources = data_store && !data_store->source_snapshots.empty();
+    const bool has_markers = shaderdata_manager && shaderdata_manager->HasMarkers();
+
+    if (has_sources)
     {
-        JsonRequest req(GetUIDir() + "/snapshots.json", false);
-
-        if (!req.bValid) throw std::exception();
-
-        std::vector<std::pair<std::string, std::string>> widgets{};
-        recursive_load("", req.data, widgets);
-
-        for (auto& [profilingPath, uiFilename] : widgets)
+        for (auto& snap : data_store->source_snapshots)
         {
-            std::string fullUiPath = ui_dir + std::string(uiFilename);
-            source_filetab->addFile(profilingPath, fullUiPath);
+            source_filetab->addFile(snap.original_path, snap.snapshot_path);
         }
+    }
 
-        loadJsonFileTree(req.data.dump().c_str());
-        ui->tabWidget_2->setTabEnabled(3, true);
-    }
-    catch (...)
-    {
-        ui->tabWidget_2->setTabEnabled(3, false);
-    }
+    // The fine flamegraph is meaningful with either DWARF source rows or marker
+    // scope rows — instruction costs roll up under whichever is present.
+    ui->tabWidget_2->setTabEnabled(3, has_sources || has_markers);
+    if (has_sources || has_markers) ensureFlameGraphWidget();
 
     // Only show raw source ref if no snapshot is found
     bool hassource = source_filetab->files.size();
@@ -726,31 +806,292 @@ void MainWindow::LoadSourceFiles()
 
 void MainWindow::ResetSelector()
 {
-    const QString displayDir = QString::fromStdString(GetDisplayDir());
-    if (displayDir.isEmpty()) return;
+    if (current_path.empty()) return;
+    const std::string input_path = QDir::cleanPath(QString::fromStdString(current_path)).toStdString();
+    InputInfo input_info = detectInput(input_path);
+    LoadInput(std::move(input_info), input_path);
+}
 
-    QDir dir(displayDir);
-    const std::string newpath = dir.filePath("filenames.json").toStdString();
-    if (newpath == lastPath) return;
+MainWindow::LoadResult MainWindow::LoadInputForTests(InputInfo input_info, const std::string& input_path)
+{
+    return LoadInputImpl(std::move(input_info), input_path, false);
+}
 
-    std::shared_ptr<JsonRequest> request{nullptr};
-    try
+void MainWindow::LoadInput(InputInfo input_info, const std::string& input_path)
+{
+    (void) LoadInputImpl(std::move(input_info), input_path, true);
+}
+
+MainWindow::LoadResult MainWindow::LoadInputImpl(InputInfo input_info, const std::string& input_path, bool show_dialogs)
+{
+    LoadResult load_result;
+
+    // Apply CLI overrides — preserved so the legacy `code.json` /
+    // `snapshots.json` argv hack on main.cpp still works for every input type.
+    if (!cli_code_json_override.empty()) input_info.code_json_override = cli_code_json_override;
+    if (!cli_snapshots_json_override.empty()) input_info.snapshots_json_override = cli_snapshots_json_override;
+
+#ifdef RCV_HAS_TRACE_DECODER
+    // Multi-dispatch ATT inputs: each .att file is its own shader-clock domain
+    // starting at sc=0, and REALTIME alignment cannot reconcile two domains on
+    // the same SE. Pop the dispatch selector so the user picks exactly one
+    // capture. The unique key is (agent, dispatch) — different agents (GPUs)
+    // may reuse the same dispatch_id from independent processes, so dispatch
+    // alone is not enough.
+    if (input_info.type == InputType::ATT_FILES && !input_info.att_file_info.empty())
     {
-        request = std::make_shared<JsonRequest>(newpath);
-        if (!request || !request->bValid) throw std::exception();
+        std::set<std::pair<int, int>> captures;
+        for (const auto& f : input_info.att_file_info) captures.emplace(f.agent, f.dispatch);
+        if (captures.size() > 1)
+        {
+            AttSelectorDialog dlg(this, input_info);
+            if (dlg.exec() != QDialog::Accepted)
+            {
+                load_result.status = LoadStatus::LoadFailed;
+                load_result.message = "ATT selection cancelled";
+                return load_result;
+            }
+            input_info = dlg.selectedInfo();
+            if (input_info.att_files.empty())
+            {
+                load_result.status = LoadStatus::LoadFailed;
+                load_result.message = "No ATT files selected";
+                return load_result;
+            }
+        }
     }
-    catch (std::exception& e)
+#endif
+
+    // For JSON_DIR, use the existing filenames.json check as the change-detection key
+    std::string newpath;
+    if (input_info.type == InputType::JSON_DIR)
     {
-        ui->ConfigNameEdit->setText(QString::fromStdString(ui_dir));
-        QMessageBox::warning(
-            this, "Path Not Found", QString("Invalid or inaccessible path: %1").arg(QString::fromStdString(newpath))
-        );
-        QWARNING(false, "Invalid filename " << newpath, return );
+        QDir dir(QString::fromStdString(input_path));
+        newpath = dir.filePath("filenames.json").toStdString();
     }
-    ui_dir = dir.path().toStdString();
+    else if (input_info.type == InputType::ATT_FILES && !input_info.att_files.empty())
+    {
+        // Two distinct selections may share the input_path (one of the picked
+        // .att files) and the file count, so include every picked path in the
+        // key. Hash via std::hash<string> to keep the key bounded.
+        std::string joined;
+        for (const auto& p : input_info.att_files)
+        {
+            joined.push_back('\0');
+            joined += p;
+        }
+        newpath = input_path + "#" + std::to_string(std::hash<std::string>{}(joined));
+    }
+    else { newpath = input_path; }
+
+    if (newpath == lastPath) return load_result;
+
+    if (input_info.type == InputType::UNKNOWN)
+    {
+        if (show_dialogs)
+            QMessageBox::warning(
+                this,
+                "Path Not Found",
+                QString("No recognized trace data found at: %1").arg(QString::fromStdString(input_path))
+            );
+        load_result.status = LoadStatus::InvalidInput;
+        load_result.message = QString("No recognized trace data found at: %1").arg(QString::fromStdString(input_path));
+        return load_result;
+    }
+
+    // Remember what we actually loaded so subsequent ResetSelector() calls
+    // (e.g. theme reload) can re-detect against it.
+    current_path = input_path;
+
+#ifndef RCV_HAS_TRACE_DECODER
+    if (input_info.type == InputType::ATT_FILES || input_info.type == InputType::ROCPD)
+    {
+        if (show_dialogs)
+            QMessageBox::warning(
+                this,
+                "Unsupported Input",
+                "This build does not include trace-decoder support.\n"
+                "Please rebuild with -DRCV_ENABLE_TRACE_DECODER=ON or use a "
+                "JSON ui_output_* directory."
+            );
+        load_result.status = LoadStatus::UnsupportedInput;
+        load_result.message = "This build does not include trace-decoder support.";
+        return load_result;
+    }
+#endif
+
+    ui_dir = input_path;
     if (!ui_dir.empty() && ui_dir.back() != '/') ui_dir.push_back('/');
-    auto other_simd_files = ParseOtherSimdFilenames(request->data["other_simd_filenames"], ui_dir);
-    if (utilization_content) utilization_content->SetOtherSimdSources(std::move(other_simd_files));
+
+    // New traces can reuse the same generated wave filenames and code.json
+    // path. Clear these process-wide caches before emitters resolve markers or
+    // lazily load any waves for the incoming trace.
+    WaveInstance::main_wave.reset();
+    WaveInstance::InvalidadeCache();
+
+    // Clear non-owning pointer before resetting data_store (which owns the memory)
+    shaderdata_manager = nullptr;
+
+    // Populate the DataStore via the appropriate emitter
+    data_store = std::make_unique<DataStore>();
+    {
+        RecordDispatcher dispatcher;
+        WaveHandler wave_handler(*data_store);
+        OccupancyHandler occ_handler(*data_store);
+        CounterHandler ctr_handler(*data_store);
+        ShaderDataHandler shaderdata_handler(*data_store);
+        RealtimeHandler rt_handler(*data_store);
+        MetadataHandler meta_handler(*data_store);
+        dispatcher.addHandler(&wave_handler);
+        dispatcher.addHandler(&occ_handler);
+        dispatcher.addHandler(&ctr_handler);
+        dispatcher.addHandler(&shaderdata_handler);
+        dispatcher.addHandler(&rt_handler);
+        dispatcher.addHandler(&meta_handler);
+
+        switch (input_info.type)
+        {
+            case InputType::JSON_DIR:
+            {
+                JsonRecordEmitter emitter(ui_dir, dispatcher, *data_store);
+                emitter.run();
+                break;
+            }
+#ifdef RCV_HAS_TRACE_DECODER
+            case InputType::ATT_FILES:
+            {
+                TraceDecoderEmitter emitter(input_info, dispatcher, *data_store);
+                emitter.run();
+                // Surface decoder parse errors to the user. These are .att files
+                // that the decoder failed to parse — without this popup the only
+                // signal was a stderr line they'd never see.
+                const auto& errs = emitter.parseErrors();
+                if (!errs.empty())
+                {
+                    QString details;
+                    for (const auto& e : errs) details += QString::fromStdString(e) + "\n";
+                    if (show_dialogs)
+                        QMessageBox::warning(
+                            this,
+                            "Trace decoder parse errors",
+                            QString("%1 .att file(s) failed to parse:\n\n%2").arg(errs.size()).arg(details)
+                        );
+                }
+                break;
+            }
+            case InputType::ROCPD:
+            {
+                RocpdEmitter emitter(input_info, dispatcher, *data_store);
+                emitter.run();
+                break;
+            }
+#endif
+            default: break;
+        }
+    }
+
+    // Wire up other_simd from DataStore
+    if (utilization_content)
+    {
+        if (!data_store->other_simd_by_se.empty())
+        {
+            // Decoder path: convert records to OtherSimdInstruction
+            std::map<int, std::vector<OtherSimdInstruction>> records;
+            for (auto& [se, recs] : data_store->other_simd_by_se)
+                for (auto& r : recs) records[se].push_back({r.time, (int) r.cycles, (int) r.category});
+            utilization_content->SetOtherSimdRecords(std::move(records));
+        }
+        else { utilization_content->SetOtherSimdSources(data_store->other_simd_files); }
+    }
+
+    // Wire up shaderdata from DataStore
+    if (data_store->shaderdata && data_store->shaderdata->HasData())
+    {
+        shaderdata_manager = data_store->shaderdata.get();
+    }
+
+    // Instantiate the global marker flamegraph tab on demand. The tab is
+    // hidden entirely on traces without resolved markers (JSON path, ATT
+    // traces with no funcmap section, etc.).
+    {
+        const bool show_markers = shaderdata_manager && shaderdata_manager->HasMarkers();
+        if (show_markers)
+        {
+            if (ui->marker_fg_tab && !markerFlameGraph)
+            {
+                if (ui->marker_fg_tab->layout())
+                {
+                    QLayoutItem* item;
+                    while ((item = ui->marker_fg_tab->layout()->takeAt(0)) != nullptr)
+                    {
+                        if (item->widget()) item->widget()->deleteLater();
+                        delete item;
+                    }
+                }
+                else { ui->marker_fg_tab->setLayout(new QVBox()); }
+                markerFlameGraph = new MarkerFlameGraphWidget();
+                QScrollArea* mScroll = new QScrollArea();
+                mScroll->setWidget(markerFlameGraph);
+                mScroll->setWidgetResizable(true);
+                ui->marker_fg_tab->layout()->addWidget(mScroll);
+            }
+            if (markerFlameGraph) markerFlameGraph->rebuild();
+            ui->tabWidget_2->setTabEnabled(4, true);
+            ui->tabWidget_2->setTabVisible(4, true);
+        }
+        else
+        {
+            ui->tabWidget_2->setTabEnabled(4, false);
+            ui->tabWidget_2->setTabVisible(4, false);
+        }
+    }
+
+    // Surface marker decode diagnostics. Warnings logged to console; errors
+    // also raise a non-modal dialog once. Per the user's requirement, orphan
+    // exits, unmatched IDs, and any malformed sequences are never silently
+    // dropped.
+    if (shaderdata_manager)
+    {
+        const auto& diags = shaderdata_manager->GetMarkerDiagnostics();
+        if (!diags.empty())
+        {
+            int n_warn = 0, n_err = 0, n_info = 0;
+            QStringList lines;
+            for (const auto& d : diags)
+            {
+                switch (d.severity)
+                {
+                    case MarkerDiagnostic::Severity::Error: n_err++; break;
+                    case MarkerDiagnostic::Severity::Warning: n_warn++; break;
+                    case MarkerDiagnostic::Severity::Info: n_info++; break;
+                }
+                qWarning() << "[markers]" << QString::fromStdString(d.message);
+                if (lines.size() < 100) lines << QString::fromStdString(d.message);
+            }
+            if (n_err + n_warn > 0)
+            {
+                QString summary = QString("Marker decode: %1 warning(s), %2 error(s)").arg(n_warn).arg(n_err);
+                if (statusBar()) statusBar()->showMessage(summary, 0);
+                if (n_err > 0)
+                {
+                    QString body = lines.join('\n');
+                    if (lines.size() < (int) diags.size())
+                        body += QString("\n... (%1 more)").arg((int) diags.size() - lines.size());
+                    QMessageBox* box = new QMessageBox(
+                        QMessageBox::Warning,
+                        "Marker Decode Diagnostics",
+                        summary + "\n\n" + body,
+                        QMessageBox::Ok,
+                        this
+                    );
+                    box->setModal(false);
+                    box->setAttribute(Qt::WA_DeleteOnClose);
+                    box->show();
+                }
+            }
+        }
+    }
+
     lastPath = newpath;
 
     current_loaded_clk_start = -1;
@@ -764,45 +1105,18 @@ void MainWindow::ResetSelector()
     if (hotspot_view) hotspot_view->setVisible(false);
     updateFont(); // Fixme: This is being called to force redraw in case the incoming trace is empty
 
-    HorizontalHotspot::is_sqtt_enabled = true;
-    HorizontalHotspot::is_pcs_enabled = false;
+    HorizontalHotspot::is_sqtt_enabled = data_store->has_thread_trace;
+    HorizontalHotspot::is_pcs_enabled = data_store->has_pc_sampling;
     if (label_minimap) label_minimap->Clear();
-    try
+    if (HorizontalHotspot::is_pcs_enabled)
     {
-        HorizontalHotspot::is_sqtt_enabled = request->data["thread_trace"];
-        HorizontalHotspot::is_pcs_enabled = request->data["pc_sampling"];
-        if (HorizontalHotspot::is_pcs_enabled)
-        {
-            auto code = CodeData::LoadCode(ui_dir + "code.json");
-            if (!code.empty()) code_contents->Populate(code);
-            if (flameGraph) flameGraph->rebuild();
-        }
-    }
-    catch (std::exception&)
-    {}
-
-    // Load shaderdata early, before SESelector triggers GatherWaves
-    if (shaderdata_manager)
-    {
-        delete shaderdata_manager;
-        shaderdata_manager = nullptr;
-    }
-    try
-    {
-        if (request->data.contains("shaderdata_filenames"))
-        {
-            shaderdata_manager = new ShaderDataManager();
-            shaderdata_manager->Load(request->data["shaderdata_filenames"], GetUIDir());
-        }
-    }
-    catch (std::exception& e)
-    {
-        std::cout << "Warning: Failed to load shaderdata: " << e.what() << std::endl;
+        if (!data_store->code.empty()) code_contents->Populate(data_store->code);
+        if (flameGraph) flameGraph->rebuild();
     }
 
     if (this->seSelector) delete this->seSelector;
     this->seSelector = nullptr;
-    this->seSelector = new SESelector(*request);
+    this->seSelector = new SESelector(*data_store);
 
     if (history_table) history_table->setRowCount(0);
 
@@ -814,7 +1128,6 @@ void MainWindow::ResetSelector()
 
     try
     {
-        CreateWavesPlot();
         CreateOccupancyPlot(false);
         CreateOccupancyPlot(true);
         CreateCountersPlot();
@@ -823,8 +1136,20 @@ void MainWindow::ResetSelector()
     }
     catch (std::exception& e)
     {
-        QWARNING(false, "Unable to create plots:" << e.what(), return );
+        RCV_LOG();
+        load_result.status = LoadStatus::LoadFailed;
+        load_result.message = QString("Unable to create plots: %1").arg(e.what());
+        return load_result;
     }
+
+    if (!data_store ||
+        (data_store->wave_hierarchy.empty() && data_store->occupancy_by_se.empty() && data_store->code.empty()))
+    {
+        load_result.status = LoadStatus::LoadFailed;
+        load_result.message = "Input did not produce usable viewer data.";
+    }
+
+    return load_result;
 }
 
 MainWindow::~MainWindow()
@@ -834,18 +1159,16 @@ MainWindow::~MainWindow()
     if (cuwaves_content) delete cuwaves_content;
     if (cuwaves_v_scrollarea) delete cuwaves_v_scrollarea;
 
-    if (waves_plot) delete waves_plot;
     if (counters_plot) delete counters_plot;
-
     if (counters_plot_layout) delete counters_plot_layout;
-    if (waves_plot_layout) delete waves_plot_layout;
 
     if (dispatch_plot) delete dispatch_plot;
     if (occupancy_plot) delete occupancy_plot;
     if (dispatch_plot_layout) delete dispatch_plot_layout;
     if (occupancy_plot_layout) delete occupancy_plot_layout;
 
-    if (shaderdata_manager) delete shaderdata_manager;
+    // shaderdata_manager is a non-owning pointer into data_store; data_store handles cleanup.
+    shaderdata_manager = nullptr;
     if (seSelector) delete seSelector;
     if (widSelector) delete widSelector;
     if (ui) delete ui;
@@ -853,6 +1176,135 @@ MainWindow::~MainWindow()
     WaveInstance::InvalidadeCache();
     MainWindow::window = nullptr;
 }
+
+namespace
+{
+
+/// Build the bar-chart entries shown above the summary table, plus the
+/// `util_names` map used to label per-CU rows. Returns the index of
+/// `BUSY_CU_CYCLES` in `perfcounter_names`, or -1 if absent — callers use
+/// that to decide whether the bar chart is meaningful (peaks need a busy
+/// baseline to normalize against).
+int buildSummaryBarChartData(
+    const std::vector<std::string>& perfcounter_names,
+    const DerivedCounter::Tensor& accumulated,
+    const std::vector<double>& peak_rates,
+    QList<std::tuple<QString, float, QColor>>& bar_chart_data_out,
+    std::map<std::string, size_t>& util_names_out
+)
+{
+    auto acc_index = [&accumulated](int index) -> double
+    {
+        double acc = 0;
+        for (int se = 0; se < accumulated.shape().getSE(); se++)
+            for (int cu = 0; cu < accumulated.shape().getCU(); cu++) acc += accumulated.at(0, se, cu, index);
+        return acc;
+    };
+
+    const auto& tokenColors = Config::TokenColors();
+    auto getColorByName = [&](const std::string& lookupName) -> QColor
+    {
+        for (const auto& style_color : tokenColors)
+            if (style_color.name == lookupName) return style_color.qcolor;
+        return tokenColors[0].qcolor;
+    };
+
+    int busy_cu_index = -1;
+    for (int i = 0; i < (int) perfcounter_names.size(); i++)
+    {
+        auto name = perfcounter_names.at(i);
+        if (name == "BUSY_CU_CYCLES")
+        {
+            // Baseline quadcycle measurement
+            busy_cu_index = i;
+        }
+        else if (name == "VALU_MFMA_BUSY_CYCLES")
+        {
+            QColor color = getColorByName("MATRIX"); // special case for MFMA
+            // This counter increments by cycles, not quadcycles
+            bar_chart_data_out.push_back({"MFMA", acc_index(i) / 4, color});
+            bar_chart_data_out.push_back({"MFMA Peak", peak_rates.at(i) / 4, color});
+            util_names_out["MFMA"] = i;
+        }
+        else if (name.find("ACTIVE_INST_") == 0)
+        {
+            name = name.substr(std::string("ACTIVE_INST_").size());
+            QColor color = (name == "SCA") ? getColorByName("SMEM") : getColorByName(name);
+            bar_chart_data_out.push_back({name.c_str(), acc_index(i), color});
+            if (name == "VALU") bar_chart_data_out.push_back({"VALU Peak", peak_rates.at(i), color});
+            util_names_out[name] = i;
+        }
+    }
+    return busy_cu_index;
+}
+
+/// Populate the SummaryView's table: column headers from `util_names` +
+/// `perfcounter_names`, a "Peak" row, then one row per (SE, CU) that saw
+/// any counter increment. Pure UI fill — no business decisions live here.
+void populateSummaryTable(
+    SummaryView* summary_view,
+    const std::vector<std::string>& perfcounter_names,
+    const std::map<std::string, size_t>& util_names,
+    const std::vector<double>& peak_rates,
+    const DerivedCounter::Tensor& accumulated,
+    int busy_cu_index
+)
+{
+    QStringList q_perf_names;
+    for (auto& [name, _] : util_names) q_perf_names.push_back((name + " Util").c_str());
+    for (auto& name : perfcounter_names) q_perf_names.push_back(name.c_str());
+    summary_view->setTableHeaders(q_perf_names);
+
+    QStringList row_headers;
+    row_headers.push_back("Peak");
+
+    {
+        QList<QString> row_data;
+        for (auto& [name, index] : util_names)
+        {
+            double value = 100.0 * peak_rates.at(index) / std::max(peak_rates.at(busy_cu_index), 1.0);
+            if (name.find("MFMA") == 0) value /= 4;
+            row_data.push_back(QString::number(int(value + 0.5)) + "%");
+        }
+        for (int cidx = 0; cidx < (int) perfcounter_names.size(); cidx++)
+            row_data.push_back(QString::number(peak_rates.at(cidx)));
+        summary_view->addTableRow(row_data);
+    }
+
+    for (int se = 0; se < accumulated.shape().getSE(); se++)
+    {
+        for (int cu = 0; cu < accumulated.shape().getCU(); cu++)
+        {
+            bool nonzero = false;
+            QList<QString> row_data;
+
+            for (auto& [name, index] : util_names)
+            {
+                double div = std::max((double) accumulated.at(0, se, cu, busy_cu_index), 1.0);
+                double value = accumulated.at(0, se, cu, index);
+                if (name == "MFMA") value /= 4;
+                row_data.push_back(QString::number(int(100.0 * value / div + 0.5)) + "%");
+            }
+            for (int cidx = 0; cidx < (int) perfcounter_names.size(); cidx++)
+            {
+                double value = accumulated.at(0, se, cu, cidx);
+                nonzero |= value > 0;
+                row_data.push_back(QString::number(value));
+            }
+
+            // Only add rows for CUs which had any counter increment
+            if (nonzero)
+            {
+                row_headers.push_back(QString("SE %1").arg(se) + QString(" CU %1").arg(cu));
+                summary_view->addTableRow(row_data);
+            }
+        }
+    }
+
+    summary_view->setTableRowHeaders(row_headers);
+}
+
+} // anonymous namespace
 
 void MainWindow::CreateCountersPlot()
 {
@@ -862,20 +1314,13 @@ void MainWindow::CreateCountersPlot()
     summary_view->clearBarChartData();
     ui->tabWidget_2->setTabEnabled(2, false);
 
-    // Load counter names from filenames.json
-    auto perfcounter_names = std::vector<std::string>{};
-    try
-    {
-        JsonRequest file(MainWindow::GetUIDir() + "filenames.json", false);
-        perfcounter_names = file.data["counter_names"];
-    }
-    catch (...)
-    {}
+    // Load counter names from DataStore
+    auto perfcounter_names = data_store ? data_store->counter_names : std::vector<std::string>{};
 
     for (auto& name : perfcounter_names)
         if (name.size() > 5 && name.find("SQ_") == 0) name = name.substr(3);
 
-    bool load_perf_counters = !perfcounter_names.empty(); // && perfcounter_names.size() <= peak_rates.size();
+    bool load_perf_counters = !perfcounter_names.empty();
 
     auto* traceplot = new TraceCounterPlotView(this);
     this->counters_plot = traceplot;
@@ -918,71 +1363,24 @@ void MainWindow::CreateCountersPlot()
 
     if (peak_rates.empty() || accumulated.shape().totalSize() <= 1) return;
     if (peak_rates.size() != accumulated.shape().getSamples()) peak_rates.resize(accumulated.shape().getSamples());
-
     if (perfcounter_names.size() != peak_rates.size()) perfcounter_names.resize(peak_rates.size());
-
-    auto acc_index = [&accumulated](int index) -> double
-    {
-        double acc = 0;
-        for (int se = 0; se < accumulated.shape().getSE(); se++)
-            for (int cu = 0; cu < accumulated.shape().getCU(); cu++) acc += accumulated.at(0, se, cu, index);
-
-        return acc;
-    };
 
     ui->tabWidget_2->setTabEnabled(2, true);
 
     std::map<std::string, size_t> util_names{};
     QList<std::tuple<QString, float, QColor>> bar_chart_data;
-
-    int busy_cu_index = -1;
-
-    const auto& tokenColors = Config::TokenColors();
-    // Create a lambda function to get the color by name
-    auto getColorByName = [&](const std::string& lookupName) -> QColor
-    {
-        QColor color = tokenColors[0].qcolor; // Default color if name not found
-        for (const auto& style_color : tokenColors)
-        {
-            if (style_color.name == lookupName)
-            {
-                color = style_color.qcolor;
-                return color;
-            }
-        }
-        return color;
-    };
-
-    for (int i = 0; i < perfcounter_names.size(); i++)
-    {
-        auto name = perfcounter_names.at(i);
-
-        if (name == "BUSY_CU_CYCLES")
-        {
-            // Baseline quadcycle measurement
-            busy_cu_index = i;
-        }
-        else if (name == "VALU_MFMA_BUSY_CYCLES")
-        {
-            QColor color = getColorByName("MATRIX"); // special case for MFMA
-            // This counter increments by cycles, not quadcycles
-            bar_chart_data.push_back({"MFMA", acc_index(i) / 4, color});
-            bar_chart_data.push_back({"MFMA Peak", peak_rates.at(i) / 4, color});
-            util_names["MFMA"] = i;
-        }
-        else if (name.find("ACTIVE_INST_") == 0)
-        {
-            name = name.substr(std::string("ACTIVE_INST_").size());
-            QColor color = (name == "SCA") ? getColorByName("SMEM") : getColorByName(name); // special case for SCA
-            bar_chart_data.push_back({name.c_str(), acc_index(i), color});
-            if (name == "VALU") bar_chart_data.push_back({"VALU Peak", peak_rates.at(i), color});
-            util_names[name] = i;
-        }
-    }
+    int busy_cu_index =
+        buildSummaryBarChartData(perfcounter_names, accumulated, peak_rates, bar_chart_data, util_names);
 
     if (busy_cu_index >= 0)
     {
-        double busy_cu_cycles = acc_index(busy_cu_index);
+        // Normalize bar-chart values against the busy-CU baseline so
+        // utilization reads as a percentage. Without a baseline, the
+        // accumulated counts are unitless and the bar chart is hidden.
+        double busy_cu_cycles = 0;
+        for (int se = 0; se < accumulated.shape().getSE(); se++)
+            for (int cu = 0; cu < accumulated.shape().getCU(); cu++)
+                busy_cu_cycles += accumulated.at(0, se, cu, busy_cu_index);
         double busy_max_cycles = peak_rates.at(busy_cu_index);
 
         for (auto& [name, data, _] : bar_chart_data)
@@ -995,72 +1393,9 @@ void MainWindow::CreateCountersPlot()
 
         summary_view->setBarChartData(bar_chart_data, "Hardware Utilization");
     }
-    else
-        util_names.clear();
+    else { util_names.clear(); }
 
-    {
-        QStringList q_perf_names;
-
-        for (auto& [name, _] : util_names) q_perf_names.push_back((name + " Util").c_str());
-
-        for (auto& name : perfcounter_names) q_perf_names.push_back(name.c_str());
-
-        summary_view->setTableHeaders(q_perf_names);
-    }
-
-    QStringList row_headers;
-    row_headers.push_back("Peak");
-
-    {
-        QList<QString> row_data;
-        for (auto& [name, index] : util_names)
-        {
-            double value = 100.0 * peak_rates.at(index) / std::max(peak_rates.at(busy_cu_index), 1.0);
-            if (name.find("MFMA") == 0) value /= 4;
-
-            row_data.push_back(QString::number(int(value + 0.5)) + "%");
-        }
-
-        for (int cidx = 0; cidx < perfcounter_names.size(); cidx++)
-            row_data.push_back(QString::number(peak_rates.at(cidx)));
-
-        summary_view->addTableRow(row_data);
-    }
-
-    for (int se = 0; se < accumulated.shape().getSE(); se++)
-    {
-        for (int cu = 0; cu < accumulated.shape().getCU(); cu++)
-        {
-            bool nonzero = false;
-            QList<QString> row_data;
-
-            for (auto& [name, index] : util_names)
-            {
-                double div = std::max((double) accumulated.at(0, se, cu, busy_cu_index), 1.0);
-                double value = accumulated.at(0, se, cu, index);
-                if (name == "MFMA") value /= 4;
-
-                row_data.push_back(QString::number(int(100.0 * value / div + 0.5)) + "%");
-            }
-
-            for (int cidx = 0; cidx < perfcounter_names.size(); cidx++)
-            {
-                double value = accumulated.at(0, se, cu, cidx);
-                nonzero |= value > 0;
-
-                row_data.push_back(QString::number(value));
-            }
-
-            // Only add rows for CUs which had any counter increment
-            if (nonzero)
-            {
-                row_headers.push_back(QString("SE %1").arg(se) + QString(" CU %1").arg(cu));
-                summary_view->addTableRow(row_data);
-            }
-        }
-    }
-
-    summary_view->setTableRowHeaders(row_headers);
+    populateSummaryTable(summary_view, perfcounter_names, util_names, peak_rates, accumulated, busy_cu_index);
 }
 
 void MainWindow::UpdateCountersPlotSelection()
@@ -1105,38 +1440,6 @@ void MainWindow::UpdateCountersPlotSelection()
     }
 }
 
-void MainWindow::CreateWavesPlot()
-{
-    if (this->waves_plot_layout) delete this->waves_plot_layout;
-
-    this->waves_plot = new WavePlotView(this);
-    this->waves_plot->setGeometry(0, 0, 300, this->waves_plot->size().width());
-    this->waves_plot_layout = new QBox();
-    ui->wv_states_tab->setLayout(waves_plot_layout);
-    waves_plot_layout->addWidget(this->waves_plot);
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
-    accordion->replaceContentByTitle("Wave States", this->waves_plot);
-#endif
-
-    this->waves_plot->LoadWaveStateData(GetUIDir(), 0);
-    this->waves_plot->setAutoLod(ui->lod_checkBox->isChecked());
-
-    int wave_state_count = WavePlotView::state_names.size() - 2;
-    ui->occ_info_table->setRowCount(wave_state_count);
-    for (int i = 0; i < wave_state_count; i++)
-    {
-        auto& name = WavePlotView::state_names[i + 2];
-        class QLabel* v_label = new QLabel("");
-
-        counter_values_tableitem[name] = v_label;
-
-        ui->occ_info_table->setCellWidget(i, 0, new QLabel(("Waves " + name).c_str()));
-        ui->occ_info_table->setCellWidget(i, 1, v_label);
-    }
-    ui->occ_info_table->setToolTip("Displays current values under the mouse pointer. "
-                                   "For waves, displays current values and percentage of each wave state.");
-}
-
 void MainWindow::CreateOccupancyPlot(bool bDispatch)
 {
     auto*& layout = bDispatch ? this->dispatch_plot_layout : this->occupancy_plot_layout;
@@ -1166,7 +1469,14 @@ void MainWindow::CreateOccupancyPlot(bool bDispatch)
 #endif
     }
 
-    plot->LoadOccupancyData(GetUIDir() + "occupancy.json");
+    if (data_store && !data_store->occupancy_by_se.empty())
+    {
+        if (bDispatch)
+            dynamic_cast<DispatchPlotView*>(plot)->LoadOccupancyData(*data_store);
+        else
+            dynamic_cast<OccupancyPlotView*>(plot)->LoadOccupancyData(*data_store);
+    }
+    else { plot->LoadOccupancyData(GetUIDir() + "occupancy.json"); }
     plot->setAutoLod(ui->lod_checkBox->isChecked());
 }
 
@@ -1180,7 +1490,6 @@ std::shared_ptr<class ScrollValue> MainWindow::getCUScroll()
 
 void MainWindow::setPlotBarPos(float x)
 {
-    if (waves_plot) waves_plot->SetBarPos(x);
     if (counters_plot) counters_plot->SetBarPos(x);
     if (occupancy_plot) occupancy_plot->SetBarPos(x);
     if (dispatch_plot) dispatch_plot->SetBarPos(x);
@@ -1236,7 +1545,6 @@ void MainWindow::UpdateOccupancyInfo(const std::vector<std::pair<std::string, in
 
 void MainWindow::UpdateGraphAutoLod(int bAutoLod)
 {
-    if (waves_plot) waves_plot->setAutoLod((bool) bAutoLod);
     if (counters_plot) counters_plot->setAutoLod((bool) bAutoLod);
     if (occupancy_plot) occupancy_plot->setAutoLod((bool) bAutoLod);
     if (dispatch_plot) dispatch_plot->setAutoLod((bool) bAutoLod);
@@ -1345,11 +1653,15 @@ void MainWindow::CreateGlobalView()
     mainLayout->setContentsMargins(0, 0, 0, 0);
     mainLayout->setSpacing(0);
 
-    global_view_widget = new QGlobalView(GetUIDir() + "occupancy.json");
+    if (data_store && !data_store->occupancy_by_se.empty())
+        global_view_widget = new QGlobalView(*data_store);
+    else
+        global_view_widget = new QGlobalView(GetUIDir() + "occupancy.json");
 
     // Load shaderdata from multiple threads before setting up the view
     // (shaderdata_manager is already loaded in ResetSelector, just pass to global view)
     if (shaderdata_manager && shaderdata_manager->HasData()) global_view_widget->SetShaderData(*shaderdata_manager);
+    if (shaderdata_manager && shaderdata_manager->HasMarkers()) global_view_widget->SetMarkers(*shaderdata_manager);
 
     // Create sticky tick header (spans full width)
     QTickHeader* tickHeader = new QTickHeader(this);
@@ -1485,14 +1797,22 @@ void MainWindow::ScrollViewsTo(int64_t cycle)
 void MainWindow::GatherWaves()
 {
     QASSERT(cuwaves_content, "No CU Widget");
-
-    JsonRequest filenames(GetUIDir() + "filenames.json");
+    QWARNING(data_store, "No data store", return );
 
     current_loaded_clk_start = QCustomScroll::clock_cutoff_start;
     current_loaded_clk_end = QCustomScroll::clock_cutoff_end;
 
     cuwaves_content->Clear();
     utilization_content->Clear();
+
+    const std::vector<trace_event_record_t>* trace_events = nullptr;
+    const std::vector<dispatch_record_t>* dispatch_records = nullptr;
+    auto trace_event_it = data_store->trace_events_by_se.find(current_wave_coord_se);
+    if (trace_event_it != data_store->trace_events_by_se.end()) trace_events = &trace_event_it->second;
+    auto dispatch_it = data_store->dispatch_records_by_se.find(current_wave_coord_se);
+    if (dispatch_it != data_store->dispatch_records_by_se.end()) dispatch_records = &dispatch_it->second;
+    utilization_content->SetDecoderEvents(trace_events, dispatch_records, current_wave_coord_se);
+
     if (utilization_content)
     {
         utilization_content->PopulateOtherSimdTokens(
@@ -1502,16 +1822,18 @@ void MainWindow::GatherWaves()
 
     int vertical_size = WSTATE_HEIGHT() + WSTATE_POSY() + 4; // Padding
 
-    auto& se_data = filenames.data["wave_filenames"][std::to_string(current_wave_coord_se)];
+    auto se_it = data_store->wave_hierarchy.find(current_wave_coord_se);
+    if (se_it == data_store->wave_hierarchy.end()) return;
+    auto& se_data = se_it->second;
 
     if (hotspot_view) delete hotspot_view;
 
     int _end = std::min<int>(hotspot_end, WaveInstance::main_wave->code.size());
     hotspot_view = new HotspotView(hotspot_begin, _end, hotspot_n_bins, hotspot_max_value);
 
-    auto preload_wave = [](HotspotView* view, std::string str)
+    auto preload_wave = [this](HotspotView* view, WaveEntry entry)
     {
-        auto instance = WaveInstance::Get(str);
+        auto instance = data_store->getWave(entry);
         view->Add(instance->tokens);
     };
 
@@ -1519,88 +1841,143 @@ void MainWindow::GatherWaves()
         std::array<std::future<void>, 16> threads;
         size_t count = 0;
 
-        for (auto& [simd_name, simd_data] : se_data.items())
+        for (auto& [simd_id, simd_data] : se_data)
         {
-            for (auto& [slot_name, slot_data] : simd_data.items())
+            for (auto& [slot_id, slot_data] : simd_data)
             {
-                int slot_n = std::stoi(slot_name);
-                for (auto& [wid_name, wid_data] : slot_data.items())
+                for (auto& [wid, entry] : slot_data)
                 {
-                    if (int64_t(wid_data[2]) < current_loaded_clk_start ||
-                        int64_t(wid_data[1]) > current_loaded_clk_end)
-                        continue;
+                    if (entry.end < current_loaded_clk_start || entry.begin > current_loaded_clk_end) continue;
 
-                    threads.at(count % threads.size()) = std::async(
-                        std::launch::async, preload_wave, hotspot_view, GetUIDir() + std::string(wid_data[0])
-                    );
+                    threads.at(count % threads.size()) =
+                        std::async(std::launch::async, preload_wave, hotspot_view, entry);
                     count++;
                 }
             }
         }
     }
 
-    int gathered_cu = -1; // CU extracted from any wave instance
-
-    for (auto& [simd_name, simd_data] : se_data.items())
+    int gathered_cu = WaveInstance::main_wave ? WaveInstance::main_wave->cu : -1;
+    if (gathered_cu < 0)
     {
-        std::map<int, std::pair<QWidget*, std::string>> simd_views{};
-        int simd_value = std::stoi(simd_name);
-
-        for (auto& [slot_name, slot_data] : simd_data.items())
+        bool found_cu = false;
+        for (auto& [_simd_id, simd_data] : se_data)
         {
-            std::map<int64_t, std::shared_ptr<TokenGroup>> waves{};
-            for (auto& [wid_name, wid_data] : slot_data.items())
+            for (auto& [_slot_id, slot_data] : simd_data)
             {
-                if (int64_t(wid_data[2]) < current_loaded_clk_start || int64_t(wid_data[1]) > current_loaded_clk_end)
-                    continue;
+                for (auto& [_wid, entry] : slot_data)
+                {
+                    if (entry.end < current_loaded_clk_start || entry.begin > current_loaded_clk_end) continue;
 
-                auto instance = WaveInstance::Get(GetUIDir() + std::string(wid_data[0]));
-                utilization_content->AddTokens(simd_value, instance->tokens);
-                waves[instance->wave_begin] = instance;
-                if (gathered_cu < 0 && instance->cu >= 0) gathered_cu = instance->cu;
-            }
-            if (!waves.size()) continue;
+                    auto instance = data_store->getWave(entry);
+                    if (instance->cu < 0) continue;
 
-            QWaveView* view = new QWaveView(cuwaves_h_scrollarea);
-            view->waves = std::move(waves);
-            try
-            {
-                std::string filler = "-";
-                if (slot_name.size() <= 1) filler = "-0";
-                int slot_n = std::stoi(slot_name);
-                simd_views[slot_n] = {view, "SM" + simd_name + filler + slot_name + " "};
+                    gathered_cu = instance->cu;
+                    found_cu = true;
+                    break;
+                }
+                if (found_cu) break;
             }
-            catch (std::exception& e)
-            {
-                std::cerr << e.what() << std::endl;
-                cuwaves_content->AddSlot(view, simd_name + '-' + slot_name, vertical_size);
-            }
+            if (found_cu) break;
         }
-
-        for (auto it = simd_views.begin(); it != simd_views.end(); it++)
-            cuwaves_content->AddSlot(it->second.first, it->second.second, vertical_size);
     }
 
-    // Add shaderdata tracks for all SIMDs/slots that have data
-    if (shaderdata_manager && shaderdata_manager->HasData() && gathered_cu >= 0)
+    std::set<std::pair<int, int>> shaderdata_slots;
+    bool shaderdata_slots_ready = false;
+
+    auto load_shaderdata_slots = [&]()
     {
+        if (shaderdata_slots_ready || !shaderdata_manager || !shaderdata_manager->HasData() || gathered_cu < 0) return;
+
         for (int sd_simd = 0; sd_simd < 4; sd_simd++)
         {
             for (int sd_slot = 0; sd_slot < 32; sd_slot++)
             {
-                auto sd_records = shaderdata_manager->GetRecords(current_wave_coord_se, gathered_cu, sd_simd, sd_slot);
-                if (sd_records && !sd_records->empty())
-                {
-                    auto* sd_view = new QShaderDataView(cuwaves_h_scrollarea, std::move(sd_records));
-                    std::string filler = sd_slot < 10 ? "-0" : "-";
-                    cuwaves_content->AddSlot(
-                        sd_view,
-                        "SD" + std::to_string(sd_simd) + filler + std::to_string(sd_slot) + " ",
-                        vertical_size / 2
-                    );
-                }
+                auto records = shaderdata_manager->GetRecords(current_wave_coord_se, gathered_cu, sd_simd, sd_slot);
+                if (records && !records->empty()) shaderdata_slots.emplace(sd_simd, sd_slot);
             }
         }
+        shaderdata_slots_ready = true;
+    };
+
+    auto add_shaderdata_slot = [&](int sd_simd, int sd_slot)
+    {
+        load_shaderdata_slots();
+        auto key = std::make_pair(sd_simd, sd_slot);
+        auto slot_it = shaderdata_slots.find(key);
+        if (slot_it == shaderdata_slots.end()) return;
+        shaderdata_slots.erase(slot_it);
+
+        auto sd_records = shaderdata_manager->GetRecords(current_wave_coord_se, gathered_cu, sd_simd, sd_slot);
+        if (!sd_records || sd_records->empty()) return;
+
+        auto* sd_view = new QShaderDataView(cuwaves_h_scrollarea, std::move(sd_records));
+        int sd_height = vertical_size / 2;
+        if (shaderdata_manager->HasMarkers())
+        {
+            auto markers = shaderdata_manager->GetMarkers(current_wave_coord_se, gathered_cu, sd_simd, sd_slot);
+            if (markers && !markers->empty())
+            {
+                sd_view->SetMarkers(std::move(markers));
+                sd_height = sd_view->suggestedHeight(vertical_size / 2);
+            }
+        }
+
+        std::string filler = sd_slot < 10 ? "-0" : "-";
+        cuwaves_content->AddSlot(
+            sd_view, "SD" + std::to_string(sd_simd) + filler + std::to_string(sd_slot) + " ", sd_height
+        );
+    };
+
+    load_shaderdata_slots();
+
+    for (auto& [simd_id, simd_data] : se_data)
+    {
+        std::string simd_name = std::to_string(simd_id);
+        std::set<int> slot_ids;
+        for (auto& [slot_id, _] : simd_data) slot_ids.insert(slot_id);
+        if (shaderdata_slots_ready)
+            for (const auto& [sd_simd, sd_slot] : shaderdata_slots)
+                if (sd_simd == simd_id) slot_ids.insert(sd_slot);
+
+        for (int slot_id : slot_ids)
+        {
+            std::map<int64_t, std::shared_ptr<TokenGroup>> waves{};
+            std::string slot_name = std::to_string(slot_id);
+
+            auto slot_data_it = simd_data.find(slot_id);
+            if (slot_data_it != simd_data.end())
+            {
+                for (auto& [wid, entry] : slot_data_it->second)
+                {
+                    if (entry.end < current_loaded_clk_start || entry.begin > current_loaded_clk_end) continue;
+
+                    auto instance = data_store->getWave(entry);
+                    utilization_content->AddTokens(simd_id, instance->tokens);
+                    waves[instance->wave_begin] = instance;
+                }
+            }
+
+            // Keep shaderdata adjacent to the matching wave slot instead of
+            // appending all SD rows as a second list after the CU rows.
+            add_shaderdata_slot(simd_id, slot_id);
+            if (!waves.size()) continue;
+
+            QWaveView* view = new QWaveView(cuwaves_h_scrollarea);
+            view->SetDecoderEvents(trace_events, dispatch_records, current_wave_coord_se);
+            view->waves = std::move(waves);
+            std::string filler = slot_id < 10 ? "-0" : "-";
+            cuwaves_content->AddSlot(view, "SM" + simd_name + filler + slot_name + " ", vertical_size);
+        }
+    }
+
+    // If a shaderdata bucket has no matching visible wave row, still show it
+    // after the integrated rows so no loaded SQTT data disappears.
+    load_shaderdata_slots();
+    while (shaderdata_slots_ready && !shaderdata_slots.empty())
+    {
+        const auto [sd_simd, sd_slot] = *shaderdata_slots.begin();
+        add_shaderdata_slot(sd_simd, sd_slot);
     }
 
     if (utilization_content)
@@ -1609,6 +1986,7 @@ void MainWindow::GatherWaves()
         if (!other_tokens.empty())
         {
             auto* view = new QUtilView(cuwaves_h_scrollarea);
+            view->SetDecoderEvents(trace_events, dispatch_records, current_wave_coord_se);
             std::string label = "SIMD" + std::to_string(utilization_content->GetOtherSimdId()) + ' ';
             view->label = cuwaves_content->AddSlot(view, label, vertical_size);
             view->AddTokens(other_tokens);
@@ -1628,14 +2006,9 @@ void MainWindow::GatherWaves()
 #endif
 }
 
-void MainWindow::loadJsonFileTree(const char* streambytes)
+void MainWindow::ensureFlameGraphWidget()
 {
-    QJsonDocument jsonDoc = QJsonDocument::fromJson(QByteArray(streambytes));
-    if (!jsonDoc.isObject())
-    {
-        qWarning() << "Invalid JSON file";
-        return;
-    }
+    if (flameGraph) return;
 
     flameGraph = new FlameGraphWidget();
     QScrollArea* flameScroll = new QScrollArea();

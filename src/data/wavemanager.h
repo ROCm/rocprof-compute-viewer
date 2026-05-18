@@ -27,6 +27,7 @@
 #include <utility>
 #include <vector>
 #include "code/codeload.hpp"
+#include "data/records.h"
 #include "graphics/canvas.h"
 #include "util/custom_layouts.h"
 #include "wave/token.h"
@@ -67,6 +68,7 @@ struct TokenGroup
 struct WaveInstance : public TokenGroup
 {
     WaveInstance(const std::string& path);
+    WaveInstance(const wave_record_t& rec, const std::vector<CodeData>& code_data);
     virtual ~WaveInstance();
 
     std::vector<CodeData> code;
@@ -82,11 +84,29 @@ struct WaveInstance : public TokenGroup
 
     std::vector<Canvas::WaitList> get_branch_targets() const;
 
+    /// Compute waitcnt from instruction stream and ISA text (decoder path).
+    /// Only call for the selected wave — scans all tokens + code text.
+    void buildWaitcnt(int gfxip);
+
     static int64_t GetMainClock(int code_line, int iteration);
 
     static int64_t BaseClock() { return Token::bIsNaviWave ? 1 : 4; };
     static std::shared_ptr<WaveInstance> Get(const std::string& path);
+    static std::shared_ptr<WaveInstance> GetFromRecord(
+        const std::string& id, const wave_record_t& rec, const std::vector<CodeData>& code_data
+    );
     static void InvalidadeCache();
 
     static std::shared_ptr<WaveInstance> main_wave;
+
+private:
+    /// Slot-collision handler shared by both constructors. Bumps `token.slot`
+    /// up to 3 if the previous slot at the same clock is still busy, then
+    /// records the slot's last-seen clock and appends to `tokens`.
+    void appendTokenWithSlotBump(Token&& token, std::array<int64_t, 4>& prev_clock, std::array<int64_t, 4>& last_clock);
+
+    /// Walk `tokens` (already populated + Compile()'d), attribute each token
+    /// to its `code` entry, populate `line_to_clock` and `code[*].exec`,
+    /// and shrink_to_fit. Identical between the JSON and decoder constructors.
+    void populateExecMetadata(int wave_id, bool isIdleInfo);
 };

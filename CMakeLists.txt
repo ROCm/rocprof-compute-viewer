@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.16...3.22)
 project(
     rocprof-compute-viewer
-    VERSION 0.1.7
+    VERSION 0.2.0
     LANGUAGES CXX)
 
 set(CMAKE_AUTOUIC ON)
@@ -34,6 +34,41 @@ if(RCV_DISABLE_OPENGL)
     add_compile_definitions(RCV_DISABLE_OPENGL)
 endif(RCV_DISABLE_OPENGL)
 
+option(RCV_ENABLE_EXTRA_LOGGING "Enable extra diagnostic logging" OFF)
+add_compile_options(-include "${CMAKE_CURRENT_SOURCE_DIR}/src/util/diagnostic_log.h")
+if(RCV_ENABLE_EXTRA_LOGGING)
+    add_compile_definitions(RCV_ENABLE_EXTRA_LOGGING)
+endif()
+
+# ----------------------------------------------------------------------------
+# Trace-decoder + disassembly support.
+#
+# Single knob: TRACE_DECODER_ROOT — path to the decoder's build tree (or
+# install prefix). When set, RCV consumes the decoder via its CMake package
+# config; LLVM (or amd_comgr) and all transitive include dirs / link libs /
+# compile defs propagate automatically through the namespaced target. There
+# is no separate `RCV_USE_LLVM` knob — the disasm backend is fixed at decoder
+# build time and RCV just inherits it.
+#
+# To override the LLVM the decoder was built against (rare — only useful if
+# you want RCV to link a different LLVM than the decoder), set LLVM_DIR
+# before configuring RCV; the package config respects it.
+# ----------------------------------------------------------------------------
+if(DEFINED TRACE_DECODER_ROOT)
+    # Search both the build-tree export (CMake config in build/source/) and
+    # the standard install layout (lib/cmake/rocprof-trace-decoder/).
+    find_package(rocprof-trace-decoder REQUIRED CONFIG
+        PATHS ${TRACE_DECODER_ROOT}
+        PATH_SUFFIXES source lib/cmake/rocprof-trace-decoder
+        NO_DEFAULT_PATH)
+    set(RCV_ENABLE_TRACE_DECODER ON)
+    message(STATUS "Trace-decoder enabled: ${rocprof-trace-decoder_DIR}")
+    add_compile_definitions(RCV_HAS_TRACE_DECODER)
+else()
+    set(RCV_ENABLE_TRACE_DECODER OFF)
+    message(STATUS "Trace-decoder disabled (set TRACE_DECODER_ROOT to enable)")
+endif()
+
 if(CMAKE_BUILD_TYPE STREQUAL "")
     set(CMAKE_BUILD_TYPE Release)
 endif()
@@ -60,7 +95,9 @@ file(
     src/button/*.cpp
     src/code/*.cpp
     src/collection/*.cpp
+    src/collection/flamegraph/*.cpp
     src/data/*.cpp
+    src/data/waitcnt/*.cpp
     src/graphics/*.cpp
     src/graphics/container/*.cpp
     src/util/*.cpp
@@ -115,6 +152,12 @@ qt_deploy_runtime_dependencies(
     target_link_libraries(${PROJECT_NAME} PRIVATE Threads::Threads ${QT_V}::Core ${QT_V}::Gui ${QT_V}::Widgets
                                                   ${QT_V}::Network ${QT_V}::OpenGLWidgets)
 
+    if(RCV_ENABLE_TRACE_DECODER)
+        # Namespaced target carries LLVM (or comgr) transitively via PUBLIC
+        # link/include/define interface — nothing else to wire up here.
+        target_link_libraries(${PROJECT_NAME} PRIVATE rocprof-trace-decoder::rocprof-trace-decoder-static)
+    endif()
+
     install(
         TARGETS ${PROJECT_NAME}
         BUNDLE DESTINATION .
@@ -166,4 +209,52 @@ else()
     target_link_libraries(${PROJECT_NAME} PRIVATE Threads::Threads ${QT_V}::Network ${QT_V}::Core ${QT_V}::Gui
                                                   ${QT_V}::Widgets ${QT_EXTRA_WIDGET})
 
+    if(RCV_ENABLE_TRACE_DECODER)
+        target_link_libraries(${PROJECT_NAME} PRIVATE rocprof-trace-decoder::rocprof-trace-decoder-static)
+    endif()
+
+endif()
+
+# clang-format target. Prefer clang-format-14 explicitly so an older generic
+# `clang-format` in PATH, or a stale cached CLANG_FORMAT value, is not used.
+unset(CLANG_FORMAT)
+find_program(CLANG_FORMAT_14 NAMES clang-format-14)
+if(CLANG_FORMAT_14)
+    set(CLANG_FORMAT ${CLANG_FORMAT_14})
+else()
+    find_program(CLANG_FORMAT_GENERIC NAMES clang-format)
+    set(CLANG_FORMAT ${CLANG_FORMAT_GENERIC})
+endif()
+
+if(CLANG_FORMAT)
+    execute_process(
+        COMMAND ${CLANG_FORMAT} --version
+        OUTPUT_VARIABLE CLANG_FORMAT_VERSION_OUTPUT
+        ERROR_VARIABLE CLANG_FORMAT_VERSION_OUTPUT
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_STRIP_TRAILING_WHITESPACE)
+    string(REGEX MATCH "version ([0-9]+)" _CLANG_FORMAT_VERSION_MATCH "${CLANG_FORMAT_VERSION_OUTPUT}")
+    set(CLANG_FORMAT_VERSION_MAJOR "")
+    if(_CLANG_FORMAT_VERSION_MATCH)
+        set(CLANG_FORMAT_VERSION_MAJOR ${CMAKE_MATCH_1})
+    endif()
+
+    if(NOT CLANG_FORMAT_VERSION_MAJOR STREQUAL "14")
+        message(WARNING "clang-format target disabled: expected clang-format 14, found `${CLANG_FORMAT_VERSION_OUTPUT}`")
+        set(CLANG_FORMAT "")
+    endif()
+endif()
+
+if(CLANG_FORMAT)
+    message(STATUS "Using clang-format 14: ${CLANG_FORMAT}")
+    file(GLOB_RECURSE ALL_CXX_SOURCE_FILES
+        ${CMAKE_SOURCE_DIR}/src/*.cpp
+        ${CMAKE_SOURCE_DIR}/src/*.h
+        ${CMAKE_SOURCE_DIR}/src/*.hpp)
+    list(FILTER ALL_CXX_SOURCE_FILES EXCLUDE REGEX "/json/")
+    add_custom_target(format
+        COMMAND ${CLANG_FORMAT} -i ${ALL_CXX_SOURCE_FILES}
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+        COMMENT "Running clang-format on source files"
+        VERBATIM)
 endif()

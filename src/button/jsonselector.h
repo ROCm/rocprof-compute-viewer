@@ -23,75 +23,83 @@
 #pragma once
 
 #include <QComboBox>
-#include <memory>
-#include "json/include/nlohmann/json.hpp"
 #include "util/custom_layouts.h"
-using json = nlohmann::json;
 
-//! A combobox selector class for selecting json files.
-class Selector : public QComboBox
+class DataStore;
+
+//! A combobox for selecting the target shader engine
+class SESelector : public QComboBox
 {
     Q_OBJECT
     set_tracked();
 
 public:
-    Selector(json& data, class QLayout* w, Selector* sel_parent) :
-    QComboBox(nullptr), selector_parent(sel_parent), ui_elem(w), data_json(data)
-    {
-        w->addWidget(this);
-        addSortedNames();
-    }
-    virtual ~Selector()
-    {
-        if (selection) delete selection;
-    }
+    SESelector(DataStore& store);
+    ~SESelector() override;
+    void textChanged(const QString& text);
+
     int64_t getValue() { return std::stoll(currentText().toStdString()); }
 
-    void addSortedNames();
-    std::vector<std::string> names; ///< Possible (partial) names for json files
-    json data_json;
+private:
+    DataStore& store;
     class QWidget* selection = nullptr;
-    class QLayout* ui_elem = nullptr; ///< Layout for combobox in mainwindow.ui
-    class Selector* selector_parent;  ///< Selector up in the selection chain
-};
-
-//! A combobox for selecting the target shader engine
-class SESelector : public Selector
-{
-    Q_OBJECT
-public:
-    SESelector(class JsonRequest& request);
-    virtual ~SESelector() {}
-    void textChanged(const QString& text);
-signals:
 };
 
 //! A combobox for selecting the target SIMD unit
-class SimdSelector : public Selector
+class SimdSelector : public QComboBox
 {
     Q_OBJECT
+    set_tracked();
+
 public:
-    SimdSelector(json& data, SESelector* parent);
-    virtual ~SimdSelector() {}
+    SimdSelector(DataStore& store, int se);
+    ~SimdSelector() override;
     void textChanged(const QString& text);
+
+    int64_t getValue() { return std::stoll(currentText().toStdString()); }
+
+private:
+    DataStore& store;
+    int se;
+    class QWidget* selection = nullptr;
 };
 
 //! A combobox for selecting the target wave slot
-class WSlotSelector : public Selector
+class WSlotSelector : public QComboBox
 {
     Q_OBJECT
+    set_tracked();
+
 public:
-    WSlotSelector(json& data, SimdSelector* parent);
-    virtual ~WSlotSelector(){};
+    WSlotSelector(DataStore& store, int se, int simd);
+    ~WSlotSelector() override;
     void textChanged(const QString& text);
+
+    int64_t getValue() { return std::stoll(currentText().toStdString()); }
+
+private:
+    DataStore& store;
+    int se;
+    int simd;
+    class QWidget* selection = nullptr;
 };
 
 //! A combobox for selecting the target wave id
-class WaveIDSelector : public Selector
+class WaveIDSelector : public QComboBox
 {
     Q_OBJECT
+    set_tracked();
+
 public:
-    WaveIDSelector(json& data, WSlotSelector* parent);
-    virtual ~WaveIDSelector();
+    WaveIDSelector(DataStore& store, int se, int simd, int slot);
+    ~WaveIDSelector() override;
     void textChanged(const QString& text);
+
+    int64_t getValue() { return std::stoll(currentText().toStdString()); }
+
+private:
+    DataStore& store;
+    int se;
+    int simd;
+    int slot;
 };

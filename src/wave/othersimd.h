@@ -22,28 +22,11 @@
 
 #pragma once
 
-#include <cstdint>
-#include <map>
-#include <optional>
 #include <string>
 #include <vector>
 #include "json/include/nlohmann/json.hpp"
 #include "token.h"
-
-struct OtherSimdInstruction
-{
-    int64_t time = 0;
-    int cycles = 0;
-    int category = 0;
-};
-
-struct OtherSimdFileEntry
-{
-    std::string filepath;
-    std::optional<std::pair<int64_t, int64_t>> range;
-};
-
-using OtherSimdFiles = std::map<int, std::vector<OtherSimdFileEntry>>;
+#include "wave/othersimd_types.h"
 
 // Parse the other_simd_filenames object into per-SE file entries.
 OtherSimdFiles ParseOtherSimdFilenames(const nlohmann::json& filenames, const std::string& base_dir);
@@ -58,10 +41,12 @@ class OtherSimdData
 public:
     // Store the per-SE other-SIMD file list.
     void SetFiles(OtherSimdFiles files);
+    // Store per-SE in-memory records (decoder path).
+    void SetRecords(std::map<int, std::vector<OtherSimdInstruction>> records);
     // Clear cached tokens.
     void Clear();
-    // True when file data is available.
-    bool HasFiles() const { return !files.empty(); }
+    // True when data is available (files or in-memory records).
+    bool HasFiles() const { return !files.empty() || !in_memory_records.empty(); }
     // Load tokens for a given SE and clock window, validating token types.
     const std::vector<Token>& LoadTokens(int se, int64_t clock_start, int64_t clock_end, int color_count);
     // Access the last loaded tokens.
@@ -69,5 +54,6 @@ public:
 
 private:
     OtherSimdFiles files{};
+    std::map<int, std::vector<OtherSimdInstruction>> in_memory_records{};
     std::vector<Token> tokens{};
 };

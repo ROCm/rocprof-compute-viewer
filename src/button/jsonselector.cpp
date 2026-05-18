@@ -21,120 +21,112 @@
 // SOFTWARE.
 
 #include "jsonselector.h"
-#include <QTableWidget>
 #include <QWidget>
-#include <fstream>
-#include "code/qcodelist.h"
-#include "data/wavedata.h"
+#include "data/datastore.h"
 #include "mainwindow.h"
-#include "util/jsonrequest.hpp"
-#include "util/version.h"
 #include "wave/waveview.h"
 
-static void sort_by_id(std::vector<std::string>& names)
+SESelector::SESelector(DataStore& store) : QComboBox(nullptr), store(store)
 {
-    try
-    {
-        std::sort(
-            names.begin(),
-            names.end(),
-            [](const std::string& v1, const std::string& v2) -> bool { return stoi(v1) < stoi(v2); }
-        );
-    }
-    catch (std::exception& e)
-    {
-        QWARNING(false, "Could not sort filenames:" << e.what(), return );
-    }
-}
+    MainWindow::window->shaderSel->addWidget(this);
 
-void Selector::addSortedNames()
-{
-    names.clear();
-    for (auto& [name, value] : data_json.items())
-    {
-        if (value.size() == 0) continue;
-        names.push_back(name);
-    }
+    Token::bIsNaviWave = (store.gfxv == "navi");
 
-    sort_by_id(names);
+    // Populate SE options from wave hierarchy
+    for (auto& [se_id, _] : store.wave_hierarchy) this->addItem(QString::number(se_id));
 
-    for (auto& name : names) this->addItem(QString(name.c_str()));
-}
-
-SESelector::SESelector(JsonRequest& request) :
-Selector(request.data["wave_filenames"], MainWindow::window->shaderSel, nullptr)
-{
-    try
-    {
-        Token::bIsNaviWave = std::string(request.data["gfxv"]) == "navi";
-    }
-    catch (std::exception& e)
-    {
-        Token::bIsNaviWave = false;
-    }
-
-    try
-    {
-        auto version = std::string(request.data["version"]);
-        size_t major_pos = version.find('.');
-        size_t minor_pos = version.find('.', major_pos + 1);
-
-        Version::Get().tool_major = std::stoi(version.substr(0, major_pos));
-        Version::Get().tool_minor = std::stoi(version.substr(major_pos + 1, major_pos + 1 - minor_pos));
-        Version::Get().tool_rev = std::stoi(version.substr(minor_pos + 1));
-
-        std::cout << "Version: " << Version::Get().viewer_major << '.' << Version::Get().viewer_major << '.'
-                  << Version::Get().viewer_major << std::endl;
-        std::cout << "Tool: " << Version::Get().tool_major << '.' << Version::Get().tool_minor << '.'
-                  << Version::Get().tool_rev << std::endl;
-    }
-    catch (...)
-    {}
-
-    // Possible new set of files with same name, so json cache needs to be flushed
-    WaveInstance::InvalidadeCache();
-    if (names.size() > 0)
-        this->textChanged(names[0].c_str());
+    if (this->count() > 0)
+        this->textChanged(this->itemText(0));
     else
         this->setVisible(false);
+
     QObject::connect(this, &QComboBox::currentTextChanged, this, &SESelector::textChanged);
 }
+
+SESelector::~SESelector() { delete this->selection; }
 
 void SESelector::textChanged(const QString& text)
 {
     if (this->selection) delete this->selection;
-    this->selection = new SimdSelector(data_json[text.toStdString()], this);
+    this->selection = nullptr;
+    int se = text.toInt();
+    this->selection = new SimdSelector(store, se);
     this->setVisible(true);
 }
 
-SimdSelector::SimdSelector(json& _data, SESelector* parent) : Selector(_data, MainWindow::window->simdSel, parent)
+SimdSelector::SimdSelector(DataStore& store, int se) : QComboBox(nullptr), store(store), se(se)
 {
-    if (names.size() > 0) this->textChanged(names[0].c_str());
+    MainWindow::window->simdSel->addWidget(this);
+
+    auto it = store.wave_hierarchy.find(se);
+    if (it != store.wave_hierarchy.end())
+    {
+        for (auto& [simd_id, _] : it->second) this->addItem(QString::number(simd_id));
+    }
+
+    if (this->count() > 0) this->textChanged(this->itemText(0));
     QObject::connect(this, &QComboBox::currentTextChanged, this, &SimdSelector::textChanged);
 }
+
+SimdSelector::~SimdSelector() { delete this->selection; }
 
 void SimdSelector::textChanged(const QString& text)
 {
     if (this->selection) delete this->selection;
-    this->selection = new WSlotSelector(data_json[text.toStdString()], this);
+    this->selection = nullptr;
+    int simd = text.toInt();
+    this->selection = new WSlotSelector(store, se, simd);
 }
 
-WSlotSelector::WSlotSelector(json& _data, SimdSelector* parent) : Selector(_data, MainWindow::window->wslSel, parent)
+WSlotSelector::WSlotSelector(DataStore& store, int se, int simd) : QComboBox(nullptr), store(store), se(se), simd(simd)
 {
-    if (names.size() > 0) this->textChanged(names[0].c_str());
+    MainWindow::window->wslSel->addWidget(this);
+
+    auto se_it = store.wave_hierarchy.find(se);
+    if (se_it != store.wave_hierarchy.end())
+    {
+        auto simd_it = se_it->second.find(simd);
+        if (simd_it != se_it->second.end())
+        {
+            for (auto& [slot_id, _] : simd_it->second) this->addItem(QString::number(slot_id));
+        }
+    }
+
+    if (this->count() > 0) this->textChanged(this->itemText(0));
     QObject::connect(this, &QComboBox::currentTextChanged, this, &WSlotSelector::textChanged);
 }
+
+WSlotSelector::~WSlotSelector() { delete this->selection; }
 
 void WSlotSelector::textChanged(const QString& text)
 {
     if (this->selection) delete this->selection;
-    this->selection = new WaveIDSelector(data_json[text.toStdString()], this);
+    this->selection = nullptr;
+    int sl = text.toInt();
+    this->selection = new WaveIDSelector(store, se, simd, sl);
 }
 
-WaveIDSelector::WaveIDSelector(json& _data, WSlotSelector* parent) : Selector(_data, MainWindow::window->widSel, parent)
+WaveIDSelector::WaveIDSelector(DataStore& store, int se, int simd, int slot) :
+QComboBox(nullptr), store(store), se(se), simd(simd), slot(slot)
 {
+    MainWindow::window->widSel->addWidget(this);
     MainWindow::window->widSelector = this;
-    if (names.size() > 0) this->textChanged(names[0].c_str());
+
+    auto se_it = store.wave_hierarchy.find(se);
+    if (se_it != store.wave_hierarchy.end())
+    {
+        auto simd_it = se_it->second.find(simd);
+        if (simd_it != se_it->second.end())
+        {
+            auto slot_it = simd_it->second.find(slot);
+            if (slot_it != simd_it->second.end())
+            {
+                for (auto& [wid, _] : slot_it->second) this->addItem(QString::number(wid));
+            }
+        }
+    }
+
+    if (this->count() > 0) this->textChanged(this->itemText(0));
     QObject::connect(this, &QComboBox::currentTextChanged, this, &WaveIDSelector::textChanged);
 }
 
@@ -143,14 +135,4 @@ WaveIDSelector::~WaveIDSelector()
     if (MainWindow::window && MainWindow::window->widSelector == this) MainWindow::window->widSelector = nullptr;
 }
 
-void WaveIDSelector::textChanged(const QString& text)
-{
-    if (this->selection) delete this->selection;
-
-    Selector* simdSel = selector_parent->selector_parent;
-    Selector* shaderSel = simdSel->selector_parent;
-
-    MainWindow::window->SetMainWave(
-        shaderSel->getValue(), simdSel->getValue(), selector_parent->getValue(), getValue()
-    );
-}
+void WaveIDSelector::textChanged(const QString& text) { MainWindow::window->SetMainWave(se, simd, slot, getValue()); }

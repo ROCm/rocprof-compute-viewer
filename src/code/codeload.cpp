@@ -39,6 +39,13 @@ void CodeData::InvalidadeCache()
 
 std::vector<CodeData> CodeData::GetCode() { return cache; }
 
+void CodeData::ApplyCustomType(const std::shared_ptr<Line>& line)
+{
+    if (!line) return;
+    for (auto& [custom_token, custom_type] : Config::CustomTokens())
+        if (line->inst.find(custom_token) == 0) line->custom_type = custom_type;
+}
+
 std::vector<CodeData> CodeData::LoadCode(const std::string& path)
 {
     std::unique_lock<std::mutex> lk(code_mutex);
@@ -49,13 +56,12 @@ std::vector<CodeData> CodeData::LoadCode(const std::string& path)
 
     if (coderequest.fail() || coderequest.bad()) throw std::exception{};
 
-    cache.clear();
-    loaded_cache = path;
-
     int stall_idx = -1;
     int issue_idx = -1;
     int reasons_idx = -1;
 
+    // Header parsing is best-effort: if a column is malformed we still try to use whatever
+    // indices we did manage to identify before the throw.
     try
     {
         int index = 0;
@@ -70,42 +76,51 @@ std::vector<CodeData> CodeData::LoadCode(const std::string& path)
         }
     }
     catch (...)
-    {}
-
-    int i = 0;
-    for (auto& c : coderequest.data["code"])
     {
-        std::string cppline = c[3].is_null() ? "" : std::string(c[3]);
-
-        int64_t idle = int64_t(c[9]);
-        int64_t stall = int64_t(c[8]);
-
-        int64_t pcissues = issue_idx >= 0 ? int64_t(c[issue_idx]) : 0;
-        int64_t pcstalls = stall_idx >= 0 ? int64_t(c[stall_idx]) : 0;
-
-        auto reasons = std::vector<int64_t>();
-        if (reasons_idx >= 0)
-            for (auto& entry : c[reasons_idx]) reasons.push_back(int64_t(entry));
-
-        cache.push_back(
-            {int(c[2]),
-             int(c[6]),
-             int64_t(c[5]),
-             int64_t(c[4]),
-             int64_t(c[7]),
-             idle,
-             stall,
-             pcissues + pcstalls,
-             pcstalls,
-             std::string(c[0]),
-             cppline,
-             reasons}
-        );
-
-        for (auto& [custom_token, custom_type] : Config::CustomTokens())
-            if (cache.back().line->inst.find(custom_token) == 0) cache.back().line->custom_type = custom_type;
-        i += 1;
+        RCV_LOG();
     }
 
+    // Build into a local first so a mid-loop throw doesn't leave a partially-populated
+    // cache stamped as valid. Per-row try/catch keeps one bad row from killing the rest.
+    std::vector<CodeData> built;
+    int row_failures = 0;
+    for (auto& c : coderequest.data["code"])
+    {
+        try
+        {
+            std::vector<int64_t> reasons;
+            if (reasons_idx >= 0)
+                for (auto& entry : c[reasons_idx]) reasons.push_back(int64_t(entry));
+
+            int64_t pcissues = issue_idx >= 0 ? int64_t(c[issue_idx]) : 0;
+            int64_t pcstalls = stall_idx >= 0 ? int64_t(c[stall_idx]) : 0;
+
+            built.push_back(
+                {int(c[2]),
+                 int(c[6]),
+                 int64_t(c[5]),
+                 int64_t(c[4]),
+                 int64_t(c[7]),
+                 int64_t(c[9]),
+                 int64_t(c[8]),
+                 pcissues + pcstalls,
+                 pcstalls,
+                 std::string(c[0]),
+                 c[3].is_null() ? "" : std::string(c[3]),
+                 reasons}
+            );
+            ApplyCustomType(built.back().line);
+        }
+        catch (const std::exception& e)
+        {
+            if (row_failures++ == 0) std::cerr << "Warning: code.json row skipped: " << e.what() << std::endl;
+        }
+    }
+
+    if (row_failures > 1)
+        std::cerr << "Warning: " << row_failures << " code.json rows failed to parse (" << path << ")" << std::endl;
+
+    cache = std::move(built);
+    loaded_cache = path;
     return cache;
 }

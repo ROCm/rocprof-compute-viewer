@@ -24,6 +24,7 @@
 #include <QPainter>
 #include <set>
 #include <shared_mutex>
+#include "data/waitcnt/analysis.h"
 #include "json/include/nlohmann/json.hpp"
 #include "mainwindow.h"
 #include "util/jsonrequest.hpp"
@@ -216,64 +217,30 @@ void TokenGroup::Draw(class QPainter& painter, int64_t viewstart, int64_t viewen
     painter.setPen(pen);
 }
 
-WaveInstance::WaveInstance(const std::string& _path) : path(_path)
+void WaveInstance::appendTokenWithSlotBump(
+    Token&& token, std::array<int64_t, 4>& prev_clock, std::array<int64_t, 4>& last_clock
+)
 {
-    JsonRequest json(path);
-    nlohmann::json& data = json.data;
+    while (prev_clock.at(token.slot) == token.clock && last_clock.at(token.slot) > token.clock && token.slot < 3)
+        token.slot++;
 
-    auto& instructions = data["wave"]["instructions"];
-    int wave_id = data["wave"]["id"];
+    prev_clock.at(token.slot) = token.clock;
+    last_clock.at(token.slot) = std::max(last_clock.at(token.slot), token.clock + token.cycles);
 
-    std::string version = "";
-    try
-    {
-        version = std::string(data["version"]);
-    }
-    catch (...)
-    {}
+    tokens.emplace_back(std::move(token));
+}
 
-    bool isIdleInfo = true;
-    code = CodeData::LoadCode(path.substr(0, path.rfind("se")) + "code.json");
-
-    std::array<int64_t, 4> prev_clock{};
-    std::array<int64_t, 4> last_clock{};
-
-    for (auto& inst : instructions)
-    {
-        int stall = int(inst[2]);
-
-        Token token{};
-        token.clock = int64_t(inst[0]);
-        token.cycles = std::max(stall, int(inst[3]));
-        token.stall = (int16_t) stall;
-        token.type = (int16_t) inst[1];
-        token.code_line = (int) inst[4];
-
-        while (prev_clock.at(token.slot) == token.clock && last_clock.at(token.slot) > token.clock && token.slot < 3)
-            token.slot++;
-
-        prev_clock.at(token.slot) = token.clock;
-        last_clock.at(token.slot) = std::max(last_clock.at(token.slot), token.clock + token.cycles);
-
-        tokens.emplace_back(std::move(token));
-    }
-    tokens.Compile();
-
+void WaveInstance::populateExecMetadata(int wave_id, bool isIdleInfo)
+{
     std::vector<int> code_line_map;
     for (size_t i = 0; i < code.size(); i++)
     {
         int index = code.at(i).line->index;
-
-        if (code_line_map.size() <= index) code_line_map.resize(index + 1);
+        if (code_line_map.size() <= (size_t) index) code_line_map.resize(index + 1);
         code_line_map.at(index) = i;
     }
 
-    this->wave_begin = int64_t(data["wave"]["begin"]);
-    this->wave_end = int64_t(data["wave"]["end"]);
-
-    if (data["wave"].contains("cu")) this->cu = int(data["wave"]["cu"]);
-
-    int thrownLine = 0;
+    int thrownLine = -1;
     int64_t maxtime = 0;
     int64_t prev_token_clock = wave_begin;
 
@@ -282,6 +249,12 @@ WaveInstance::WaveInstance(const std::string& _path) : path(_path)
         token.setOverlapped(token.clock < maxtime);
         maxtime = std::max(maxtime, token.clock + token.cycles);
 
+        if (token.code_line < 0 || (size_t) token.code_line >= code_line_map.size())
+        {
+            thrownLine = token.code_line;
+            prev_token_clock = token.clock + token.cycles;
+            continue;
+        }
         line_to_clock[token.code_line].push_back(token.clock);
         try
         {
@@ -301,7 +274,8 @@ WaveInstance::WaveInstance(const std::string& _path) : path(_path)
         }
         catch (std::out_of_range& e)
         {
-            thrownLine = token.code_line;
+            RCV_LOG();
+            if (token.code_line != -1) thrownLine = token.code_line;
         }
 
         prev_token_clock = token.clock + token.cycles;
@@ -317,7 +291,44 @@ WaveInstance::WaveInstance(const std::string& _path) : path(_path)
 
     for (auto& [_, line] : line_to_clock) line.shrink_to_fit();
 
-    QWARNING(thrownLine == 0, "Token referenced invalid code line: " << thrownLine, (void) 0);
+    QWARNING(thrownLine == -1, "Token referenced invalid code line: " << thrownLine, (void) 0);
+}
+
+WaveInstance::WaveInstance(const std::string& _path) : path(_path)
+{
+    JsonRequest json(path);
+    nlohmann::json& data = json.data;
+
+    auto& instructions = data["wave"]["instructions"];
+    int wave_id = data["wave"]["id"];
+
+    bool isIdleInfo = true;
+    code = CodeData::LoadCode(path.substr(0, path.rfind("se")) + "code.json");
+
+    std::array<int64_t, 4> prev_clock{};
+    std::array<int64_t, 4> last_clock{};
+
+    for (auto& inst : instructions)
+    {
+        int stall = int(inst[2]);
+
+        Token token{};
+        token.clock = int64_t(inst[0]);
+        token.cycles = std::max(stall, int(inst[3]));
+        token.stall = (int16_t) stall;
+        token.type = (int16_t) inst[1];
+        token.code_line = (int) inst[4];
+
+        appendTokenWithSlotBump(std::move(token), prev_clock, last_clock);
+    }
+    tokens.Compile();
+
+    this->wave_begin = int64_t(data["wave"]["begin"]);
+    this->wave_end = int64_t(data["wave"]["end"]);
+
+    if (data["wave"].contains("cu")) this->cu = int(data["wave"]["cu"]);
+
+    populateExecMetadata(wave_id, isIdleInfo);
 
     {
         int64_t _clock = wave_begin;
@@ -349,7 +360,9 @@ WaveInstance::WaveInstance(const std::string& _path) : path(_path)
             stall_cnt = int(json_wave_info[param + "_stall"]);
         }
         catch (...)
-        {}
+        {
+            RCV_LOG();
+        }
 
         try
         {
@@ -364,6 +377,79 @@ WaveInstance::WaveInstance(const std::string& _path) : path(_path)
     SetMipN();
 }
 
+WaveInstance::WaveInstance(const wave_record_t& rec, const std::vector<CodeData>& code_data) : path(rec.id)
+{
+    code = code_data;
+
+    int wave_id = rec.wave_id;
+    bool isIdleInfo = true;
+
+    std::array<int64_t, 4> prev_clock{};
+    std::array<int64_t, 4> last_clock{};
+
+    for (auto& inst : rec.instructions)
+    {
+        Token token{};
+        token.clock = inst.time;
+        token.cycles = std::max(inst.stall, inst.duration);
+        token.stall = (int16_t) inst.stall;
+        token.type = (int16_t) inst.category;
+        token.code_line = inst.line_number;
+
+        appendTokenWithSlotBump(std::move(token), prev_clock, last_clock);
+    }
+    tokens.Compile();
+
+    this->wave_begin = rec.begin;
+    this->wave_end = rec.end;
+    this->cu = rec.cu;
+
+    populateExecMetadata(wave_id, isIdleInfo);
+
+    {
+        int64_t _clock = wave_begin;
+        for (auto& state : rec.timeline)
+        {
+            timeline[_clock] = WaveState{_clock, int(state.duration), int(state.type)};
+            _clock += int(state.duration);
+        }
+    }
+
+    for (auto& entry : rec.waitcnt)
+    {
+        Canvas::WaitList list = {entry.code_line, {}};
+        for (auto& src : entry.sources) list.sources.push_back({src.first, src.second});
+        waitcnt.push_back(std::move(list));
+    }
+
+    if (rec.has_dispatcher_info)
+    {
+        if (rec.me >= 0) wave_info.push_back({"me", rec.me, 0});
+        if (rec.pipe >= 0) wave_info.push_back({"pipe", rec.pipe, 0});
+    }
+    if (rec.has_workgroup_id) wave_info.push_back({"workgroup_id", rec.workgroup_id, 0});
+    if (rec.has_occupancy_flags) wave_info.push_back({"flags", rec.occupancy_flags, 0});
+
+    SetMipN();
+}
+
+std::shared_ptr<WaveInstance> WaveInstance::GetFromRecord(
+    const std::string& id, const wave_record_t& rec, const std::vector<CodeData>& code_data
+)
+{
+    {
+        std::shared_lock<std::shared_mutex> lk(wave_mutex);
+        auto it = reader_cache.find(id);
+        if (it != reader_cache.end()) return it->second;
+    }
+
+    auto loaded_wave = std::make_shared<WaveInstance>(rec, code_data);
+
+    std::unique_lock<std::shared_mutex> lk(wave_mutex);
+    reader_cache[id] = loaded_wave;
+    return loaded_wave;
+}
+
 int64_t WaveInstance::GetMainClock(int code_line, int iteration)
 {
     QWARNING(main_wave.get(), "Invalid main wave", return -1);
@@ -371,13 +457,15 @@ int64_t WaveInstance::GetMainClock(int code_line, int iteration)
     try
     {
         auto& clock_array = main_wave->line_to_clock.at(code_line);
-        if (iteration > 0 && iteration < clock_array.size()) return clock_array.at(iteration);
+        if (size_t(iteration) < clock_array.size()) return clock_array.at(iteration);
 
         for (int64_t clock : clock_array)
             if (clock >= QCustomScroll::clock_cutoff_start) return clock;
     }
     catch (std::exception& e)
-    {}
+    {
+        RCV_LOG();
+    }
 
     return -1;
 }
@@ -433,4 +521,10 @@ std::vector<Canvas::WaitList> WaveInstance::get_branch_targets() const
     }
 
     return ret;
+}
+
+void WaveInstance::buildWaitcnt(int gfxip)
+{
+    if (!waitcnt.empty()) return;
+    waitcnt = buildWaitcntFromTokens(gfxip, tokens, code);
 }

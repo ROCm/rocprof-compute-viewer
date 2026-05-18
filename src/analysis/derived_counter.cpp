@@ -26,6 +26,7 @@
 #include <fstream>
 #include <iostream>
 #include <limits>
+#include "util/diagnostic_log.h"
 
 namespace DerivedCounter
 {
@@ -2291,6 +2292,7 @@ std::vector<Parser::Definition> Parser::parseFile(const std::string& content)
         }
         catch (const std::exception& e)
         {
+            RCV_LOG();
             throw std::runtime_error("Parse error at line " + std::to_string(lineNum) + ": " + e.what());
         }
     }

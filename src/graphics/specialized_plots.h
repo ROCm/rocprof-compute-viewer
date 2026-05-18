@@ -26,22 +26,8 @@
 #include <unordered_set>
 #include "analysis/derived_counter.h"
 #include "container/datanode.h"
+#include "data/datastore.h"
 #include "plot.h"
-
-//! Class for visualizing wave states
-class WavePlotView : public PlotGraph
-{
-public:
-    WavePlotView() : WavePlotView(nullptr){};
-    WavePlotView(class QWidget* parent) : PlotGraph(1, parent){};
-    void LoadWaveStateData(const std::string& filename, int SE);
-    virtual void UpdateGraphTable(float timepos) override;
-
-    static std::vector<std::string> state_names;
-
-private:
-    static std::vector<QColor> colors;
-};
 
 //! Class for visualizing performance counters
 class CounterPlotView : public PlotGraph
@@ -92,6 +78,7 @@ public:
     OccupancyPlotView() : OccupancyPlotView(nullptr){};
     OccupancyPlotView(class QWidget* parent) : PlotGraph(2, parent){};
     virtual void LoadOccupancyData(const std::string& filename);
+    void LoadOccupancyData(const DataStore& store);
     virtual void UpdateGraphTable(float timepos) override;
 
 protected:
@@ -103,6 +90,7 @@ class DispatchPlotView : public OccupancyPlotView
 public:
     DispatchPlotView(class QWidget* parent) : OccupancyPlotView(parent){};
     virtual void LoadOccupancyData(const std::string& filename) override;
+    void LoadOccupancyData(DataStore& store);
     virtual void UpdateGraphTable(float timepos) override{};
 
     const std::vector<int>& seList() const { return se_list; }

@@ -31,7 +31,9 @@
 #include <fstream>
 #include <iostream>
 #include "config/config.hpp"
+#include "data/records.h"
 #include "json/include/nlohmann/json.hpp"
+#include "util/diagnostic_log.h"
 
 bool bDarkTheme = false;
 
@@ -200,6 +202,91 @@ const QColor& ShaderDataColor()
     static QColor light(139, 0, 0);
     return bDarkTheme ? dark : light;
 }
+const QColor& MarkerFunctionColor()
+{
+    // Cool blue — instrumented device functions
+    static QColor dark(70, 130, 200);
+    static QColor light(50, 100, 170);
+    return bDarkTheme ? dark : light;
+}
+const QColor& MarkerKernelColor()
+{
+    // Purple — kernel boundaries (rare; mostly for vaddr lookup, but render if present)
+    static QColor dark(160, 100, 200);
+    static QColor light(120, 60, 160);
+    return bDarkTheme ? dark : light;
+}
+const QColor& MarkerScopeColor()
+{
+    // Warm gold — user-defined scope markers
+    static QColor dark(210, 170, 70);
+    static QColor light(180, 140, 40);
+    return bDarkTheme ? dark : light;
+}
+const QColor& MarkerPointColor()
+{
+    // Bright green — point markers (barrier, mem op, addr trace)
+    static QColor dark(100, 200, 110);
+    static QColor light(60, 160, 80);
+    return bDarkTheme ? dark : light;
+}
+const QColor& MarkerUnknownColor()
+{
+    // Mid grey — ID had no funcmap entry
+    static QColor dark(140, 140, 140);
+    static QColor light(160, 160, 160);
+    return bDarkTheme ? dark : light;
+}
+const QColor& DecoderEventCsPartialFlushColor()
+{
+    static QColor dark(255, 0, 0, 210);
+    return dark;
+}
+const QColor& DecoderEventDefaultColor()
+{
+    static QColor dark(66, 165, 245, 191);
+    static QColor light(66, 165, 245, 191);
+    return bDarkTheme ? dark : light;
+}
+const QColor& DecoderEventPacketLossColor()
+{
+    static QColor dark(255, 0, 0, 191);
+    return dark;
+}
+const QColor& DecoderEventDispatchEndColor()
+{
+    static QColor dark(255, 255, 0, 255);
+    return dark;
+}
+const QColor& DecoderEventStallColor()
+{
+    static QColor dark(255, 160, 0, 95);
+    return dark;
+}
+const QColor& DecoderEventCodeObjectColor()
+{
+    static QColor dark(255, 255, 0, 224);
+    return dark;
+}
+const QColor& DecoderEventColor(int type)
+{
+    switch (type)
+    {
+        case ROCPROF_TRACE_DECODER_EVENT_CS_PARTIAL_FLUSH: return DecoderEventCsPartialFlushColor();
+        case ROCPROF_TRACE_DECODER_EVENT_PACKET_LOSS: return DecoderEventPacketLossColor();
+        case ROCPROF_TRACE_DECODER_EVENT_DISPATCH_END: return DecoderEventDispatchEndColor();
+        case ROCPROF_TRACE_DECODER_EVENT_TT_STALL_BEGIN:
+        case ROCPROF_TRACE_DECODER_EVENT_TT_STALL_END: return DecoderEventStallColor();
+        case ROCPROF_TRACE_DECODER_EVENT_CODE_OBJECT_LOAD:
+        case ROCPROF_TRACE_DECODER_EVENT_CODE_OBJECT_UNLOAD: return DecoderEventCodeObjectColor();
+        default: return DecoderEventDefaultColor();
+    }
+}
+const QColor& DecoderDispatchEventColor()
+{
+    static QColor light(76, 76, 255, 255);
+    return light;
+}
 const QColor& LatencyTextColor()
 {
     static QColor dark(255, 80, 80);
@@ -280,6 +367,7 @@ const std::vector<StyleColor>& TokenColors()
             }
             catch (const std::exception& e)
             {
+                RCV_LOG();
                 addpair(def_token, "NONE", "#a8a8a8");
                 addpair(def_token, "SMEM", "#f0ff00");
                 addpair(def_token, "SALU", "#a0ffa0");
@@ -337,7 +425,9 @@ const std::vector<StyleColor>& TokenColors()
                         keep_original = bool(new_token["keep_original"]);
                     }
                     catch (std::exception&)
-                    {}
+                    {
+                        RCV_LOG();
+                    }
 
                     if (keep_original) add_original();
                     keep_original = false;
@@ -429,7 +519,9 @@ const std::vector<std::pair<std::string, int>> CustomTokens()
             for (auto& [isa, value] : new_asm["asmkeys"].items()) key[isa] = value;
         }
         catch (const std::exception& e)
-        {}
+        {
+            RCV_LOG();
+        }
 
         for (auto& [match, inst] : key.items())
         {
