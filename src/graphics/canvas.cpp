@@ -320,6 +320,7 @@ bool Canvas::Connect(QPainter& painter, int l1, int l2, int xslot, QColor& color
     }
     catch (...)
     {
+        RCV_LOG();
         return true;
     }
 

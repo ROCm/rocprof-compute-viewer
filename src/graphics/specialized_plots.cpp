@@ -25,10 +25,12 @@
 #include <fstream>
 #include <set>
 #include "container/datanode.h"
+#include "data/dispatch_resolver.h"
 #include "data/wavedata.h"
 #include "mainwindow.h"
 #include "util/jsonrequest.hpp"
 #include "util/version.h"
+#include "wave/waveglobal.h"
 
 using namespace std;
 
@@ -43,71 +45,144 @@ static std::vector<std::pair<std::string, int>> UtilTypes = {
 };
 static std::vector<std::string> MopsTypes = {"I8", "F8", "F16", "BF16", "F32", "F64", "XF32", "F6F4"};
 
-std::vector<std::string> WavePlotView::state_names = {"Empty", "Idle", "Exec", "Wait", "Stall"};
-
 static QColor& DispatchColor(int id) { return MainWindow::dispatchcolors[id % MainWindow::dispatchcolors.size()]; }
 
-std::vector<QColor> WavePlotView::colors = {
-    {255, 255, 255},
-    {150, 150, 150},
-    {32,  255, 32 },
-    {255, 255, 0  },
-    {255, 32,  32 }
-};
-
-void WavePlotView::LoadWaveStateData(const std::string& pathname, int SE)
+namespace
 {
-    auto load_v3 = [](const std::string& filename)
+using OccupancyBySE = std::map<int, std::vector<occupancy_data>>;
+
+bool parseSEKey(const std::string& key, int& se)
+{
+    try
     {
-        std::vector<WeightedPoint> moveable;
-        JsonRequest file(filename, false);
-        if (!file.bValid) return moveable;
-
-        auto& time = file.data["time"];
-        auto& state = file.data["state"];
-        if (time.size() != state.size()) std::cerr << "Warning: States have nonmatching array sizes" << std::endl;
-
-        for (size_t i = 0; i < time.size() && i < state.size(); i++)
-            moveable.emplace_back(WeightedPoint{time.at(i), state.at(i), 1});
-
-        return moveable;
-    };
-
-    auto load_state = [&](int state)
+        se = std::stoi(key);
+        return true;
+    }
+    catch (...)
     {
-        int stepsize = 1;
-        std::vector<WeightedPoint> ret;
+        RCV_LOG();
+        return false;
+    }
+}
 
-        if (Version::Get().tool_major)
+template <typename JsonT> OccupancyBySE occupancyBySEFromJson(const JsonT& root, std::vector<int>* se_list = nullptr)
+{
+    OccupancyBySE by_se;
+    for (auto& [se_key, array] : root.items())
+    {
+        if (array.size() == 0) continue;
+
+        int se = -1;
+        if (!parseSEKey(se_key, se)) continue;
+        if (se_list) se_list->push_back(se);
+
+        auto& records = by_se[se];
+        records.reserve(records.size() + array.size());
+        for (auto& v : array) records.push_back(occupancy_data::build(v));
+    }
+    return by_se;
+}
+
+template <typename StoreT, typename KernelIdFor>
+OccupancyBySE occupancyBySEFromStoreImpl(StoreT& store, KernelIdFor kernel_id_for)
+{
+    OccupancyBySE by_se;
+    for (auto& [se, records] : store.occupancy_by_se)
+    {
+        if (records.empty()) continue;
+        auto& out = by_se[se];
+        out.reserve(records.size());
+
+        for (auto& rec : records)
         {
-            ret = load_v3(pathname + "wstates" + std::to_string(state) + ".json");
-            stepsize = 1;
+            occupancy_data occ;
+            occ.time = rec.time;
+            occ.cu = rec.cu;
+            occ.simd = rec.simd;
+            occ.slot = rec.wave_id;
+            occ.enable = rec.start;
+            occ.kernel_id = kernel_id_for(rec);
+            out.push_back(occ);
         }
-
-        return std::tuple<int, int, decltype(ret)>{state, stepsize, ret};
-    };
-
-    std::vector<std::future<decltype(load_state(0))>> threads;
-
-    for (int state = 2; state < 5; state++) threads.push_back(std::async(std::launch::async, load_state, state));
-
-    for (auto& thread : threads)
-    {
-        auto [state, stepsize, moveable] = thread.get();
-        if (moveable.size() < 2) continue;
-
-        AddData(state_names.at(state), colors[state % colors.size()], std::move(moveable));
     }
+    return by_se;
 }
 
-void WavePlotView::UpdateGraphTable(float mousepos)
+OccupancyBySE occupancyBySEFromStore(const DataStore& store)
 {
-    for (int i = 0; i < 3; i++)
+    return occupancyBySEFromStoreImpl(store, [](const occupancy_record_t&) { return 0; });
+}
+
+OccupancyBySE occupancyBySEFromStoreWithDispatch(DataStore& store)
+{
+    return occupancyBySEFromStoreImpl(
+        store, [&](const occupancy_record_t& rec) { return store.dispatch_resolver.Resolve(rec.pc); }
+    );
+}
+
+std::vector<occupancy_data> flattenOccupancy(OccupancyBySE& by_se)
+{
+    std::vector<occupancy_data> occupancy;
+    for (auto& [se, records] : by_se)
     {
-        if (i >= curves.size() || !curves.at(i).lods.size()) continue;
-        MainWindow::window->UpdateGraphInfo(state_names.at(i + 2), curves.at(i).lods.at(0).search(mousepos));
+        (void) se;
+        occupancy.insert(occupancy.end(), records.begin(), records.end());
+    }
+    return occupancy;
+}
+
+void addOccupancySeries(PlotGraph& plot, const OccupancyBySE& by_se)
+{
+    int c = 0;
+    for (const auto& [se, records] : by_se)
+    {
+        if (records.empty()) continue;
+
+        int accum = 0;
+        std::vector<WeightedPoint> datapoints;
+        datapoints.push_back({(float) (records.front().time - 1), 0.0f});
+
+        for (const auto& data : records)
+        {
+            accum += 2 * data.enable - 1;
+            datapoints.push_back({(float) data.time, (float) accum});
+        }
+        plot.AddData("SE" + std::to_string(se), DispatchColor(c++), std::move(datapoints));
     }
 }
+
+template <typename NameFor>
+void addDispatchSeries(PlotGraph& plot, std::vector<occupancy_data> occupancy, int num_dispatch_ids, NameFor name_for)
+{
+    if (num_dispatch_ids == 0) return;
+
+    std::sort(
+        occupancy.begin(),
+        occupancy.end(),
+        [](const occupancy_data& a, const occupancy_data& b) { return a.time < b.time; }
+    );
+
+    std::vector<std::vector<WeightedPoint>> datapoints(num_dispatch_ids, std::vector<WeightedPoint>{});
+    std::vector<int> kernel_occupancy(num_dispatch_ids, 0);
+
+    try
+    {
+        for (auto& data : occupancy)
+        {
+            kernel_occupancy.at(data.kernel_id) += 2 * data.enable - 1;
+            datapoints.at(data.kernel_id).push_back({(float) data.time, (float) kernel_occupancy.at(data.kernel_id)});
+        }
+    }
+    catch (std::out_of_range& e)
+    {
+        QWARNING(false, "Warning: Occupancy data corrupted", );
+    }
+
+    for (int id = 0; id < num_dispatch_ids; id++)
+        if (datapoints[id].size() >= 2)
+            plot.AddData(std::to_string(id) + '-' + name_for(id), DispatchColor(id), std::move(datapoints[id]));
+}
+} // namespace
 
 void TraceCounterPlotView::LoadCounterData(const std::string& dirpath, int shader_engine)
 {
@@ -300,6 +375,7 @@ void CounterPlotView::UpdateDerivedCounters(const std::string& derivedDefinition
     }
     catch (const std::exception&)
     {
+        RCV_LOG();
         return;
     }
 
@@ -357,75 +433,90 @@ void CounterPlotView::UpdateDerivedCounters(const std::string& derivedDefinition
     update();
 }
 
-void CounterPlotView::buildDerivedManager()
+namespace
 {
-    derivedmanager = std::make_shared<DerivedCounter::DerivedCounterManager>();
-    // Compute the full tensor shape from the raw counter data
-    // Shape is (num_banks/XCC, num_SEs, NUM_CU, num_time_samples)
 
-    // Find the global time range across all nodes
+struct TimeGrid
+{
     int64_t global_min_time = INT64_MAX;
     int64_t global_max_time = INT64_MIN;
     size_t max_num_ses = 0;
     size_t max_num_cus = 1;
+    size_t num_time_samples = 0;
+    std::vector<float> time_data;
+    /// True when at least one root node reported a valid time range and
+    /// `delta > 0`; callers must bail out early when false.
+    bool valid = false;
+};
 
+/// Scan `rootnodes` to derive the (time, SE, CU) shape of the counter tensor.
+/// Computes the global [min, max] sample-time interval, the largest SE/CU
+/// indices observed, then packs the per-sample time axis into `time_data`
+/// for the SCLOCK broadcast tensor downstream. Pure read of the node tree.
+TimeGrid computeTimeGrid(const std::vector<std::unique_ptr<GPUCounterNode>>& rootnodes, int64_t delta)
+{
+    TimeGrid g;
     for (auto& node : rootnodes)
     {
         int64_t node_min, node_max;
         node->getTimeRange(delta, node_min, node_max);
         if (node_min != INT64_MAX)
         {
-            global_min_time = std::min(global_min_time, node_min);
-            global_max_time = std::max(global_max_time, node_max);
+            g.global_min_time = std::min(g.global_min_time, node_min);
+            g.global_max_time = std::max(g.global_max_time, node_max);
         }
-        max_num_ses = std::max(max_num_ses, node->Nodes().size());
-
+        g.max_num_ses = std::max(g.max_num_ses, node->Nodes().size());
         for (auto& se : node->Nodes())
             if (se)
                 for (auto& cu : se->cu_nodes)
-                    if (cu && !cu->data.empty()) max_num_cus = std::max<size_t>(max_num_cus, 1 + cu->cu);
+                    if (cu && !cu->data.empty()) g.max_num_cus = std::max<size_t>(g.max_num_cus, 1 + cu->cu);
     }
 
-    if (global_min_time == INT64_MAX || delta <= 0) return;
+    if (g.global_min_time == INT64_MAX || delta <= 0) return g;
 
-    // Calculate number of time samples based on delta
-    size_t num_time_samples = static_cast<size_t>((global_max_time - global_min_time) / delta);
-    if (num_time_samples == 0) num_time_samples = 1;
+    g.num_time_samples = static_cast<size_t>((g.global_max_time - g.global_min_time) / delta);
+    if (g.num_time_samples == 0) g.num_time_samples = 1;
 
-    // Create time data array for plotting
-    std::vector<float> time_data(num_time_samples);
-    for (size_t i = 0; i < num_time_samples; i++) time_data[i] = static_cast<float>(global_min_time + i * delta);
+    g.time_data.resize(g.num_time_samples);
+    for (size_t i = 0; i < g.num_time_samples; i++) g.time_data[i] = static_cast<float>(g.global_min_time + i * delta);
 
-    size_t num_banks = rootnodes.size();
+    g.valid = true;
+    return g;
+}
 
-    DerivedCounter::Shape counterShape(1, max_num_ses, max_num_cus, num_time_samples);
-
-    // Create tensors for each counter (num_banks * CNT_BANK total), filled with zeros initially
+/// Allocate one zero-initialized tensor per (bank, counter slot) and
+/// accumulate raw counter samples into them. Time bin uses the
+/// [t - δ/4, t + 3δ/4] half-open mapping so a sample landing exactly on a
+/// grid edge does not split between two bins.
+std::vector<std::shared_ptr<DerivedCounter::Tensor>> buildCounterTensors(
+    const std::vector<std::unique_ptr<GPUCounterNode>>& rootnodes,
+    const DerivedCounter::Shape& counterShape,
+    size_t num_banks,
+    size_t num_time_samples,
+    size_t max_num_ses,
+    int64_t global_min_time,
+    int64_t delta
+)
+{
     size_t total_counters = num_banks * CNT_BANK;
     std::vector<std::shared_ptr<DerivedCounter::Tensor>> counter_tensors;
     counter_tensors.reserve(total_counters);
     for (size_t i = 0; i < total_counters; i++)
         counter_tensors.emplace_back(std::make_shared<DerivedCounter::Tensor>(counterShape, 0.0f));
 
-    // Populate tensors from raw CU data
     for (size_t b = 0; b < num_banks; b++)
     {
         auto& node = rootnodes[b];
         for (auto& se_node : node->Nodes())
         {
             if (!se_node || se_node->se >= max_num_ses) continue;
-
             for (auto& cu_node : se_node->cu_nodes)
             {
                 if (!cu_node) continue;
-
                 for (const auto& counter : cu_node->data)
                 {
-                    // Calculate time index: maps interval [t-delta/4, t+3*delta/4] to same index
-                    // Equivalent to: time_idx = (sample_time - min_time + delta/4) / delta
                     size_t time_idx = static_cast<size_t>((counter.time - global_min_time + delta / 4) / delta);
                     if (time_idx >= num_time_samples) continue;
-
                     for (int c = 0; c < CNT_BANK; c++)
                     {
                         size_t tensor_idx = c + b * CNT_BANK;
@@ -435,26 +526,47 @@ void CounterPlotView::buildDerivedManager()
             }
         }
     }
+    return counter_tensors;
+}
 
-    // Register tensors with the derived counter manager
+} // anonymous namespace
+
+void CounterPlotView::buildDerivedManager()
+{
+    derivedmanager = std::make_shared<DerivedCounter::DerivedCounterManager>();
+    // Tensor shape is (num_banks/XCC, num_SEs, NUM_CU, num_time_samples).
+    // Phase 1: scan raw nodes to derive that shape + the SCLOCK time axis.
+    TimeGrid grid = computeTimeGrid(rootnodes, delta);
+    if (!grid.valid) return;
+
+    const size_t num_banks = rootnodes.size();
+    DerivedCounter::Shape counterShape(1, grid.max_num_ses, grid.max_num_cus, grid.num_time_samples);
+
+    // Phase 2: allocate per-(bank, counter slot) tensors and bin samples in.
+    auto counter_tensors = buildCounterTensors(
+        rootnodes, counterShape, num_banks, grid.num_time_samples, grid.max_num_ses, grid.global_min_time, delta
+    );
+
+    // Phase 3: register named tensors with the derived-counter manager so
+    // user-defined expressions can reference them. Names beyond the loaded
+    // counter list fall back to UNK_<slot> rather than aborting.
     for (size_t b = 0; b < num_banks; b++)
     {
         for (int c = 0; c < CNT_BANK; c++)
         {
             int index = c + static_cast<int>(b) * CNT_BANK;
-            auto name = index < counter_names.size() ? counter_names.at(index) : ("UNK_" + std::to_string(c));
-
+            auto name = index < (int) counter_names.size() ? counter_names.at(index) : ("UNK_" + std::to_string(c));
             derivedmanager->context().setCounter(name, counter_tensors[index]);
         }
     }
 
-    // Create SCLOCK tensor from time points (broadcast across all dimensions)
-    {
-        DerivedCounter::Shape sclockShape(1, 1, 1, num_time_samples);
-        derivedmanager->context().setCounter(
-            "SCLOCK", std::make_shared<DerivedCounter::Tensor>(sclockShape, time_data)
-        );
-    }
+    // Phase 4: SCLOCK tensor — broadcast across all (bank, SE, CU) so a
+    // derived expression can divide events by elapsed time without rank
+    // gymnastics.
+    DerivedCounter::Shape sclockShape(1, 1, 1, grid.num_time_samples);
+    derivedmanager->context().setCounter(
+        "SCLOCK", std::make_shared<DerivedCounter::Tensor>(sclockShape, grid.time_data)
+    );
 }
 
 void TraceCounterPlotView::buildDerivedManager()
@@ -579,46 +691,12 @@ void OccupancyPlotView::LoadOccupancyData(const std::string& filename)
     JsonRequest file(filename);
     QWARNING(!file.fail() && !file.bad(), "Error opening file " << filename, return );
 
-    {
-        bool bLegacy = true;
-        try
-        {
-            if (std::string(file.data["version"]).at(0) == '3') bLegacy = false;
-        }
-        catch (...)
-        {}
-        QWARNING(!bLegacy, "Legacy version not supported!", return );
-    }
+    addOccupancySeries(*this, occupancyBySEFromJson(file.data));
+}
 
-    int c = 0;
-    for (auto& [SE, array] : file.data.items())
-    {
-        if (array.size() == 0) continue;
-        try
-        {
-            [[maybe_unused]] bool b = std::to_string(std::stoi(SE)) == "SE";
-        }
-        catch (...)
-        {
-            continue;
-        }
-
-        int accum = 0;
-        std::vector<WeightedPoint> datapoints{};
-
-        {
-            occupancy_data data = occupancy_data::build(array[0]);
-            datapoints.push_back({(float) (data.time - 1), 0.0f});
-        }
-
-        for (auto& v : array)
-        {
-            occupancy_data data = occupancy_data::build(v);
-            accum += 2 * data.enable - 1;
-            datapoints.push_back({(float) data.time, (float) accum});
-        }
-        AddData("SE" + SE, DispatchColor(c++), std::move(datapoints));
-    }
+void OccupancyPlotView::LoadOccupancyData(const DataStore& store)
+{
+    addOccupancySeries(*this, occupancyBySEFromStore(store));
 }
 
 void OccupancyPlotView::UpdateGraphTable(float timepos)
@@ -641,66 +719,27 @@ void DispatchPlotView::LoadOccupancyData(const std::string& filename)
     JsonRequest file(filename);
     QWARNING(!file.fail() && !file.bad(), "Error opening file " << filename, return );
 
-    {
-        bool bLegacy = true;
-        try
-        {
-            if (std::string(file.data["version"]).at(0) == '3') bLegacy = false;
-        }
-        catch (...)
-        {}
-        QWARNING(!bLegacy, "Legacy version not supported!", return );
-    }
-
     std::unordered_map<int, std::string> kernel_names;
     for (auto& [id, name] : file.data["dispatches"].items()) kernel_names[stoi(id)] = name;
 
     int num_dispatch_ids = kernel_names.size();
 
-    std::vector<occupancy_data> occupancy{};
     se_list.clear();
+    auto by_se = occupancyBySEFromJson(file.data, &se_list);
+    addDispatchSeries(*this, flattenOccupancy(by_se), num_dispatch_ids, [&](int id) { return kernel_names[id]; });
+}
 
-    for (auto& [SE, array] : file.data.items())
-    {
-        if (array.size() == 0) continue;
-        try
-        {
-            se_list.push_back(std::stoi(SE));
-        }
-        catch (...)
-        {
-            continue;
-        }
+void DispatchPlotView::LoadOccupancyData(DataStore& store)
+{
+    auto& resolver = store.dispatch_resolver;
 
-        for (auto& v : array) occupancy.push_back(occupancy_data::build(v));
-    }
+    se_list.clear();
+    auto by_se = occupancyBySEFromStoreWithDispatch(store);
+    for (auto& [se, records] : by_se)
+        if (!records.empty()) se_list.push_back(se);
 
-    std::sort(
-        occupancy.begin(),
-        occupancy.end(),
-        [](const occupancy_data& a, const occupancy_data& b) { return a.time < b.time; }
-    );
-    std::vector<std::vector<WeightedPoint>> datapoints(num_dispatch_ids, std::vector<WeightedPoint>{});
-
-    int64_t time = 0;
-    std::vector<int> kernel_occupancy(num_dispatch_ids, 0);
-
-    try
-    {
-        for (auto& data : occupancy)
-        {
-            kernel_occupancy.at(data.kernel_id) += 2 * data.enable - 1;
-            datapoints.at(data.kernel_id).push_back({(float) data.time, (float) kernel_occupancy.at(data.kernel_id)});
-        }
-    }
-    catch (std::out_of_range& e)
-    {
-        QWARNING(false, "Warning: Occupancy data corrupted", );
-    }
-
-    for (int id = 0; id < num_dispatch_ids; id++)
-        if (datapoints[id].size() >= 2)
-            AddData(std::to_string(id) + '-' + kernel_names[id], DispatchColor(id), std::move(datapoints[id]));
+    int num_dispatch_ids = resolver.Count();
+    addDispatchSeries(*this, flattenOccupancy(by_se), num_dispatch_ids, [&](int id) { return resolver.Name(id); });
 }
 
 std::string TraceCounterPlotView::getBuiltin() const

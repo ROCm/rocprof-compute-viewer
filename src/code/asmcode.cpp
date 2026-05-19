@@ -33,6 +33,7 @@
 #include "graphics/canvas.h"
 #include "mainwindow.h"
 #include "sourcefile.h"
+#include "util/diagnostic_log.h"
 #include "wave/waveview.h"
 
 #define SHORT_CPPLINE_MAXCHARS 32
@@ -218,13 +219,15 @@ TextLineElement(line.inst), line_number(_line_number), codeobj(line.codeobj_id),
 
             try
             {
-                auto shared = SourceLine::all_lines.at(substr);
+                auto shared = SourceLine::all_lines.at(std::string(substr));
                 if (!shared) continue;
                 line_ref.push_back(shared);
                 shared->add_latency(line.type, {line.latency_sum, line.stall_sum}, {line.pcsamples, line.pcstalls});
             }
             catch (std::exception&)
-            {}
+            {
+                RCV_LOG();
+            }
         }
     }
     catch (std::exception&)

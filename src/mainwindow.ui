@@ -63,51 +63,6 @@
           <enum>QLayout::SetMinimumSize</enum>
          </property>
          <item>
-          <widget class="QFrame" name="frame_2">
-           <property name="minimumSize">
-            <size>
-             <width>0</width>
-             <height>64</height>
-            </size>
-           </property>
-           <property name="frameShape">
-            <enum>QFrame::StyledPanel</enum>
-           </property>
-           <property name="frameShadow">
-            <enum>QFrame::Raised</enum>
-           </property>
-           <layout class="QVBoxLayout" name="verticalLayout_2">
-            <item>
-             <layout class="QVBoxLayout" name="verticalLayout_4" stretch="0,0">
-              <item>
-               <widget class="QLabel" name="label_4">
-                <property name="text">
-                 <string>UI Path:</string>
-                </property>
-               </widget>
-              </item>
-              <item>
-               <widget class="QLineEdit" name="ConfigNameEdit">
-                <property name="sizePolicy">
-                 <sizepolicy hsizetype="Maximum" vsizetype="Fixed">
-                  <horstretch>0</horstretch>
-                  <verstretch>0</verstretch>
-                 </sizepolicy>
-                </property>
-                <property name="maximumSize">
-                 <size>
-                  <width>200</width>
-                  <height>32</height>
-                 </size>
-                </property>
-               </widget>
-              </item>
-             </layout>
-            </item>
-           </layout>
-          </widget>
-         </item>
-         <item>
           <layout class="QHBoxLayout" name="horizontalLayout" stretch="0,0,0,0,0">
            <property name="spacing">
             <number>1</number>
@@ -1038,17 +993,6 @@
           <string>Counters</string>
          </attribute>
         </widget>
-        <widget class="QWidget" name="wv_states_tab">
-         <property name="maximumSize">
-          <size>
-           <width>16777215</width>
-           <height>16777215</height>
-          </size>
-         </property>
-         <attribute name="title">
-          <string>Wave States</string>
-         </attribute>
-        </widget>
         <widget class="QWidget" name="hotspot_tab">
          <property name="maximumSize">
           <size>
@@ -1136,9 +1080,15 @@
         </widget>
         <widget class="QWidget" name="fileExplorer_tab">
          <attribute name="title">
-          <string>Flamegraph</string>
+          <string>Fine Flamegraph</string>
          </attribute>
          <layout class="QVBoxLayout" name="fileExplorerLayout"/>
+        </widget>
+        <widget class="QWidget" name="marker_fg_tab">
+         <attribute name="title">
+          <string>Coarse Flamegraph</string>
+         </attribute>
+         <layout class="QVBoxLayout" name="markerFlamegraphLayout"/>
         </widget>
        </widget>
       </widget>
@@ -1161,6 +1111,7 @@
      <string>Import</string>
     </property>
     <addaction name="actionJsons_folder"/>
+    <addaction name="actionAttFiles"/>
    </widget>
    <widget class="QMenu" name="menuEdit">
     <property name="title">
@@ -1191,6 +1142,16 @@
   <action name="actionJsons_folder">
    <property name="text">
     <string>Rocprofv3 UI Output</string>
+   </property>
+  </action>
+  <action name="actionAttFiles">
+   <property name="text">
+    <string>ATT Trace Files...</string>
+   </property>
+  </action>
+  <action name="actionRocpd">
+   <property name="text">
+    <string>ROCpd Database...</string>
    </property>
   </action>
   <action name="actionHotOptions">

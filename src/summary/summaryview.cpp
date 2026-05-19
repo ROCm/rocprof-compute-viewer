@@ -50,7 +50,10 @@ void PieChartWidget::paintEvent(QPaintEvent* event)
     // Maintain circular aspect ratio
     int side = std::max(qMin(canvasRect.width(), canvasRect.height()), 100) - 20; // -20 for padding
     pie_rect = QRectF(
-        (canvasRect.width() - side) / 2.0, (canvasRect.height() - side) / 2.0 + titleRect.height(), side, side
+        (canvasRect.width() - side) / 2.0,
+        (canvasRect.height() - side) / 2.0 + titleRect.height(),
+        side,
+        side
     ); // Store for mouseMoveEvent
 
     int currentAngle16 = 0; // Start angle in 1/16th of a degree

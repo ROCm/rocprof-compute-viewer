@@ -135,4 +135,5 @@ struct CodeData
     static void InvalidadeCache();
     static std::vector<CodeData> GetCode();
     static std::vector<CodeData> LoadCode(const std::string& path);
+    static void ApplyCustomType(const std::shared_ptr<Line>& line);
 };

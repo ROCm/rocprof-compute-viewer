@@ -23,10 +23,17 @@
 #include "shaderdata.h"
 #include <algorithm>
 #include <array>
+#include <climits>
 #include <future>
 #include <iostream>
 #include <sstream>
+#include "data/marker_walker.h"
 #include "util/jsonrequest.hpp"
+
+#ifdef RCV_HAS_TRACE_DECODER
+#    include <rocprof_trace_decoder/cxx/code_printing.hpp>
+#    include <rocprof_trace_decoder/cxx/funcmap.hpp>
+#endif
 
 std::string ShaderDataRecord::ToolTip() const
 {
@@ -89,6 +96,7 @@ void ShaderDataManager::Load(const nlohmann::json& shaderdata_filenames, const s
         }
         catch (...)
         {
+            RCV_LOG();
             continue;
         }
 
@@ -142,6 +150,149 @@ ShaderDataRecordVec ShaderDataManager::GetRecords(int se, int cu, int simd, int 
     if (it != m_records_by_location.end()) return it->second;
     return nullptr;
 }
+
+void ShaderDataManager::AddRecord(int se, const shaderdata_record_t& rec)
+{
+    ShaderDataRecord r;
+    r.time = rec.time;
+    r.value = static_cast<uint32_t>(rec.value);
+    r.cu = rec.cu;
+    r.simd = rec.simd;
+    r.wave_id = rec.wave_id;
+    r.flags = rec.flags;
+    r.se = se;
+    m_pending[std::make_tuple(se, r.cu, r.simd, r.wave_id)].push_back(std::move(r));
+}
+
+void ShaderDataManager::Finalize()
+{
+    if (m_pending.empty()) return;
+
+    auto cmp = [](const ShaderDataRecord& a, const ShaderDataRecord& b) { return a.time < b.time; };
+
+    for (auto& [key, records] : m_pending)
+    {
+        std::sort(records.begin(), records.end(), cmp);
+        m_records_by_location[key] = std::make_shared<const std::vector<ShaderDataRecord>>(std::move(records));
+        m_has_data = true;
+    }
+    m_pending.clear();
+}
+
+void ShaderDataManager::ApplyTimeOffsets(const std::map<int, int64_t>& offsets)
+{
+    if (m_pending.empty() || offsets.empty()) return;
+    for (auto& [key, records] : m_pending)
+    {
+        int se = std::get<0>(key);
+        auto it = offsets.find(se);
+        if (it == offsets.end() || it->second == 0) continue;
+        int64_t off = it->second;
+        for (auto& r : records) r.time += off;
+    }
+}
+
+MarkerSpanVec ShaderDataManager::GetMarkers(int se, int cu, int simd, int slot) const
+{
+    auto it = m_markers_by_location.find(std::make_tuple(se, cu, simd, slot));
+    if (it != m_markers_by_location.end()) return it->second;
+    return nullptr;
+}
+
+void ShaderDataManager::ClearMarkers()
+{
+    m_markers_by_location.clear();
+    m_marker_diags.clear();
+    m_has_markers = false;
+}
+
+void ShaderDataManager::ResolveMarkers(const MarkerResolveAtFn& resolver)
+{
+    // Idempotent: caller may invoke this on every load. Clear stale state first.
+    ClearMarkers();
+
+    if (m_records_by_location.empty()) return;
+
+    for (const auto& [key, records_ptr] : m_records_by_location)
+    {
+        if (!records_ptr || records_ptr->empty()) continue;
+        const auto& [se, cu, simd, slot] = key;
+        const auto& records = *records_ptr;
+
+        // Adapt ShaderDataRecord stream into the pure walker's input format.
+        std::vector<MarkerInputRecord> in;
+        in.reserve(records.size());
+        for (const auto& rec : records) in.push_back({rec.time, rec.value});
+
+        MarkerResolveFn bucket_resolver;
+        if (resolver)
+        {
+            bucket_resolver = [&](uint32_t id, int64_t time) -> ResolvedMarker
+            { return resolver(se, cu, simd, slot, id, time); };
+        }
+
+        std::vector<MarkerSpan> spans;
+        walkMarkerStream(in, se, cu, simd, slot, bucket_resolver, &spans, &m_marker_diags);
+
+        if (spans.empty()) continue;
+
+        // Sort by enter_time so paint can binary-search the visible range.
+        std::sort(
+            spans.begin(),
+            spans.end(),
+            [](const MarkerSpan& a, const MarkerSpan& b) { return a.enter_time < b.enter_time; }
+        );
+
+        m_markers_by_location[key] = std::make_shared<const std::vector<MarkerSpan>>(std::move(spans));
+        m_has_markers = true;
+    }
+}
+
+#ifdef RCV_HAS_TRACE_DECODER
+namespace
+{
+using FuncmapEntryKind = rocprof_trace_decoder::codeobj::FuncmapEntryKind;
+
+MarkerKind toMarkerKind(FuncmapEntryKind k)
+{
+    switch (k)
+    {
+        case FuncmapEntryKind::Function: return MarkerKind::Function;
+        case FuncmapEntryKind::Kernel: return MarkerKind::Kernel;
+        case FuncmapEntryKind::UserScope: return MarkerKind::UserScope;
+        case FuncmapEntryKind::Point: return MarkerKind::Point;
+    }
+    return MarkerKind::Unknown;
+}
+} // namespace
+
+void ShaderDataManager::ResolveMarkers(
+    rocprof_trace_decoder::codeobj::CodeobjAddressTranslate& codeobj_map, const ActiveCodeobjFn& active_codeobj_fn
+)
+{
+    namespace cobj = rocprof_trace_decoder::codeobj;
+
+    ResolveMarkers(
+        [&](int se, int cu, int simd, int slot, uint32_t id, int64_t time) -> ResolvedMarker
+        {
+            const uint64_t coid = active_codeobj_fn ? active_codeobj_fn(se, cu, simd, slot, time) : 0ull;
+            if (coid == 0) return {};
+
+            cobj::Funcmap::EntryPtr entry = codeobj_map.getMarker(coid, id);
+
+            ResolvedMarker out;
+            if (entry)
+            {
+                out.found = true;
+                out.kind = toMarkerKind(entry->kind);
+                out.name = entry->name;
+                out.source_loc = entry->source_loc;
+            }
+            return out;
+        }
+    );
+}
+#endif // RCV_HAS_TRACE_DECODER
 
 int FindShaderDataRecord(const ShaderDataRecordVec& records, int64_t clock_pos, int64_t hit_width)
 {

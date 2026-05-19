@@ -27,6 +27,7 @@
 #include "../code/qcodelist.h"
 #include "../graphics/canvas.h"
 #include "../json/include/nlohmann/json.hpp"
+#include "../util/diagnostic_log.h"
 
 #include <QGroupBox>
 #include <QHBoxLayout>
@@ -164,6 +165,7 @@ void LatencyAnalysisDialog::startAnalysis()
             }
             catch (...)
             {
+                RCV_LOG();
                 // Skip invalid SE keys
             }
         }
@@ -326,6 +328,7 @@ void LatencyAnalysisDialog::startAnalysis()
             }
             catch (const std::exception& e)
             {
+                RCV_LOG();
                 QString errorMsg = QString::fromStdString(e.what());
                 QMetaObject::invokeMethod(
                     this,

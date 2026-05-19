@@ -22,36 +22,32 @@
 
 #pragma once
 
-#include <QScrollArea>
 #include <QScrollBar>
 #include <QWidget>
-#include <map>
-#include <memory>
-#include <string>
-#include <unordered_map>
 #include <vector>
-#include "code/hotspot.hpp"
+
+#include "flamegraph/layout.h"
+#include "flamegraph/stack_node.h"
 
 /**
- * A flamegraph-style widget that visualizes profiling data in a hierarchical,
- * stacked bar chart. From bottom to top:
- *   1. Source files — width proportional to total latency per file
- *   2. C++ source lines — grouped under their file, with inline call stacks expanded
- *   3. Assembly instructions — grouped under their source line
+ * Flamegraph widget shell. Owns no tree-building or layout logic — those live
+ * in `flamegraph/stack_builder.{h,cpp}` (builders) and `flamegraph/layout.{h,cpp}`
+ * (tree → frames). This class is just the Qt surface: paint, mouse, wheel,
+ * scrollbar, and the picker that decides which builder to run for a given dataset.
  *
- * Inline functions are handled by building a call-stack tree from the ASMLine::line_ref
- * chain. Each level of inlining becomes a separate row in the flamegraph.
+ * Subclasses (e.g. MarkerFlameGraphWidget) override rebuild() to plug in a
+ * different builder, and reuse the base painter/input handling unchanged.
  */
 class FlameGraphWidget : public QWidget
 {
-    Q_OBJECT;
+    Q_OBJECT
 
 public:
     explicit FlameGraphWidget(QWidget* parent = nullptr);
     virtual ~FlameGraphWidget() = default;
 
-    /// Rebuild the flamegraph data from the current SourceLine::all_lines and ASMCodeline::line_vec
-    void rebuild();
+    /// Pick a builder, run layout, and refresh the widget.
+    virtual void rebuild();
 
 protected:
     void paintEvent(QPaintEvent* event) override;
@@ -64,76 +60,49 @@ protected:
     QSize sizeHint() const override;
     QSize minimumSizeHint() const override;
 
+    /// Apply a layout result to the widget (frames, row index, totals) and
+    /// refresh the scrollbar / minimum height. Used by both the base
+    /// `rebuild()` and subclass overrides.
+    void applyLayout(flamegraph::LayoutResult result);
+
+    /// Reset frame state to defaults and refresh the scrollbar.
+    void resetFrameState();
+
 private:
-    /// A single rectangular frame in the flamegraph
-    struct Frame
-    {
-        std::string label;    ///< Display label shown inside the frame bar
-        std::string location; ///< Full path location (e.g. "/path/file.cpp:42")
-        std::string content;  ///< Source/ASM content text
-        int64_t latency = 0;  ///< Total latency (SQTT + PCS) of this frame
-        double x = 0;         ///< Left position in [0,1] normalized coordinates (relative to total)
-        double w = 0;         ///< Width in [0,1] normalized coordinates
-        int row = 0;          ///< Row index (0 = bottom = files)
-        QColor color;         ///< Fill color
+    /// Pick a builder for the current dataset (markers + target wave →
+    /// integrated; otherwise legacy file roots). Member function so the
+    /// MainWindow `friend FlameGraphWidget` declaration covers its access
+    /// to private MainWindow coordinates.
+    static flamegraph::Roots pickBuilder();
 
-        // For click navigation
-        std::string filename; ///< Source filename (for file and source frames)
-        int lineNumber = -1;  ///< Source line number (for source frames)
-        int asmIndex = -1;    ///< ASM line index (for asm frames)
-    };
+    /// Y-pixel of the top of `row`'s band. Centralizes the bottom-up row math
+    /// shared by paint, hit-test, and frameRect.
+    int rowTopY(int row) const;
 
-    /// A call-stack node used during tree construction
-    struct StackNode
-    {
-        std::string key;          ///< Unique key for this node (e.g. "file.cpp:42")
-        std::string label;        ///< Display label (location)
-        std::string content;      ///< Source text content
-        std::string fullLocation; ///< Full path location for tooltip
-        std::string filename;
-        int lineNumber = -1;
-        int64_t latency = 0;
-        std::map<std::string, std::shared_ptr<StackNode>> children;
+    QRect frameRect(const flamegraph::Frame& f) const;
+    const flamegraph::Frame* frameAt(const QPoint& pos) const;
 
-        /// Assembly instructions directly at this call-stack leaf
-        struct AsmEntry
-        {
-            std::string label;
-            int64_t latency = 0;
-            int asmIndex = -1;
-            int tokenType = 0; ///< Index into Config::TokenColors()
-        };
-        std::vector<AsmEntry> asmEntries;
-        /// Optional: when populated, asmEntries are merged-by-label via this index.
-        /// Used for fallback ([Unassigned] / file:?) nodes to collapse identical
-        /// instructions into one frame each, instead of one per ASM line.
-        std::unordered_map<std::string, size_t> asmIndexByLabel;
-    };
+    void updateScrollBar();
+    void onScrollBarChanged(int value);
 
-    void buildFrames();
-    void layoutFrames();
-
-    /// Convert a StackNode tree into frames at a given depth, within [parentX, parentX+parentW]
-    void flattenNode(
-        const StackNode& node, int depth, int maxDepth, double parentX, double parentW, int64_t parentLatency
-    );
-
-    /// Get the frame under the mouse cursor, or nullptr
-    const Frame* frameAt(const QPoint& pos) const;
-
-    /// Pixel geometry for a frame
-    QRect frameRect(const Frame& f) const;
-
-    std::vector<Frame> m_frames;
-    int m_numRows = 0;      ///< Total number of rows
-    int m_rowHeight = 20;   ///< Pixel height per row
-    int m_padding = 2;      ///< Pixel padding between frames
-    int m_marginBottom = 4; ///< Bottom margin
-    int m_marginTop = 4;    ///< Top margin
+protected:
+    std::vector<flamegraph::Frame> m_frames;
+    /// Per-row index into m_frames, sorted by Frame::x ascending. Used by
+    /// paintEvent and frameAt to binary-search by x and avoid scanning all
+    /// 50k+ frames every repaint / mouse move.
+    std::vector<std::vector<int>> m_framesByRow;
+    /// Cached `m_hScrollBar->sizeHint().height()`; the original cost was paid
+    /// once per Frame per paint. Recomputed in resizeEvent and applyLayout.
+    int m_cachedScrollBarHeight = 0;
+    int m_numRows = 0;
+    int m_rowHeight = 20;
+    int m_padding = 2;
+    int m_marginBottom = 4;
+    int m_marginTop = 4;
     int m_marginLeft = 4;
     int m_marginRight = 4;
 
-    const Frame* m_hoveredFrame = nullptr;
+    const flamegraph::Frame* m_hoveredFrame = nullptr;
     int64_t m_totalLatency = 0;
 
     // Zoom/pan state
@@ -142,15 +111,5 @@ private:
     QPoint m_lastMousePos;
     bool m_isPanning = false;
 
-    // Horizontal scrollbar
     QScrollBar* m_hScrollBar = nullptr;
-    void updateScrollBar();
-    void onScrollBarChanged(int value);
-
-    /// Color palette for files (avoids green, orange, yellow, gray)
-    static QColor fileColor(int index);
-    /// Color for source line frames (cool tones, avoids green/orange/yellow/gray)
-    static QColor sourceColor(double latencyRatio);
-    /// Color for assembly frames based on token type
-    static QColor asmColorForType(int tokenType);
 };

@@ -23,11 +23,24 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <string>
 #include <tuple>
 #include <vector>
+#include "data/marker_walker.h"
+#include "data/records.h"
 #include "json/include/nlohmann/json.hpp"
+
+#ifdef RCV_HAS_TRACE_DECODER
+namespace rocprof_trace_decoder
+{
+namespace codeobj
+{
+class CodeobjAddressTranslate;
+}
+} // namespace rocprof_trace_decoder
+#endif
 
 /// A single shaderdata record: ["time","value","cu","simd","wave_id","flags"]
 struct ShaderDataRecord
@@ -70,15 +83,88 @@ public:
     /// The shaderdata wave_id field corresponds to the occupancy slot.
     ShaderDataRecordVec GetRecords(int se, int cu, int simd, int slot) const;
 
+    /// Add a single record from the decoder path (thread-safe with external lock).
+    void AddRecord(int se, const shaderdata_record_t& rec);
+
+    /// Finalize after all AddRecord calls: sort buckets and wrap in shared_ptr.
+    void Finalize();
+
+    /// Add a per-SE clock offset to every pending record for that SE. Must be
+    /// called BEFORE Finalize (i.e. during the decoder load before signalComplete).
+    /// SEs absent from the map are unchanged. No-op for SEs with offset == 0.
+    void ApplyTimeOffsets(const std::map<int, int64_t>& offsets);
+
     /// Check if any shaderdata was loaded.
     bool HasData() const { return m_has_data; }
 
+    // ─── Markers (SQTT instrumentation) ─────────────────────────────────────
+
+    /// Callback type used by ResolveMarkers to map a raw marker id at a
+    /// concrete shaderdata location/time to a funcmap entry. Marker ids are
+    /// code-object scoped; callers must use their own active-code-object lookup
+    /// before resolving the id.
+    using MarkerResolveAtFn =
+        std::function<ResolvedMarker(int se, int cu, int simd, int slot, uint32_t id, int64_t time)>;
+
+    /// Clear decoded marker state and diagnostics while leaving raw shaderdata
+    /// records intact.
+    void ClearMarkers();
+
+    /// After all records are loaded, decode every record's `value` field into
+    /// MarkerSpans using a caller-supplied scoped resolver.
+    void ResolveMarkers(const MarkerResolveAtFn& resolver);
+
+#ifdef RCV_HAS_TRACE_DECODER
+    /// Callback type used by ResolveMarkers to find the active code object at
+    /// a given (se,cu,simd,slot,time). The caller (TraceDecoderEmitter) owns
+    /// the lookup machinery; ShaderDataManager just asks for an ID.
+    /// Return 0 when no active code object can be identified; the marker id
+    /// will remain unresolved.
+    using ActiveCodeobjFn = std::function<uint64_t(int se, int cu, int simd, int slot, int64_t time)>;
+
+    /// After all records are loaded (Load + Finalize done), decode every
+    /// record's `value` field into MarkerSpans using the funcmap from the
+    /// supplied CodeobjAddressTranslate. Idempotent — safe to call once at
+    /// end of load. Skipped for buckets with no shaderdata records.
+    void ResolveMarkers(
+        rocprof_trace_decoder::codeobj::CodeobjAddressTranslate& codeobj_map, const ActiveCodeobjFn& active_codeobj_fn
+    );
+#endif
+
+    /// Per-bucket marker spans (null if no markers were resolved for the bucket).
+    MarkerSpanVec GetMarkers(int se, int cu, int simd, int slot) const;
+
+    /// Iterate every non-empty marker bucket. Functor signature:
+    ///   void(int se, int cu, int simd, int slot, const MarkerSpanVec& spans)
+    template <class F> void ForEachMarkerBucket(F&& f) const
+    {
+        for (const auto& [key, spans] : m_markers_by_location)
+        {
+            const auto& [se, cu, simd, slot] = key;
+            f(se, cu, simd, slot, spans);
+        }
+    }
+
+    /// True if any bucket produced spans.
+    bool HasMarkers() const { return m_has_markers; }
+
+    /// Diagnostics emitted during marker resolution. Empty until ResolveMarkers
+    /// is called; non-empty when the marker stream has unknown IDs or stack anomalies.
+    const std::vector<MarkerDiagnostic>& GetMarkerDiagnostics() const { return m_marker_diags; }
+
 private:
+    /// Pending records accumulated via AddRecord, before Finalize.
+    std::map<std::tuple<int, int, int, int>, std::vector<ShaderDataRecord>> m_pending;
     /// Load a single shaderdata JSON file and return its records.
     static std::vector<ShaderDataRecord> LoadFile(const std::string& filepath, int se);
 
     /// Key: (se, cu, simd, slot/wave_id) -> shared sorted records
     std::map<std::tuple<int, int, int, int>, ShaderDataRecordVec> m_records_by_location;
 
+    /// Key: (se, cu, simd, slot) -> shared marker spans (sorted by enter_time).
+    std::map<std::tuple<int, int, int, int>, MarkerSpanVec> m_markers_by_location;
+
+    std::vector<MarkerDiagnostic> m_marker_diags;
     bool m_has_data = false;
+    bool m_has_markers = false;
 };
