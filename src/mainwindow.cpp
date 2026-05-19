@@ -32,7 +32,6 @@
 #include <QScrollArea>
 #include <QSpinBox>
 #include <QTextStream>
-#include <QTimer>
 #include <algorithm>
 #include <cstddef>
 #include <filesystem>
