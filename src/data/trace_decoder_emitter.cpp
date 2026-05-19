@@ -44,8 +44,12 @@
 #    include "util/diagnostic_log.h"
 #    include "util/memtracker.h"
 
-#define C_API_BEGIN try {
-#define C_API_END } catch(std::exception& e) { QWARNING(false, e.what(), ); }
+#    define C_API_BEGIN                                                                                                \
+        try                                                                                                            \
+        {
+#    define C_API_END                                                                                                  \
+        }                                                                                                              \
+        catch (std::exception & e) { QWARNING(false, e.what(), ); }
 
 namespace fs = std::filesystem;
 
@@ -357,7 +361,7 @@ bool TraceDecoderEmitter::loadCodeObjectFile(const std::string& path, uint64_t c
     {
         // TODO: We dont know the load address so we use an address not available
         constexpr uint64_t dummy_addr = uint64_t{1} << 48;
-        codeobj_map.addDecoder(buffer.data(), buffer.size(), code_object_id, dummy_addr*code_object_id, file_size);
+        codeobj_map.addDecoder(buffer.data(), buffer.size(), code_object_id, dummy_addr * code_object_id, file_size);
         return true;
     }
     catch (...)

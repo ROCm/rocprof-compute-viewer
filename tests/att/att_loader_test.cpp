@@ -2,6 +2,7 @@
 
 #include <cstdlib>
 #include <filesystem>
+#include <shared_mutex>
 #include <string>
 #include <vector>
 
@@ -52,6 +53,31 @@ bool hasUsableData(const DataStore& store)
 }
 
 } // namespace
+
+TEST(AttLoaderRecords, EmptyInstructionWaveIsKeptInMemory)
+{
+    DataStore store;
+    WaveHandler handler(store);
+
+    wave_record_t rec{};
+    rec.id = "se0_simd0_cu1_w0_30608";
+    rec.cu = 1;
+    rec.simd = 0;
+    rec.wave_id = 0;
+    rec.begin = 30608;
+    rec.end = 40960;
+
+    handler.onWave(0, rec);
+
+    ASSERT_EQ(store.wave_hierarchy.size(), 1u);
+    ASSERT_EQ(store.wave_hierarchy.at(0).at(0).at(0).size(), 1u);
+    EXPECT_EQ(store.wave_hierarchy.at(0).at(0).at(0).begin()->second.id, rec.id);
+
+    std::shared_lock<std::shared_mutex> lock(store.wave_records_mutex);
+    auto it = store.wave_records.find(rec.id);
+    ASSERT_NE(it, store.wave_records.end());
+    EXPECT_TRUE(it->second.instructions.empty());
+}
 
 TEST(AttLoaderRealData, DetectsSingleSeDatasetAndLoadsUsableData)
 {

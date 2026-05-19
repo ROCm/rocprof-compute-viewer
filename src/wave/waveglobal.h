@@ -253,7 +253,7 @@ public:
         if (labelPanel) labelPanel->recalculatePositions();
         if (tickHeader) tickHeader->update();
         this->updateGeometry();
-        this->repaint();
+        this->update();
     }
 
     virtual void paintEvent(QPaintEvent* event) override;

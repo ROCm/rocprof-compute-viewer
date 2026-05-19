@@ -42,13 +42,8 @@ void WaveHandler::onWave(int se, const wave_record_t& rec)
     int next_id = slot_map.empty() ? 0 : slot_map.rbegin()->first + 1;
     slot_map[next_id] = entry;
 
-    // Store full record for in-memory retrieval (decoder path).
-    // For the JSON path, instructions is empty — no data to store.
-    if (!rec.instructions.empty())
-    {
-        std::unique_lock<std::shared_mutex> lock(store.wave_records_mutex);
-        store.wave_records.emplace(rec.id, rec);
-    }
+    std::unique_lock<std::shared_mutex> lock(store.wave_records_mutex);
+    store.wave_records.emplace(rec.id, rec);
 }
 
 void OccupancyHandler::onOccupancy(int se, const occupancy_record_t& rec) { store.occupancy_by_se[se].push_back(rec); }

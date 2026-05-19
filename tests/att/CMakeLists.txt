@@ -16,6 +16,7 @@ if(RCV_HAS_TRACE_DECODER)
         ${DATA_DIR}/shaderdata.cpp
         ${DATA_DIR}/dispatch_resolver.cpp
         ${DATA_DIR}/marker_walker.cpp
+        ${DATA_DIR}/sqtt_funcmap_json.cpp
         ${SRC_DIR}/wave/othersimd.cpp
         ${SRC_DIR}/code/codeload.cpp
         ${SRC_DIR}/util/custom_layouts.cpp

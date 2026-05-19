@@ -387,7 +387,7 @@ void accumulateOccupancySample(
         trace.push_back(wtd);
     }
     else if (trace.size()) { trace.back().end = data.time; }
-    if (maxtime == 0) begintime = data.time;
+    begintime = std::min<int64_t>(begintime, data.time);
     maxtime = std::max<int64_t>(maxtime, data.time);
 }
 
