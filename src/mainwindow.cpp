@@ -1590,7 +1590,8 @@ void MainWindow::incrementGlobalViewMipmap(int inc, int content_mouse_x)
 
     int new_mip = QGlobalView::SpinToMip(spinValue);
     int old_mip = QGlobalView::GetMip();
-    int old_scroll = window->global_view_scrollarea->horizontalScrollBar()->value();
+    auto* scrollbar = window->global_view_scrollarea->horizontalScrollBar();
+    int old_scroll = scrollbar->value();
     int viewport_mouse_x = content_mouse_x - old_scroll;
 
     int new_scroll = QGlobalView::calcZoomScroll(old_mip, new_mip, old_scroll, viewport_mouse_x);
@@ -1601,11 +1602,12 @@ void MainWindow::incrementGlobalViewMipmap(int inc, int content_mouse_x)
     ui->global_spin->blockSignals(false);
 
     // Set scroll before mipmap change to avoid flash
-    window->global_view_scrollarea->horizontalScrollBar()->setValue(new_scroll);
+    if (new_mip < old_mip && new_scroll > scrollbar->maximum()) scrollbar->setMaximum(new_scroll);
+    scrollbar->setValue(new_scroll);
     window->global_view_widget->SetMip(new_mip);
 
     // Set scroll again after layout update for zoom out
-    if (new_mip > old_mip) window->global_view_scrollarea->horizontalScrollBar()->setValue(new_scroll);
+    if (new_mip > old_mip) scrollbar->setValue(new_scroll);
 }
 
 void MainWindow::SetGlobalViewMipmap(int spinValue)
