@@ -40,8 +40,6 @@
 
 namespace
 {
-using MarkerBucketKey = std::tuple<int, int, int, int>;
-
 struct JsonMarkerWaveEntry
 {
     int64_t begin = 0;
@@ -102,17 +100,17 @@ public:
     occupancy_index(store, [this](const occupancy_record_t& rec) { return codeobjForOccupancyRecord(rec); })
     {}
 
-    uint64_t operator()(int se, int cu, int simd, int slot, int64_t time)
+    uint64_t operator()(HWID hwid, int64_t time)
     {
-        uint64_t codeobj_id = codeobjFromWaveCode(se, cu, simd, slot, time);
+        uint64_t codeobj_id = codeobjFromWaveCode(hwid, time);
         if (codeobj_id != 0) return codeobj_id;
-        return codeobjFromOccupancy(se, cu, simd, slot, time);
+        return codeobjFromOccupancy(hwid, time);
     }
 
 private:
-    uint64_t codeobjFromWaveCode(int se, int cu, int simd, int slot, int64_t time)
+    uint64_t codeobjFromWaveCode(HWID hwid, int64_t time)
     {
-        const auto& bucket = waveBucketFor(se, cu, simd, slot);
+        const auto& bucket = waveBucketFor(hwid);
         return activeIntervalCodeobj(
             bucket,
             time,
@@ -120,23 +118,19 @@ private:
         );
     }
 
-    uint64_t codeobjFromOccupancy(int se, int cu, int simd, int slot, int64_t time)
-    {
-        return occupancy_index.resolve(se, cu, simd, slot, time);
-    }
+    uint64_t codeobjFromOccupancy(HWID hwid, int64_t time) { return occupancy_index.resolve(hwid, time); }
 
-    const std::vector<JsonMarkerWaveEntry>& waveBucketFor(int se, int cu, int simd, int slot)
+    const std::vector<JsonMarkerWaveEntry>& waveBucketFor(HWID hwid)
     {
-        const MarkerBucketKey key = std::make_tuple(se, cu, simd, slot);
-        auto [it, inserted] = wave_cache.emplace(key, std::vector<JsonMarkerWaveEntry>{});
+        auto [it, inserted] = wave_cache.emplace(hwid, std::vector<JsonMarkerWaveEntry>{});
         if (!inserted) return it->second;
         if (codeobj_by_line.empty()) return it->second;
 
-        auto se_it = store.wave_hierarchy.find(se);
+        auto se_it = store.wave_hierarchy.find(hwid.se);
         if (se_it == store.wave_hierarchy.end()) return it->second;
-        auto simd_it = se_it->second.find(simd);
+        auto simd_it = se_it->second.find(hwid.simd);
         if (simd_it == se_it->second.end()) return it->second;
-        auto slot_it = simd_it->second.find(slot);
+        auto slot_it = simd_it->second.find(hwid.slot);
         if (slot_it == simd_it->second.end()) return it->second;
 
         for (const auto& [wid, wave_entry] : slot_it->second)
@@ -146,7 +140,7 @@ private:
             {
                 auto wave = store.getWave(wave_entry);
                 if (!wave) continue;
-                if (wave->cu >= 0 && wave->cu != cu) continue;
+                if (wave->cu >= 0 && wave->cu != hwid.cu) continue;
 
                 JsonMarkerWaveEntry entry;
                 entry.begin = wave_entry.begin;
@@ -182,7 +176,7 @@ private:
     DataStore& store;
     const SqttFuncmapJson& funcmap;
     std::unordered_map<int, uint64_t> codeobj_by_line;
-    std::map<MarkerBucketKey, std::vector<JsonMarkerWaveEntry>> wave_cache;
+    std::map<HWID, std::vector<JsonMarkerWaveEntry>> wave_cache;
     ActiveCodeobjIndex occupancy_index;
 };
 } // namespace
@@ -461,9 +455,9 @@ void JsonRecordEmitter::resolveMarkersFromCodeJson()
 
     JsonMarkerCodeobjResolver active_codeobj(store, funcmap);
     store.shaderdata->ResolveMarkers(
-        [&](int se, int cu, int simd, int slot, uint32_t id, int64_t time) -> ResolvedMarker
+        [&](HWID hwid, uint32_t id, int64_t time) -> ResolvedMarker
         {
-            const uint64_t codeobj_id = active_codeobj(se, cu, simd, slot, time);
+            const uint64_t codeobj_id = active_codeobj(hwid, time);
             return funcmap.Resolve(id, codeobj_id);
         }
     );

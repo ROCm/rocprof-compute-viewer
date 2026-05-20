@@ -80,7 +80,7 @@ struct WalkResult
 WalkResult run(const std::vector<MarkerInputRecord>& recs, const MarkerResolveFn& resolver)
 {
     WalkResult r;
-    walkMarkerStream(recs, /*se=*/0, /*cu=*/1, /*simd=*/2, /*slot=*/3, resolver, &r.spans, &r.diags);
+    walkMarkerStream(recs, HWID{0, 1, 2, 3}, resolver, &r.spans, &r.diags);
     return r;
 }
 

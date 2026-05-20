@@ -22,6 +22,7 @@
 
 #include "flamegraphwidget.h"
 
+#include <QComboBox>
 #include <QFontMetrics>
 #include <QMouseEvent>
 #include <QPainter>
@@ -50,7 +51,7 @@ QString formatLatency(int64_t cycles)
     return QString("%1 cycles").arg(cycles);
 }
 
-QString formatFrameTooltip(const flamegraph::Frame& f, int64_t totalLatency)
+QString formatFrameTooltip(const flamegraph::Frame& f, int64_t totalLatency, flamegraph::LatencyMetric metric)
 {
     QString prefix;
     if (f.asmIndex >= 0)
@@ -62,7 +63,8 @@ QString formatFrameTooltip(const flamegraph::Frame& f, int64_t totalLatency)
     }
 
     double pct = totalLatency > 0 ? 100.0 * f.latency / totalLatency : 0;
-    QString tip = prefix + formatLatency(f.latency) + QString(" (%1%)").arg(pct, 0, 'f', 1);
+    QString label = metric == flamegraph::LatencyMetric::NonHidden ? "Non-hidden latency: " : "";
+    QString tip = prefix + label + formatLatency(f.latency) + QString(" (%1%)").arg(pct, 0, 'f', 1);
     if (!f.location.empty()) tip += "\n" + QString::fromStdString(f.location);
     if (!f.content.empty()) tip += "\n" + QString::fromStdString(f.content);
     return tip;
@@ -83,6 +85,12 @@ FlameGraphWidget::FlameGraphWidget(QWidget* parent) : QWidget(parent)
     m_hScrollBar = new QScrollBar(Qt::Horizontal, this);
     m_hScrollBar->setRange(0, 0);
     connect(m_hScrollBar, &QScrollBar::valueChanged, this, &FlameGraphWidget::onScrollBarChanged);
+
+    m_latencyModeBox = new QComboBox(this);
+    m_latencyModeBox->addItem("Latency");
+    m_latencyModeBox->addItem("Non-hidden latency");
+    connect(m_latencyModeBox, qOverload<int>(&QComboBox::currentIndexChanged), this, [this](int) { rebuild(); });
+    setLatencyModeControlVisible(true);
 }
 
 void FlameGraphWidget::resetFrameState()
@@ -112,7 +120,32 @@ void FlameGraphWidget::applyLayout(flamegraph::LayoutResult result)
     update();
 }
 
-flamegraph::Roots FlameGraphWidget::pickBuilder()
+void FlameGraphWidget::setLatencyModeControlVisible(bool visible)
+{
+    if (m_latencyModeBox) m_latencyModeBox->setVisible(visible);
+    m_marginTop = visible && m_latencyModeBox ? m_latencyModeBox->sizeHint().height() + 8 : 4;
+    updateLatencyModeControlGeometry();
+    updateGeometry();
+}
+
+flamegraph::LatencyMetric FlameGraphWidget::latencyMetric() const
+{
+    return m_latencyModeBox && m_latencyModeBox->isVisible() && m_latencyModeBox->currentIndex() == 1
+             ? flamegraph::LatencyMetric::NonHidden
+             : flamegraph::LatencyMetric::Total;
+}
+
+void FlameGraphWidget::updateLatencyModeControlGeometry()
+{
+    if (!m_latencyModeBox || !m_latencyModeBox->isVisible()) return;
+
+    const QSize hint = m_latencyModeBox->sizeHint();
+    const int maxWidth = std::max(width() - 2 * m_marginRight, 80);
+    const int w = std::min(std::max(hint.width(), 150), maxWidth);
+    m_latencyModeBox->setGeometry(width() - m_marginRight - w, 4, w, hint.height());
+}
+
+flamegraph::Roots FlameGraphWidget::pickBuilder() const
 {
     auto* mw = MainWindow::window;
     if (!mw || !mw->source_filetab) return {};
@@ -124,7 +157,7 @@ flamegraph::Roots FlameGraphWidget::pickBuilder()
     if (has_markers && has_target)
     {
         auto roots = flamegraph::buildIntegratedRoots(
-            mw->current_wave_coord_se, WaveInstance::main_wave->cu, mw->current_wave_coord_sm
+            {mw->current_wave_coord_se, WaveInstance::main_wave->cu, mw->current_wave_coord_sm, -1}, latencyMetric()
         );
         if (roots.empty())
         {
@@ -137,7 +170,7 @@ flamegraph::Roots FlameGraphWidget::pickBuilder()
         return roots;
     }
 
-    if (!mw->source_filetab->files.empty()) return flamegraph::buildSourceRoots();
+    if (!mw->source_filetab->files.empty()) return flamegraph::buildSourceRoots(latencyMetric());
     return {};
 }
 
@@ -323,7 +356,9 @@ void FlameGraphWidget::mouseMoveEvent(QMouseEvent* event)
         update();
 
         if (hovered)
-            QToolTip::showText(event->globalPosition().toPoint(), formatFrameTooltip(*hovered, m_totalLatency), this);
+            QToolTip::showText(
+                event->globalPosition().toPoint(), formatFrameTooltip(*hovered, m_totalLatency, latencyMetric()), this
+            );
         else
             QToolTip::hideText();
     }
@@ -380,6 +415,7 @@ void FlameGraphWidget::resizeEvent(QResizeEvent* event)
     int scrollBarHeight = m_hScrollBar->sizeHint().height();
     m_cachedScrollBarHeight = scrollBarHeight;
     m_hScrollBar->setGeometry(0, height() - scrollBarHeight, width(), scrollBarHeight);
+    updateLatencyModeControlGeometry();
 
     update();
 }

@@ -27,8 +27,8 @@
 #include <map>
 #include <set>
 #include <string>
-#include <tuple>
 #include <vector>
+#include "data/hwid.h"
 #include "data/marker_walker.h"
 #include "data/records.h"
 #include "json/include/nlohmann/json.hpp"
@@ -82,7 +82,7 @@ public:
 
     /// Get shared pointer to records for a given SE, CU, SIMD, and slot (sorted by time).
     /// The shaderdata wave_id field corresponds to the occupancy slot.
-    ShaderDataRecordVec GetRecords(int se, int cu, int simd, int slot) const;
+    ShaderDataRecordVec GetRecords(HWID hwid) const;
 
     /// Add a single record from the decoder path (thread-safe with external lock).
     void AddRecord(int se, const shaderdata_record_t& rec);
@@ -105,8 +105,7 @@ public:
     /// concrete shaderdata location/time to a funcmap entry. Marker ids are
     /// code-object scoped; callers must use their own active-code-object lookup
     /// before resolving the id.
-    using MarkerResolveAtFn =
-        std::function<ResolvedMarker(int se, int cu, int simd, int slot, uint32_t id, int64_t time)>;
+    using MarkerResolveAtFn = std::function<ResolvedMarker(HWID hwid, uint32_t id, int64_t time)>;
 
     /// Clear decoded marker state and diagnostics while leaving raw shaderdata
     /// records intact.
@@ -122,7 +121,7 @@ public:
     /// the lookup machinery; ShaderDataManager just asks for an ID.
     /// Return 0 when no active code object can be identified; the marker id
     /// will remain unresolved.
-    using ActiveCodeobjFn = std::function<uint64_t(int se, int cu, int simd, int slot, int64_t time)>;
+    using ActiveCodeobjFn = std::function<uint64_t(HWID hwid, int64_t time)>;
 
     /// After all records are loaded (Load + Finalize done), decode every
     /// record's `value` field into MarkerSpans using the funcmap from the
@@ -134,17 +133,13 @@ public:
 #endif
 
     /// Per-bucket marker spans (null if no markers were resolved for the bucket).
-    MarkerSpanVec GetMarkers(int se, int cu, int simd, int slot) const;
+    MarkerSpanVec GetMarkers(HWID hwid) const;
 
     /// Iterate every non-empty marker bucket. Functor signature:
-    ///   void(int se, int cu, int simd, int slot, const MarkerSpanVec& spans)
+    ///   void(HWID hwid, const MarkerSpanVec& spans)
     template <class F> void ForEachMarkerBucket(F&& f) const
     {
-        for (const auto& [key, spans] : m_markers_by_location)
-        {
-            const auto& [se, cu, simd, slot] = key;
-            f(se, cu, simd, slot, spans);
-        }
+        for (const auto& [hwid, spans] : m_markers_by_location) f(hwid, spans);
     }
 
     /// True if any bucket produced spans.
@@ -156,15 +151,15 @@ public:
 
 private:
     /// Pending records accumulated via AddRecord, before Finalize.
-    std::map<std::tuple<int, int, int, int>, std::vector<ShaderDataRecord>> m_pending;
+    std::map<HWID, std::vector<ShaderDataRecord>> m_pending;
     /// Load a single shaderdata JSON file and return its records.
     static std::vector<ShaderDataRecord> LoadFile(const std::string& filepath, int se);
 
     /// Key: (se, cu, simd, slot/wave_id) -> shared sorted records
-    std::map<std::tuple<int, int, int, int>, ShaderDataRecordVec> m_records_by_location;
+    std::map<HWID, ShaderDataRecordVec> m_records_by_location;
 
     /// Key: (se, cu, simd, slot) -> shared marker spans (sorted by enter_time).
-    std::map<std::tuple<int, int, int, int>, MarkerSpanVec> m_markers_by_location;
+    std::map<HWID, MarkerSpanVec> m_markers_by_location;
 
     std::vector<MarkerDiagnostic> m_marker_diags;
     bool m_has_data = false;

@@ -122,6 +122,29 @@ struct InnerFile
     bool hasResolvedRef = false;
 };
 
+int64_t sqttLatencyForMetric(const Latency& latency, LatencyMetric metric)
+{
+    if (metric == LatencyMetric::NonHidden) return latency.nonHidden(HorizontalHotspot::show_idle_time);
+    return latency.total(HorizontalHotspot::show_idle_time);
+}
+
+int64_t latencyFromAsmLine(ASMCodeline* asmLine, LatencyMetric metric)
+{
+    if (!asmLine) return 0;
+    return sqttLatencyForMetric(asmLine->hotspot.sqtt, metric) + asmLine->hotspot.pcs.total();
+}
+
+int64_t proportionalLatency(ASMCodeline* asmLine, int64_t latency, LatencyMetric metric)
+{
+    if (metric == LatencyMetric::Total || !asmLine || latency <= 0) return latency;
+
+    const int64_t total = asmLine->hotspot.sqtt.total(HorizontalHotspot::show_idle_time);
+    if (total <= 0) return latency;
+
+    const int64_t nonHidden = asmLine->hotspot.sqtt.nonHidden(HorizontalHotspot::show_idle_time);
+    return std::clamp<int64_t>((nonHidden * latency + total / 2) / total, 0, latency);
+}
+
 InnerFile pickInnerFile(ASMCodeline* asmLine, const ASMLine& asmElem)
 {
     InnerFile out;
@@ -274,7 +297,7 @@ void addAsmContribution(StackNode* parent, ASMCodeline* asmLine, int64_t lat)
 
 } // anonymous namespace
 
-Roots buildSourceRoots()
+Roots buildSourceRoots(LatencyMetric metric)
 {
     // Single virtual parent across every asm line so addAsmContribution reuses
     // the live file / inlined-source-line / asm nodes via map[key] lookups.
@@ -283,7 +306,7 @@ Roots buildSourceRoots()
     for (auto& asmLine : ASMCodeline::line_vec)
     {
         if (!asmLine) continue;
-        int64_t lat = asmLine->hotspot.combined();
+        int64_t lat = latencyFromAsmLine(asmLine.get(), metric);
         if (lat <= 0) continue;
         addAsmContribution(&virtualRoot, asmLine.get(), lat);
     }
@@ -291,7 +314,7 @@ Roots buildSourceRoots()
     return std::move(virtualRoot.children);
 }
 
-Roots buildIntegratedRoots(int t_se, int t_cu, int t_simd)
+Roots buildIntegratedRoots(HWID target, LatencyMetric metric)
 {
     Roots roots;
 
@@ -339,9 +362,9 @@ Roots buildIntegratedRoots(int t_se, int t_cu, int t_simd)
 
     auto& wave_hierarchy = store->wave_hierarchy;
 
-    auto se_it = wave_hierarchy.find(t_se);
+    auto se_it = wave_hierarchy.find(target.se);
     if (se_it == wave_hierarchy.end()) return roots;
-    auto simd_it = se_it->second.find(t_simd);
+    auto simd_it = se_it->second.find(target.simd);
     if (simd_it == se_it->second.end()) return roots;
 
     // Bucket per-instruction contributions by (leaf, asmLine) so addAsmContribution
@@ -373,6 +396,9 @@ Roots buildIntegratedRoots(int t_se, int t_cu, int t_simd)
         ASMCodeline* asmLine = nullptr;
     };
 
+    auto idleBefore = [](int64_t time, int64_t prev_end)
+    { return HorizontalHotspot::show_idle_time && time > prev_end ? time - prev_end : int64_t(0); };
+
     for (const auto& [slot, instance_map] : simd_it->second)
     {
         // Collect this slot's instructions (only those on the target CU). The
@@ -388,14 +414,19 @@ Roots buildIntegratedRoots(int t_se, int t_cu, int t_simd)
                 if (wr_it != store->wave_records.end())
                 {
                     loaded_from_record = true;
-                    if (wr_it->second.cu == t_cu)
+                    if (wr_it->second.cu == target.cu)
                     {
                         slot_instructions.reserve(slot_instructions.size() + wr_it->second.instructions.size());
+                        int64_t prev_end = wr_it->second.begin;
                         for (const auto& inst : wr_it->second.instructions)
                         {
+                            const int64_t active = std::max(inst.stall, inst.duration);
+                            const int64_t idle = idleBefore(inst.time, prev_end);
+                            prev_end = inst.time + active;
+
                             auto asm_it = asm_by_pc.find(PCKey{inst.pc.code_object_id, inst.pc.address});
                             if (asm_it == asm_by_pc.end()) continue;
-                            slot_instructions.push_back({inst.time, std::max<int64_t>(1, inst.duration), asm_it->second}
+                            slot_instructions.push_back({inst.time, std::max<int64_t>(1, active + idle), asm_it->second}
                             );
                         }
                     }
@@ -419,14 +450,19 @@ Roots buildIntegratedRoots(int t_se, int t_cu, int t_simd)
                 continue;
             }
             if (!wave) continue;
-            if (wave->cu >= 0 && wave->cu != t_cu) continue;
+            if (wave->cu >= 0 && wave->cu != target.cu) continue;
 
             slot_instructions.reserve(slot_instructions.size() + wave->tokens.size());
+            int64_t prev_end = wave->WaveBegin();
             for (const auto& token : wave->tokens)
             {
+                const int64_t active = token.cycles;
+                const int64_t idle = idleBefore(token.clock, prev_end);
+                prev_end = token.clock + active;
+
                 auto asm_it = asm_by_line.find(token.code_line);
                 if (asm_it == asm_by_line.end()) continue;
-                slot_instructions.push_back({token.clock, std::max<int64_t>(1, token.cycles), asm_it->second});
+                slot_instructions.push_back({token.clock, std::max<int64_t>(1, active + idle), asm_it->second});
             }
         }
         if (slot_instructions.empty()) continue;
@@ -438,7 +474,9 @@ Roots buildIntegratedRoots(int t_se, int t_cu, int t_simd)
         );
 
         // Slot's marker spans (already sorted by enter_time in ResolveMarkers).
-        auto spans = mgr->GetMarkers(t_se, t_cu, t_simd, slot);
+        HWID slot_hwid = target;
+        slot_hwid.slot = slot;
+        auto spans = mgr->GetMarkers(slot_hwid);
 
         std::vector<const MarkerSpan*> span_ptrs;
         if (spans)
@@ -477,7 +515,8 @@ Roots buildIntegratedRoots(int t_se, int t_cu, int t_simd)
 
             ASMCodeline* asmLine = inst.asmLine;
             if (!asmLine) continue;
-            int64_t lat = inst.duration;
+            int64_t lat = proportionalLatency(asmLine, inst.duration, metric);
+            if (lat <= 0) continue;
 
             // Walk the marker stack: outermost is root in `roots`, inner ones are
             // children. The leaf marker (or "[no scope]" root) hosts the file/line/asm.
@@ -527,7 +566,7 @@ Roots buildGlobalMarkerRoots()
     // Nodes are merged across buckets by (kind, name) so identical scopes
     // collapse into one frame whose width sums durations from every wave/slot.
     mgr->ForEachMarkerBucket(
-        [&](int /*se*/, int /*cu*/, int /*simd*/, int /*slot*/, const MarkerSpanVec& spans)
+        [&](HWID, const MarkerSpanVec& spans)
         {
             if (!spans || spans->empty()) return;
 

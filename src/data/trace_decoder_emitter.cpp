@@ -221,11 +221,11 @@ void TraceDecoderEmitter::run()
     if (store.shaderdata && store.shaderdata->HasData())
     {
         store.shaderdata->ResolveMarkers(
-            [this, &code_json_funcmap](int se, int cu, int simd, int slot, uint32_t id, int64_t time)
+            [this, &code_json_funcmap](HWID hwid, uint32_t id, int64_t time)
             {
                 namespace cobj = rocprof_trace_decoder::codeobj;
 
-                const uint64_t codeobj_id = this->activeCodeobjAt(se, cu, simd, slot, time);
+                const uint64_t codeobj_id = this->activeCodeobjAt(hwid, time);
                 ResolvedMarker json_resolved = code_json_funcmap.Resolve(id, codeobj_id);
 
                 const bool has_decoder_markers = hasRuntimeMarkerEntries(codeobj_map, codeobj_id);
@@ -257,9 +257,9 @@ void TraceDecoderEmitter::alignSEClocks()
     if (store.applyRealtimeAlignment()) active_codeobj_index.clear();
 }
 
-uint64_t TraceDecoderEmitter::activeCodeobjAt(int se, int cu, int simd, int slot, int64_t time) const
+uint64_t TraceDecoderEmitter::activeCodeobjAt(HWID hwid, int64_t time) const
 {
-    return active_codeobj_index.resolve(se, cu, simd, slot, time);
+    return active_codeobj_index.resolve(hwid, time);
 }
 
 namespace
@@ -527,7 +527,6 @@ void TraceDecoderEmitter::preSeedIsaCacheFromCodeJson(const std::vector<CodeData
     {
         if (!cd.line || cd.line->addr == 0) continue;
         auto& slot = isa_cache[uint64_t(cd.line->codeobj_id)][uint64_t(cd.line->addr)];
-        if (!slot.text.empty()) continue;
         slot.text = cd.line->inst;
         slot.addr = uint64_t(cd.line->addr);
         slot.codeobj_id = uint64_t(cd.line->codeobj_id);

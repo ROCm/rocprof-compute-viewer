@@ -22,22 +22,31 @@
 
 #pragma once
 
+#include "data/hwid.h"
 #include "stack_node.h"
 
 namespace flamegraph
 {
 
-/// Legacy file-rooted builder: aggregates ASMCodeline::hotspot.combined()
-/// per asm line into a file → inlined-source-line → asm tree. Used for
-/// JSON traces and any ATT trace without markers.
-Roots buildSourceRoots();
+enum class LatencyMetric
+{
+    Total,
+    NonHidden
+};
 
-/// Integrated builder: walks every wave_instruction on (target_se, target_cu,
-/// target_simd), attributes each instruction's `duration` cycles to the marker
-/// stack active at that instruction's time, and grows file/line/asm under the
-/// resulting marker (or "[no scope]") leaf. Returns an empty map if anything
-/// required is missing (no wave hierarchy, no asm lookup, etc.).
-Roots buildIntegratedRoots(int t_se, int t_cu, int t_simd);
+/// Legacy file-rooted builder: aggregates the currently displayed per-line
+/// latency (including idle when enabled) into a file → inlined-source-line →
+/// asm tree. Used for JSON traces and any ATT trace without markers.
+Roots buildSourceRoots(LatencyMetric metric = LatencyMetric::Total);
+
+/// Integrated builder: walks every wave_instruction on target.se/target.cu/
+/// target.simd across all slots. target.slot is ignored. It attributes each
+/// instruction's cycles plus the pre-instruction
+/// idle gap when enabled to the marker stack active at that instruction's time,
+/// and grows file/line/asm under the resulting marker (or "[no scope]") leaf.
+/// Returns an empty map if anything required is missing (no wave hierarchy, no
+/// asm lookup, etc.).
+Roots buildIntegratedRoots(HWID target, LatencyMetric metric = LatencyMetric::Total);
 
 /// Global marker-only builder for the marker tab: walks every non-empty
 /// marker bucket and collapses identical scopes (by kind, name) across all

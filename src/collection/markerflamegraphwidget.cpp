@@ -25,7 +25,10 @@
 #include "flamegraph/layout.h"
 #include "flamegraph/stack_builder.h"
 
-MarkerFlameGraphWidget::MarkerFlameGraphWidget(QWidget* parent) : FlameGraphWidget(parent) {}
+MarkerFlameGraphWidget::MarkerFlameGraphWidget(QWidget* parent) : FlameGraphWidget(parent)
+{
+    setLatencyModeControlVisible(false);
+}
 
 void MarkerFlameGraphWidget::rebuild()
 {

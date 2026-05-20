@@ -35,6 +35,29 @@ namespace WaveOverlay
 inline constexpr int DecoderDispatchWidth = 5;
 inline constexpr int DecoderEventWidth = 4;
 
+enum class DecoderEventSurface
+{
+    ComputeUnit,
+    Global,
+};
+
+inline bool showTraceEvent(const trace_event_record_t& event, DecoderEventSurface surface)
+{
+    switch (surface)
+    {
+        case DecoderEventSurface::ComputeUnit:
+            return event.type != ROCPROF_TRACE_DECODER_EVENT_SPM_SAMPLE &&
+                   event.type != ROCPROF_TRACE_DECODER_EVENT_CODE_OBJECT_LOAD &&
+                   event.type != ROCPROF_TRACE_DECODER_EVENT_CODE_OBJECT_UNLOAD &&
+                   event.type != ROCPROF_TRACE_DECODER_EVENT_CS_PARTIAL_FLUSH;
+        case DecoderEventSurface::Global:
+            return event.type != ROCPROF_TRACE_DECODER_EVENT_DIDT_STALL_BEGIN &&
+                   event.type != ROCPROF_TRACE_DECODER_EVENT_DIDT_STALL_END &&
+                   event.type != ROCPROF_TRACE_DECODER_EVENT_SPM_SAMPLE;
+    }
+    return true;
+}
+
 template <typename Record> int findRecordIndexAt(
     const std::vector<Record>* records, int64_t clock, int64_t tolerance, bool prefer_later_on_tie = false
 )
@@ -85,7 +108,7 @@ inline std::string formatTraceEventTooltip(const trace_event_record_t& event, in
 
     if (se >= 0) ss << "SE:" << se << "  ";
     ss << "ME:" << static_cast<int>(event.me_id) << "  Pipe:" << static_cast<int>(event.pipe_id);
-    if (event.payload != 0) ss << "\nPayload: 0x" << std::hex << event.payload << std::dec;
+    if (event.payload.raw != 0) ss << "\nPayload: 0x" << std::hex << event.payload.raw << std::dec;
 
     return ss.str();
 }
@@ -94,6 +117,7 @@ template <typename ClockToPixel> void drawDecoderEvents(
     QPainter& painter,
     const std::vector<trace_event_record_t>* trace_events,
     const std::vector<dispatch_record_t>* dispatch_records,
+    DecoderEventSurface surface,
     int64_t clock_start,
     int64_t clock_end,
     int height,
@@ -117,7 +141,10 @@ template <typename ClockToPixel> void drawDecoderEvents(
 
     if (trace_events)
         for (const auto& event : *trace_events)
+        {
+            if (!showTraceEvent(event, surface)) continue;
             draw_line(event.time, WindowColors::DecoderEventColor(event.type), DecoderEventWidth);
+        }
     painter.restore();
 }
 } // namespace WaveOverlay

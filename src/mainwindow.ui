@@ -800,6 +800,16 @@
                      </property>
                     </widget>
                    </item>
+                   <item>
+                    <widget class="QCheckBox" name="show_idle_time_box">
+                     <property name="text">
+                      <string>Show idle time</string>
+                     </property>
+                     <property name="checked">
+                      <bool>true</bool>
+                     </property>
+                    </widget>
+                   </item>
                   </layout>
                  </item>
                 </layout>
@@ -1125,6 +1135,7 @@
     </property>
     <addaction name="actionDerived_counters"/>
     <addaction name="actionMemoryLatency"/>
+    <addaction name="actionHiddenLatency"/>
    </widget>
    <widget class="QMenu" name="menuHelp">
     <property name="title">
@@ -1182,6 +1193,11 @@
   <action name="actionMemoryLatency">
    <property name="text">
     <string>Memory Latency</string>
+   </property>
+  </action>
+  <action name="actionHiddenLatency">
+   <property name="text">
+    <string>Hidden Latency</string>
    </property>
   </action>
  </widget>

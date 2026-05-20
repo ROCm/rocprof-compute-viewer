@@ -52,10 +52,10 @@ struct StackEntry
     int depth;
 };
 
-std::string locTag(int se, int cu, int simd, int slot, int64_t time)
+std::string locTag(HWID hwid, int64_t time)
 {
     std::ostringstream ss;
-    ss << "se=" << se << ",cu=" << cu << ",simd=" << simd << ",slot=" << slot << ",time=" << time;
+    ss << hwid.toString() << ",time=" << time;
     return ss.str();
 }
 
@@ -95,10 +95,7 @@ std::string maybeDemangle(std::string name)
 
 void walkMarkerStream(
     const std::vector<MarkerInputRecord>& records,
-    int se,
-    int cu,
-    int simd,
-    int slot,
+    HWID hwid,
     const MarkerResolveFn& resolver,
     std::vector<MarkerSpan>* out_spans,
     std::vector<MarkerDiagnostic>* out_diags
@@ -135,8 +132,7 @@ void walkMarkerStream(
             {
                 if (!resolve_id(0, rec.time).metadata_available) continue;
                 out_diags->push_back(
-                    {MarkerDiagnostic::Severity::Warning,
-                     "orphan exit marker at " + locTag(se, cu, simd, slot, rec.time)}
+                    {MarkerDiagnostic::Severity::Warning, "orphan exit marker at " + locTag(hwid, rec.time)}
                 );
                 continue;
             }
@@ -166,7 +162,7 @@ void walkMarkerStream(
             {
                 out_diags->push_back(
                     {MarkerDiagnostic::Severity::Warning,
-                     "transition marker with empty stack at " + locTag(se, cu, simd, slot, rec.time)}
+                     "transition marker with empty stack at " + locTag(hwid, rec.time)}
                 );
             }
             else
@@ -203,8 +199,7 @@ void walkMarkerStream(
                 e.kind = MarkerKind::Unknown;
                 out_diags->push_back(
                     {MarkerDiagnostic::Severity::Warning,
-                     "unknown marker ID " + std::to_string(id) + " (transition) at " +
-                         locTag(se, cu, simd, slot, rec.time)}
+                     "unknown marker ID " + std::to_string(id) + " (transition) at " + locTag(hwid, rec.time)}
                 );
             }
             stack.push_back(std::move(e));
@@ -232,7 +227,7 @@ void walkMarkerStream(
                 e.kind = MarkerKind::Unknown;
                 out_diags->push_back(
                     {MarkerDiagnostic::Severity::Warning,
-                     "unknown marker ID " + std::to_string(id) + " (enter) at " + locTag(se, cu, simd, slot, rec.time)}
+                     "unknown marker ID " + std::to_string(id) + " (enter) at " + locTag(hwid, rec.time)}
                 );
             }
             stack.push_back(std::move(e));
@@ -261,7 +256,7 @@ void walkMarkerStream(
             span.kind = MarkerKind::Unknown;
             out_diags->push_back(
                 {MarkerDiagnostic::Severity::Warning,
-                 "unknown marker ID " + std::to_string(id) + " (point) at " + locTag(se, cu, simd, slot, rec.time)}
+                 "unknown marker ID " + std::to_string(id) + " (point) at " + locTag(hwid, rec.time)}
             );
         }
         out_spans->push_back(std::move(span));
@@ -285,9 +280,8 @@ void walkMarkerStream(
         out_diags->push_back(
             {MarkerDiagnostic::Severity::Info,
              "open scope at trace end: " +
-                 (out_spans->back().name.empty() ? std::string{"<unknown>"} : out_spans->back().name) +
-                 " at se=" + std::to_string(se) + ",cu=" + std::to_string(cu) + ",simd=" + std::to_string(simd) +
-                 ",slot=" + std::to_string(slot)}
+                 (out_spans->back().name.empty() ? std::string{"<unknown>"} : out_spans->back().name) + " at " +
+                 hwid.toString()}
         );
         stack.pop_back();
     }

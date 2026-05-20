@@ -185,7 +185,7 @@ void TokenGroup::Draw(class QPainter& painter, int64_t viewstart, int64_t viewen
         auto it = timeline.upper_bound(viewstart);
         if (it != timeline.begin()) it = std::prev(it);
 
-        while (it != timeline.end() && it->second.clock + it->second.duration < viewstart) it++;
+        while (it != timeline.end() && it->second.clock + static_cast<int64_t>(it->second.duration) < viewstart) it++;
 
         while (it != timeline.end() && it->second.clock < viewend)
         {
@@ -350,8 +350,10 @@ WaveInstance::WaveInstance(const std::string& _path, int64_t time_offset) : path
         int64_t _clock = wave_begin;
         for (auto& time : data["wave"]["timeline"])
         {
-            timeline[_clock] = WaveState{_clock, int(time[1]), int(time[0])};
-            _clock += int(time[1]);
+            int state = time[0].get<int>();
+            int duration = time[1].get<int>();
+            timeline[_clock] = WaveState{_clock, duration, state};
+            _clock += static_cast<int64_t>(duration);
         }
     }
 
@@ -426,8 +428,9 @@ WaveInstance::WaveInstance(const wave_record_t& rec, const std::vector<CodeData>
         int64_t _clock = wave_begin;
         for (auto& state : rec.timeline)
         {
-            timeline[_clock] = WaveState{_clock, int(state.duration), int(state.type)};
-            _clock += int(state.duration);
+            int duration = int(state.duration);
+            timeline[_clock] = WaveState{_clock, duration, int(state.type)};
+            _clock += static_cast<int64_t>(duration);
         }
     }
 

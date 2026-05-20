@@ -93,6 +93,7 @@ public:
     void OpenRocpd();
     void OpenOptionsDialog();
     void OpenDerivedCounterEditor();
+    void OpenHiddenLatencyAnalysis();
     void SetWaveViewMipmap(int value);
     void SetGlobalViewMipmap(int value);
     int GetHotspotBins() const { return hotspot_n_bins; }
@@ -235,6 +236,7 @@ private:
     void saveDarkThemeSetting(int state);
     void saveDisplayScalingSetting(int state);
     void saveSeparateLDSPipeSetting(int state);
+    void saveShowIdleTimeSetting(int state);
 
     // Instruction column visibility
     void saveColumnVisibilitySetting(int element, bool visible);

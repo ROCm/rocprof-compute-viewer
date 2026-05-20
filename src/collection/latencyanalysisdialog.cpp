@@ -22,12 +22,18 @@
 
 #include "latencyanalysisdialog.h"
 
+#include "../analysis/annotation.h"
 #include "../analysis/latency.hpp"
 #include "../code/asmcode.h"
 #include "../code/qcodelist.h"
+#include "../config/config.hpp"
 #include "../graphics/canvas.h"
 #include "../json/include/nlohmann/json.hpp"
 #include "../util/diagnostic_log.h"
+
+#include <iomanip>
+#include <memory>
+#include <sstream>
 
 #include <QGroupBox>
 #include <QHBoxLayout>
@@ -358,34 +364,71 @@ void LatencyAnalysisDialog::analysisFinished()
     m_progressBar->setValue(m_totalFiles);
     m_statusLabel->setText("Analysis complete!");
 
-    // Reset max latency for canvas
-    Canvas::max_memory_latency = 0.0;
+    // One Memory Latency category covering both VMEM and LDS. Each ASM line
+    // has at most one counter type; on collision the later write wins (kept
+    // for parity with prior behaviour). VMEM/LDS only differ in the "Mean"
+    // segment colour.
+    auto cat = std::make_unique<Annotation::Category>();
+    cat->id = "memory_latency";
+    cat->display_name = "Memory Latency";
+    cat->row_count = 1;
 
-    // Populate ASMCodeline memory_latency from both VMEM and LDS results
-    // Each line can only have one type - store whichever has data
+    const QColor issueColor = Config::IssueColor();
+    const QColor stallColor = Config::StallColor();
+
     for (int i = 0; i < kNumCounters; ++i)
     {
-        auto type = static_cast<LatencyAnalysis::CounterType>(i);
+        // Mean-bar colour: VMEM light orange, LDS dark orange (matches prior UX).
+        const QColor meanColor = (static_cast<LatencyAnalysis::CounterType>(i) == LatencyAnalysis::CounterType::LDS)
+                                   ? QColor(0xff, 0x70, 0x00)
+                                   : QColor(0xff, 0xc4, 0x32);
+
         for (const auto& [codeIndex, data] : m_results[i])
         {
+            const auto& s = data.second;
+            if (s.count <= 0) continue;
             auto it = ASMCodeline::line_map.find(codeIndex);
-            if (it != ASMCodeline::line_map.end() && it->second)
-            {
-                it->second->memory_latency = data.second;
-                it->second->memory_latency_type = type;
-                // Total bar width = issue + mean + stall, plus wiggle room for stdDev display
-                double totalWidth =
-                    data.second.meanIssue + data.second.mean + data.second.meanStall + data.second.stdDev / 2.0;
-                Canvas::max_memory_latency = std::max(Canvas::max_memory_latency, totalWidth);
-            }
+            if (it == ASMCodeline::line_map.end() || !it->second) continue;
+
+            const int idx = it->second->line_index;
+            Annotation::LineData ld;
+            // Draw order: Issue, Mean, Stall, ± StdDev whisker.
+            ld.rows[0] = {
+                {s.meanIssue, issueColor, Annotation::Component::Kind::Segment},
+                {s.mean,      meanColor,  Annotation::Component::Kind::Segment},
+                {s.meanStall, stallColor, Annotation::Component::Kind::Segment},
+                {s.stdDev,    meanColor,  Annotation::Component::Kind::Whisker},
+            };
+
+            std::ostringstream ss;
+            ss << "<b>Average memory Latency:</b><br><table>"
+               << "<tr><td>Exec to data:</td><td>" << std::fixed << std::setprecision(1) << s.mean
+               << " cycles</td></tr>"
+               << "<tr><td>Issue to Exec:</td><td>" << s.meanIssue << " cycles</td></tr>"
+               << "<tr><td>Stall to Issue:</td><td>" << s.meanStall << " cycles</td></tr>"
+               << "<tr><td>StdDev:</td><td>" << s.stdDev << "</td></tr>"
+               << "<tr><td>Error:</td><td>" << s.error << "</td></tr>"
+               << "<tr><td>Samples:</td><td>" << s.count << "</td></tr>"
+               << "</table>";
+            ld.tooltip = QString::fromStdString(ss.str());
+
+            cat->per_line[idx] = std::move(ld);
         }
     }
 
-    // Update dropdown to show Memory Latency option now that data is available
-    if (QCodelist::singleton)
+    if (cat->per_line.empty())
     {
-        QCodelist::singleton->updateMemoryLatencyEnabled();
-        QCodelist::singleton->setDrawType(Canvas::DrawType::MemoryLatency);
+        Annotation::Registry::instance().clear("memory_latency");
+        if (QCodelist::singleton) QCodelist::singleton->refreshAnnotations();
+    }
+    else
+    {
+        Annotation::Registry::instance().publish(std::move(cat));
+        if (QCodelist::singleton)
+        {
+            QCodelist::singleton->refreshAnnotations();
+            QCodelist::singleton->selectAnnotation("memory_latency");
+        }
     }
 
     // Update status to indicate Memory Latency view is now available

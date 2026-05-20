@@ -28,6 +28,7 @@
 #include <QPainterPath>
 #include <QThread>
 #include <QToolTip>
+#include <algorithm>
 #include <chrono>
 #include <iomanip>
 #include <map>
@@ -35,6 +36,7 @@
 #include <sstream>
 #include <unordered_map>
 #include <unordered_set>
+#include "analysis/annotation.h"
 #include "code/qcodelist.h"
 #include "config/config.hpp"
 #include "data/wavemanager.h"
@@ -43,7 +45,7 @@
 #define ARROW_SPACING 5
 
 Canvas::DrawType Canvas::drawtype = Canvas::DrawType::DrawArrows;
-double Canvas::max_memory_latency = 0.0;
+std::string Canvas::active_annotation_id;
 
 struct PairHash
 {
@@ -253,10 +255,8 @@ void Canvas::paintEvent(QPaintEvent* event)
 {
     if (drawtype == DrawType::DrawArrows)
         paintArrows();
-    else if (drawtype == DrawType::DrawStall || drawtype == DrawType::DrawReasons || drawtype == DrawType::DrawStallAndReason)
-        paintStalls();
-    else if (drawtype == DrawType::MemoryLatency)
-        paintMemoryLatency();
+    else if (drawtype == DrawType::Annotation)
+        paintAnnotation();
     else
         paintBranch();
 
@@ -377,21 +377,23 @@ bool Canvas::Connect(QPainter& painter, int l1, int l2, int xslot, QColor& color
     return false;
 };
 
-void Canvas::paintStalls()
+void Canvas::paintAnnotation()
 {
-    QWARNING(MainWindow::window && MainWindow::window->code_contents, "no contents", return );
-    auto* contents = MainWindow::window->code_contents;
+    const Annotation::Category* cat = Annotation::Registry::instance().find(active_annotation_id);
+    if (!cat || cat->per_line.empty()) return;
 
     QPainter painter(this);
     MainWindow::getScaling(painter);
-    QPen pen;
-    pen.setColor(WindowColors::HotspotOutline());
-    painter.setPen(Qt::NoPen); // Set to NoPen initially since HorizontalHotspot will manage pen state
+    painter.setPen(Qt::NoPen);
     painter.setBrush(Qt::NoBrush);
 
+    const double invscale = 1.0 / MainWindow::getScaling();
     const int lineheight = QCodelist::lineheight();
+    const int rowsTotalPx = lineheight - 2 * padding;
+    const int maxBarWidth = (width() - 3) * invscale;
+    const int rows = std::clamp(cat->row_count, 1, 2);
 
-    // Binary search for first visible line (ypos >= 0)
+    // Binary search for first visible line.
     int target_index = std::max(0, (scrollposy - padding) / lineheight);
     auto start_it = std::lower_bound(
         ASMCodeline::line_vec.begin(),
@@ -399,12 +401,6 @@ void Canvas::paintStalls()
         target_index,
         [](const auto& line, int idx) { return line && line->line_index < idx; }
     );
-
-    auto drawFormat = drawtype == DrawType::DrawStallAndReason ? HorizontalHotspot::DrawFormat::DRAWBOTH
-                                                               : HorizontalHotspot::DrawFormat::DRAWSTALL;
-    if (drawtype == DrawType::DrawReasons) drawFormat = HorizontalHotspot::DrawFormat::DRAWTYPE;
-
-    const double invscale = 1.0 / MainWindow::getScaling();
 
     for (auto it = start_it; it != ASMCodeline::line_vec.end(); ++it)
     {
@@ -414,19 +410,79 @@ void Canvas::paintStalls()
         auto ypos = indexToYpos(line->line_index, lineheight);
         if (ypos > this->height()) break;
 
-        bool highlighted = (hovered_line_index == line->line_index);
-        line->hotspot.paint(
-            painter,
-            0,
-            ypos * invscale,
-            width() * invscale,
-            (lineheight - 2 * padding) * invscale,
-            contents->max_sqtt_latency,
-            contents->max_pcs_latency,
-            drawFormat,
-            false,
-            highlighted
-        );
+        auto lineIt = cat->per_line.find(line->line_index);
+        if (lineIt == cat->per_line.end()) continue;
+        const Annotation::LineData& ld = lineIt->second;
+
+        const bool highlighted = (hovered_line_index == line->line_index);
+        const int ypxBase = static_cast<int>(ypos * invscale);
+        // Inset the bar within the line cell so it doesn't touch the row
+        // separators above/below.
+        const int innerPad = 2;
+        const int barTop = ypxBase + innerPad;
+        const int barHeight = std::max(1, static_cast<int>(rowsTotalPx * invscale) - 2 * innerPad);
+        const int rowHeight = barHeight / rows;
+
+        int totalBarWidth = 0;
+
+        for (int r = 0; r < rows; ++r)
+        {
+            const double maxTotal = cat->max_total[r];
+            if (maxTotal <= 0.0) continue;
+            const double norm = maxBarWidth / maxTotal;
+            const int rowY = barTop + r * rowHeight;
+            int cursor = 0;
+
+            // Segments first (stacked left→right).
+            for (const Annotation::Component& comp : ld.rows[r])
+            {
+                if (comp.kind != Annotation::Component::Kind::Segment) continue;
+                int w = static_cast<int>(comp.value * norm);
+                if (w <= 0) continue;
+                painter.setBrush(highlighted ? comp.color.lighter(130) : comp.color);
+                painter.drawRect(cursor, rowY, w, rowHeight);
+                cursor += w;
+            }
+
+            // Whiskers (centred at segment end).
+            for (const Annotation::Component& comp : ld.rows[r])
+            {
+                if (comp.kind != Annotation::Component::Kind::Whisker) continue;
+                int half = static_cast<int>(comp.value * norm);
+                if (half <= 0) continue;
+                int stdStart = std::clamp(cursor - half, 0, maxBarWidth);
+                int stdEnd = std::clamp(cursor + half, 0, maxBarWidth);
+                int centerY = rowY + (rowHeight + static_cast<int>(invscale)) / 2;
+                int capHeight = rowHeight / 3;
+
+                QPen stdPen(comp.color.isValid() ? comp.color : QColor(Qt::black), 2 * invscale);
+                painter.setPen(stdPen);
+                painter.setBrush(Qt::NoBrush);
+                painter.drawLine(stdStart, centerY, stdEnd, centerY);
+                if (stdStart > 0) painter.drawLine(stdStart, centerY - capHeight, stdStart, centerY + capHeight);
+                if (stdEnd < maxBarWidth) painter.drawLine(stdEnd, centerY - capHeight, stdEnd, centerY + capHeight);
+                painter.setPen(Qt::NoPen);
+            }
+
+            totalBarWidth = std::max(totalBarWidth, cursor);
+        }
+
+        // Outline every bar (thin) so segments read as a defined histogram bar
+        // rather than a flat fill; thicken and extend to full width on hover.
+        // The hovered line always gets the full-width outline even when its
+        // segments rounded down to zero width, so hover never shows a tooltip
+        // without a matching highlight.
+        if (totalBarWidth > 0 || highlighted)
+        {
+            QPen pen;
+            pen.setColor(WindowColors::HotspotOutline());
+            pen.setWidth(static_cast<int>((highlighted ? 2 : 1) * invscale));
+            painter.setPen(pen);
+            painter.setBrush(Qt::NoBrush);
+            const int outlineWidth = highlighted ? std::max(totalBarWidth, maxBarWidth) : totalBarWidth;
+            painter.drawRect(0, barTop, outlineWidth, barHeight);
+            painter.setPen(Qt::NoPen);
+        }
     }
 }
 
@@ -443,69 +499,55 @@ void Canvas::setHoveredLine(int line_index)
 void Canvas::handleHotspotHover(QMouseEvent* event)
 {
     QWARNING(MainWindow::window && MainWindow::window->code_contents, "no contents", return );
-    auto* contents = MainWindow::window->code_contents;
 
     const int lineheight = QCodelist::lineheight();
     const int mouse_y = event->pos().y();
 
-    // Binary search for first visible line
-    int target_index = std::max(0, (scrollposy - padding) / lineheight);
-    auto start_it = std::lower_bound(
-        ASMCodeline::line_vec.begin(),
-        ASMCodeline::line_vec.end(),
-        target_index,
-        [](const auto& line, int idx) { return line && line->line_index < idx; }
-    );
-
-    for (auto it = start_it; it != ASMCodeline::line_vec.end(); ++it)
+    // indexToYpos(idx) = lineheight*idx + padding - scrollposy; invert directly.
+    // idx is a sequential position in ASMCodeline::line_vec (matches Category::per_line keys),
+    // NOT the raw CodeData index that keys ASMCodeline::line_map.
+    const int rel = mouse_y + scrollposy - padding;
+    if (rel < 0)
     {
-        auto line = *it;
-        if (!line) continue;
-
-        auto ypos = indexToYpos(line->line_index, lineheight);
-        if (ypos > this->height()) break;
-
-        // Check if mouse is vertically within this line's bounds
-        if (mouse_y < ypos || mouse_y > ypos + lineheight - 2 * padding) continue;
-
-        std::string tooltip;
-        if (drawtype == DrawType::DrawStall)
-            tooltip = line->hotspot.getTooltip();
-        else if (drawtype == DrawType::DrawReasons)
-            tooltip = line->hotspot.getStallTip();
-        else if (drawtype == DrawType::DrawStallAndReason)
-            tooltip = line->hotspot.getTooltip() + line->hotspot.getStallTip();
-        else if (drawtype == DrawType::MemoryLatency && line->memory_latency.count > 0)
-        {
-            std::ostringstream ss;
-            ss << "<b>Average memory Latency:</b><br>"
-               << "<table>"
-               << "<tr><td>Exec to data:</td><td>" << std::fixed << std::setprecision(1) << line->memory_latency.mean
-               << " cycles</td></tr>"
-               << "<tr><td>Issue to Exec:</td><td>" << line->memory_latency.meanIssue << " cycles</td></tr>"
-               << "<tr><td>Stall to Issue:</td><td>" << line->memory_latency.meanStall << " cycles</td></tr>"
-               << "<tr><td>StdDev:</td><td>" << line->memory_latency.stdDev << "</td></tr>"
-               << "<tr><td>Error:</td><td>" << line->memory_latency.error << "</td></tr>"
-               << "</table>";
-            tooltip = ss.str();
-        }
-
-        if (!tooltip.empty())
-        {
-            setHoveredLine(line->line_index);
-            QToolTip::showText(event->globalPos(), QString::fromStdString(tooltip), this);
-            return;
-        }
+        setHoveredLine(-1);
+        return;
+    }
+    const int idx = rel / lineheight;
+    if (idx >= static_cast<int>(ASMCodeline::line_vec.size()))
+    {
+        setHoveredLine(-1);
+        return;
+    }
+    // Reject the inter-row gap so hover doesn't bleed into adjacent lines' padding.
+    const int rowTop = indexToYpos(idx, lineheight);
+    const int rowBottom = rowTop + lineheight - 2 * padding;
+    if (mouse_y < rowTop || mouse_y > rowBottom)
+    {
+        setHoveredLine(-1);
+        return;
     }
 
-    setHoveredLine(-1);
+    const Annotation::Category* cat = Annotation::Registry::instance().find(active_annotation_id);
+    if (!cat)
+    {
+        setHoveredLine(-1);
+        return;
+    }
+
+    auto perLine = cat->per_line.find(idx);
+    if (perLine == cat->per_line.end() || perLine->second.tooltip.isEmpty())
+    {
+        setHoveredLine(-1);
+        return;
+    }
+
+    setHoveredLine(idx);
+    QToolTip::showText(event->globalPos(), perLine->second.tooltip, this);
 }
 
 void Canvas::mouseMoveEvent(QMouseEvent* event)
 {
-    if (drawtype == DrawType::DrawStall || drawtype == DrawType::DrawReasons ||
-        drawtype == DrawType::DrawStallAndReason || drawtype == DrawType::MemoryLatency)
-        handleHotspotHover(event);
+    if (drawtype == DrawType::Annotation) handleHotspotHover(event);
     QWidget::mouseMoveEvent(event);
 }
 
@@ -533,119 +575,5 @@ void Canvas::paintBranch()
 
         QColor& color = arrow_colors.at(it->second % arrow_colors.size()); // pick color & increment
         Connect(painter, arrow.wait_number, arrow.mem_line, arrow.prev_slot_n, color);
-    }
-}
-
-void Canvas::paintMemoryLatency()
-{
-    if (max_memory_latency <= 0.0) return; // No data - run Memory Latency analysis first
-
-    QPainter painter(this);
-    MainWindow::getScaling(painter);
-
-    const double invscale = 1.0 / MainWindow::getScaling();
-    const int lineheight = QCodelist::lineheight();
-    const int barHeight = (lineheight - 2 * padding) * invscale;
-    const int maxBarWidth = (width() - 3) * invscale;
-
-    // Binary search for first visible line
-    int target_index = std::max(0, (scrollposy - padding) / lineheight);
-    auto start_it = std::lower_bound(
-        ASMCodeline::line_vec.begin(),
-        ASMCodeline::line_vec.end(),
-        target_index,
-        [](const auto& line, int idx) { return line && line->line_index < idx; }
-    );
-
-    for (auto it = start_it; it != ASMCodeline::line_vec.end(); ++it)
-    {
-        auto line = *it;
-        if (!line) continue;
-
-        auto ypos = indexToYpos(line->line_index, lineheight) * invscale;
-        if (ypos > this->height() * invscale) break;
-
-        if (line->memory_latency.count <= 0) continue;
-
-        const auto& stats = line->memory_latency;
-        double meanRatio = stats.mean / max_memory_latency;
-        double stdRatio = stats.stdDev / max_memory_latency;
-
-        int meanWidth = static_cast<int>(meanRatio * maxBarWidth);
-        int stdWidth = static_cast<int>(stdRatio * maxBarWidth);
-
-        bool highlighted = (hovered_line_index == line->line_index);
-
-        // Calculate issue and stall widths based on their mean values
-        double issueRatio = stats.meanIssue / max_memory_latency;
-        double stallRatio = stats.meanStall / max_memory_latency;
-        int issueWidth = static_cast<int>(issueRatio * maxBarWidth);
-        int stallWidth = static_cast<int>(stallRatio * maxBarWidth);
-
-        // Use token colors: VMEM = light orange (#ffc432), LDS = dark orange (#ff7000)
-        QColor barColor;
-        if (line->memory_latency_type == LatencyAnalysis::CounterType::LDS)
-            barColor = QColor(0xff, 0x70, 0x00); // Dark orange for LDS
-        else
-            barColor = QColor(0xff, 0xc4, 0x32); // Light orange for VMEM
-
-        // Get colors from config
-        QColor issueColor = Config::IssueColor();
-        QColor stallColor = Config::StallColor();
-
-        if (highlighted)
-        {
-            barColor = barColor.lighter(130);
-            issueColor = issueColor.lighter(130);
-            stallColor = stallColor.lighter(130);
-        }
-
-        // Draw bars in order: Issue (green), Latency (orange), Stall (red)
-        painter.setPen(Qt::NoPen);
-
-        // Draw issue (green) rectangle first
-        painter.setBrush(issueColor);
-        painter.drawRect(2 * invscale, ypos, issueWidth, barHeight);
-
-        // Draw mean latency bar (orange, based on counter type) after issue
-        painter.setBrush(barColor);
-        painter.drawRect(2 * invscale + issueWidth, ypos, meanWidth, barHeight);
-
-        // Draw stall (red) rectangle after latency
-        painter.setBrush(stallColor);
-        painter.drawRect(2 * invscale + issueWidth + meanWidth, ypos, stallWidth, barHeight);
-
-        // Total bar width for centering stddev and highlight
-        int totalBarWidth = issueWidth + meanWidth + stallWidth;
-
-        // Draw stdDev as horizontal "H" error bar centered at end of all bars
-        if (stdWidth > 0)
-        {
-            int stdCenter = 2 * invscale + totalBarWidth;
-            int stdStart = std::clamp(stdCenter - stdWidth, static_cast<int>(2 * invscale), maxBarWidth);
-            int stdEnd = std::clamp(stdCenter + stdWidth, static_cast<int>(2 * invscale), maxBarWidth);
-            int centerY = ypos + (barHeight + 1 * invscale) / 2; // Round up to center properly
-            int capHeight = barHeight / 3;
-
-            QPen stdPen(Qt::black, 2 * invscale);
-            painter.setPen(stdPen);
-            painter.setBrush(Qt::NoBrush);
-
-            // Horizontal line
-            painter.drawLine(stdStart, centerY, stdEnd, centerY);
-            // Left vertical cap (only if visible)
-            if (stdStart > 2 * invscale) painter.drawLine(stdStart, centerY - capHeight, stdStart, centerY + capHeight);
-            // Right vertical cap (only if visible)
-            if (stdEnd < (width() - 2) * invscale)
-                painter.drawLine(stdEnd, centerY - capHeight, stdEnd, centerY + capHeight);
-        }
-
-        // Draw highlight outline encompassing all bars
-        if (highlighted)
-        {
-            painter.setPen(QPen(Qt::white, 1 * invscale));
-            painter.setBrush(Qt::NoBrush);
-            painter.drawRect(2 * invscale, ypos, totalBarWidth, barHeight);
-        }
     }
 }

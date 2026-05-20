@@ -9,7 +9,7 @@ option(RCV_FETCH_TRACE_DECODER_WITH_DISASSEMBLY
        "When fetching rocprof-trace-decoder, build with a disassembly backend (amd_comgr)" ON)
 set(RCV_TRACE_DECODER_REPO "https://github.com/ROCm/rocm-systems.git"
     CACHE STRING "Git repository for rocprof-trace-decoder")
-set(RCV_TRACE_DECODER_TAG "develop"
+set(RCV_TRACE_DECODER_TAG "users/gbaraldi/gfx1250fixes"
     CACHE STRING "Git branch/tag for rocprof-trace-decoder")
 if(NOT DEFINED RCV_TRACE_DECODER_FETCH_DIR)
     get_filename_component(_rcv_repo_root "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)

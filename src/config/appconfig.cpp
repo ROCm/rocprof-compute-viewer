@@ -66,6 +66,10 @@ bool AppConfig::getSeparateLDSPipe() const { return settings.value("DisplayOptio
 
 void AppConfig::setSeparateLDSPipe(bool enabled) { settings.setValue("DisplayOptions/SeparateLDSPipe", enabled); }
 
+bool AppConfig::getShowIdleTime() const { return settings.value("DisplayOptions/ShowIdleTime", true).toBool(); }
+
+void AppConfig::setShowIdleTime(bool enabled) { settings.setValue("DisplayOptions/ShowIdleTime", enabled); }
+
 // Instruction Column Visibility
 bool AppConfig::getColumnVisible(int element, bool bDefault) const
 {

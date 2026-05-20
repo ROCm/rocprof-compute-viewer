@@ -138,17 +138,19 @@ void WaveState::DrawState(QPainter& painter, int64_t viewstart, int64_t viewend)
     const float wstate_height = WSTATE_HEIGHT() / scaling;
 
     int pos = Token::GetTokenSize(this->clock - viewstart);
-    int width = Token::GetTokenSize(this->duration);
+    const int64_t end_clock = this->clock + static_cast<int64_t>(this->duration);
+
+    int width = Token::GetTokenSize(static_cast<int64_t>(this->duration));
     if (viewstart > this->clock)
     {
         pos = 0;
-        width = Token::GetTokenSize(this->clock + this->duration - viewstart);
+        width = Token::GetTokenSize(end_clock - viewstart);
     }
 
-    QColor& color = STATE_COLORS[this->state % STATE_COLORS.size()];
     QPainterPath path;
     path.addRect(QRectF(pos, wstate_posy, width, wstate_height));
 
+    QColor color = GetColor();
     QLinearGradient grad(0, wstate_posy, 0, wstate_posy + wstate_height);
     grad.setColorAt(0.5, color);
     grad.setColorAt(0, whiter(color));

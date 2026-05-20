@@ -30,6 +30,7 @@
 #include <sstream>
 #include <unordered_set>
 #include <vector>
+#include "analysis/annotation.h"
 #include "config/appconfig.h"
 #include "data/wavemanager.h"
 #include "graphics/canvas.h"
@@ -43,6 +44,19 @@
 int QCodelist::line_height = 20;
 QCodelist* QCodelist::singleton = nullptr;
 
+// Built-in (non-annotation) View rows. Index in this array == row index in the
+// dropdown; annotation rows are appended after these.
+static const std::array<std::pair<const char*, Canvas::DrawType>, 2> kBuiltinRows = {
+    {
+     {"View: Waitcnt", Canvas::DrawType::DrawArrows},
+     {"Branch targets", Canvas::DrawType::DrawBranch},
+     }
+};
+
+// Sentinel value stashed in Qt::UserRole for built-in rows; annotation rows
+// store their Category id as a QString.
+static constexpr int kBuiltinUserRole = 0; // value isn't read; we check QVariant type
+
 class DrawTypeSelector : public QComboBox
 {
     Q_OBJECT;
@@ -51,9 +65,13 @@ class DrawTypeSelector : public QComboBox
 
 public:
     DrawTypeSelector(QCodelist* _parent);
-    void changeDrawType(const QString& text);
+    void rebuildAnnotationRows();
+    void onIndexChanged(int index);
 
     QCodelist* parent = nullptr;
+
+private:
+    bool m_rebuilding = false;
 };
 
 std::array<std::string, (int) CyclesLabel::Strategy::LAST> strategy_names = {
@@ -64,32 +82,76 @@ std::array<std::string, (int) CyclesLabel::Strategy::LAST> strategy_names = {
     "Latency: Mean Wave",
     "Latency: Max Wave"};
 
-std::array<std::string, (int) Canvas::DrawType::DrawLast> drawtype_names = {
-    "View: Waitcnt", "Branch targets", "Inst Latency", "Stall Reasons", "Latency + Stall", "Memory Latency"};
-
 DrawTypeSelector::DrawTypeSelector(QCodelist* _parent) : parent(_parent)
 {
-    for (auto& name : drawtype_names) addItem(QString(name.c_str()));
+    for (const auto& [label, type] : kBuiltinRows)
+    {
+        addItem(QString(label));
+        setItemData(count() - 1, kBuiltinUserRole, Qt::UserRole);
+    }
 
-    setCurrentIndex((int) Canvas::DrawType::DrawArrows);
-
+    setCurrentIndex(0);
     setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Fixed);
 
-    QObject::connect(this, &QComboBox::currentTextChanged, this, &DrawTypeSelector::changeDrawType);
+    QObject::connect(this, qOverload<int>(&QComboBox::currentIndexChanged), this, &DrawTypeSelector::onIndexChanged);
 }
 
-void DrawTypeSelector::changeDrawType(const QString& text)
+void DrawTypeSelector::rebuildAnnotationRows()
 {
-    for (int i = 0; i < (int) drawtype_names.size(); i++)
-        if (drawtype_names.at(i) == text.toStdString())
+    m_rebuilding = true;
+
+    while (count() > static_cast<int>(kBuiltinRows.size())) removeItem(count() - 1);
+
+    int selectRow = -1;
+    for (const Annotation::Category* cat : Annotation::Registry::instance().categories())
+    {
+        addItem(QString::fromStdString(cat->display_name));
+        setItemData(count() - 1, QString::fromStdString(cat->id), Qt::UserRole);
+        if (cat->id == Canvas::active_annotation_id) selectRow = count() - 1;
+    }
+
+    if (selectRow >= 0)
+    {
+        if (currentIndex() != selectRow) setCurrentIndex(selectRow);
+    }
+    else if (Canvas::drawtype == Canvas::DrawType::Annotation)
+    {
+        // Active annotation was removed — fall back to the first built-in so
+        // the canvas paints something coherent instead of going blank.
+        Canvas::drawtype = kBuiltinRows[0].second;
+        Canvas::active_annotation_id.clear();
+        if (currentIndex() != 0) setCurrentIndex(0);
+        if (parent && parent->connector)
         {
-            Canvas::drawtype = Canvas::DrawType(i);
-            if (parent && parent->connector)
-            {
-                parent->connector->updateGeometry();
-                parent->connector->update();
-            }
+            parent->connector->updateGeometry();
+            parent->connector->update();
         }
+    }
+
+    m_rebuilding = false;
+}
+
+void DrawTypeSelector::onIndexChanged(int index)
+{
+    if (m_rebuilding || index < 0) return;
+
+    const QVariant data = itemData(index, Qt::UserRole);
+    if (data.userType() == QMetaType::QString)
+    {
+        Canvas::drawtype = Canvas::DrawType::Annotation;
+        Canvas::active_annotation_id = data.toString().toStdString();
+    }
+    else if (index < static_cast<int>(kBuiltinRows.size()))
+    {
+        Canvas::drawtype = kBuiltinRows[index].second;
+        Canvas::active_annotation_id.clear();
+    }
+
+    if (parent && parent->connector)
+    {
+        parent->connector->updateGeometry();
+        parent->connector->update();
+    }
 }
 
 CycleModeSelector::CycleModeSelector(QCodelist* _parent) : parent(_parent)
@@ -215,27 +277,63 @@ void QCodelist::updateColumnVisibility()
         setColumnVisibility(static_cast<Element>(e), config.getColumnVisible(e));
 }
 
-void QCodelist::updateMemoryLatencyEnabled()
-{
-    QWARNING(drawselector, "invalid selector", return );
-
-    auto* model = drawselector->model();
-    auto* view = qobject_cast<QListView*>(drawselector->view());
-    QWARNING(model && view, "no model/view", return );
-
-    int idx = (int) Canvas::DrawType::MemoryLatency;
-    bool hasData = Canvas::max_memory_latency > 0.0;
-    int enabled = static_cast<int>(Qt::ItemIsSelectable | Qt::ItemIsEnabled);
-    int flags = hasData ? enabled : static_cast<int>(Qt::NoItemFlags);
-    model->setData(model->index(idx, 0), flags, Qt::UserRole - 1);
-    view->setRowHidden(idx, !hasData);
-}
-
 void QCodelist::setDrawType(Canvas::DrawType type)
 {
     QWARNING(drawselector, "invalid selector", return );
-    drawselector->setCurrentIndex((int) type);
-    drawselector->currentTextChanged(drawtype_names.at((int) type).c_str());
+    // Only built-in DrawTypes are addressable this way; annotations go through
+    // selectAnnotation(id).
+    for (size_t i = 0; i < kBuiltinRows.size(); ++i)
+        if (kBuiltinRows[i].second == type)
+        {
+            drawselector->setCurrentIndex(static_cast<int>(i));
+            return;
+        }
+}
+
+void QCodelist::selectAnnotation(const std::string& id)
+{
+    QWARNING(drawselector, "invalid selector", return );
+
+    // Only flip to annotation mode if the category actually exists.
+    if (!Annotation::Registry::instance().find(id)) return;
+
+    Canvas::drawtype = Canvas::DrawType::Annotation;
+    Canvas::active_annotation_id = id;
+
+    for (int i = 0; i < drawselector->count(); ++i)
+    {
+        const QVariant data = drawselector->itemData(i, Qt::UserRole);
+        if (data.userType() == QMetaType::QString && data.toString().toStdString() == id)
+        {
+            if (drawselector->currentIndex() != i) drawselector->setCurrentIndex(i);
+            return;
+        }
+    }
+}
+
+void QCodelist::refreshAnnotations()
+{
+    if (drawselector) drawselector->rebuildAnnotationRows();
+    if (connector)
+    {
+        connector->updateGeometry();
+        connector->update();
+    }
+}
+
+void QCodelist::refreshLatencyAnnotations()
+{
+    max_sqtt_latency = 1;
+    max_pcs_latency = 1;
+    for (const auto& codeline : ASMCodeline::line_vec)
+    {
+        if (!codeline) continue;
+        max_sqtt_latency = std::max(max_sqtt_latency, codeline->hotspot.sqtt.total(HorizontalHotspot::show_idle_time));
+        max_pcs_latency = std::max(max_pcs_latency, codeline->hotspot.pcs.total());
+    }
+
+    HorizontalHotspot::PublishCategories(max_sqtt_latency, max_pcs_latency);
+    scheduleRedraw();
 }
 
 void QCodelist::Populate(const std::vector<CodeData>& code)
@@ -246,22 +344,19 @@ void QCodelist::Populate(const std::vector<CodeData>& code)
 
     ASMCodeline::Populate(code);
 
-    max_sqtt_latency = 1;
-    max_pcs_latency = 1;
-    for (auto& codeline : code)
-    {
-        max_sqtt_latency = std::max(max_sqtt_latency, codeline.line->latency_sum);
-        max_pcs_latency = std::max(max_pcs_latency, codeline.line->pcsamples);
-    }
+    // Repopulating rebuilds ASMCodeline with fresh line_index values, so any
+    // externally-published category keyed by the old indices (e.g. Memory
+    // Latency from the latency dialog) is now stale and must be dropped. The
+    // built-in categories are re-cleared and republished by PublishCategories
+    // below.
+    Annotation::Registry::instance().clear("memory_latency");
 
-    scheduleRedraw();
+    // Build/refresh the hotspot annotation categories from the per-line data
+    // we just populated. This fires the registry listener which rebuilds the
+    // dropdown rows.
+    refreshLatencyAnnotations();
 
     QWARNING(drawselector, "invalid selector", return );
-    if (HorizontalHotspot::is_pcs_enabled)
-    {
-        drawselector->setCurrentIndex((int) Canvas::DrawType::DrawStall);
-        drawselector->currentTextChanged(drawtype_names.at((int) Canvas::DrawType::DrawStall).c_str());
-    }
 
     auto* model = drawselector->model();
     auto* view = qobject_cast<QListView*>(drawselector->view());
@@ -269,28 +364,16 @@ void QCodelist::Populate(const std::vector<CodeData>& code)
 
     int enabled = static_cast<int>(Qt::ItemIsSelectable | Qt::ItemIsEnabled);
 
-    for (int idx : {(int) Canvas::DrawType::DrawArrows, (int) Canvas::DrawType::DrawBranch})
+    // Gate the two built-in Waitcnt/Branch rows on SQTT data presence.
+    for (int idx : {0, 1})
     {
         int flags = HorizontalHotspot::is_sqtt_enabled ? enabled : static_cast<int>(Qt::NoItemFlags);
         model->setData(model->index(idx, 0), flags, Qt::UserRole - 1);
         view->setRowHidden(idx, !HorizontalHotspot::is_sqtt_enabled);
     }
 
-    for (int idx : {(int) Canvas::DrawType::DrawReasons, (int) Canvas::DrawType::DrawStallAndReason})
-    {
-        int flags = HorizontalHotspot::is_pcs_enabled ? enabled : static_cast<int>(Qt::NoItemFlags);
-        model->setData(model->index(idx, 0), flags, Qt::UserRole - 1);
-        view->setRowHidden(idx, !HorizontalHotspot::is_pcs_enabled);
-    }
-
-    // Memory Latency option - hidden until analysis is run
-    {
-        int idx = (int) Canvas::DrawType::MemoryLatency;
-        bool hasData = Canvas::max_memory_latency > 0.0;
-        int flags = hasData ? enabled : static_cast<int>(Qt::NoItemFlags);
-        model->setData(model->index(idx, 0), flags, Qt::UserRole - 1);
-        view->setRowHidden(idx, !hasData);
-    }
+    // Default to Inst Latency when PCS data is available (matches prior UX).
+    if (HorizontalHotspot::is_pcs_enabled) selectAnnotation("inst_latency");
 
     // Update column visibility based on data availability flags
     updateColumnVisibility();

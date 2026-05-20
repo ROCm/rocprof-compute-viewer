@@ -29,6 +29,13 @@
 #include "flamegraph/layout.h"
 #include "flamegraph/stack_node.h"
 
+class QComboBox;
+
+namespace flamegraph
+{
+enum class LatencyMetric;
+}
+
 /**
  * Flamegraph widget shell. Owns no tree-building or layout logic — those live
  * in `flamegraph/stack_builder.{h,cpp}` (builders) and `flamegraph/layout.{h,cpp}`
@@ -68,12 +75,17 @@ protected:
     /// Reset frame state to defaults and refresh the scrollbar.
     void resetFrameState();
 
+    /// Marker-only flamegraphs are duration based and do not use hidden latency.
+    void setLatencyModeControlVisible(bool visible);
+
 private:
     /// Pick a builder for the current dataset (markers + target wave →
     /// integrated; otherwise legacy file roots). Member function so the
     /// MainWindow `friend FlameGraphWidget` declaration covers its access
     /// to private MainWindow coordinates.
-    static flamegraph::Roots pickBuilder();
+    flamegraph::Roots pickBuilder() const;
+    flamegraph::LatencyMetric latencyMetric() const;
+    void updateLatencyModeControlGeometry();
 
     /// Y-pixel of the top of `row`'s band. Centralizes the bottom-up row math
     /// shared by paint, hit-test, and frameRect.
@@ -112,4 +124,5 @@ protected:
     bool m_isPanning = false;
 
     QScrollBar* m_hScrollBar = nullptr;
+    QComboBox* m_latencyModeBox = nullptr;
 };

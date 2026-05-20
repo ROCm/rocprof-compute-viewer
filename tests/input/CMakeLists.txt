@@ -24,4 +24,7 @@ add_executable(datastore_test
 
 target_include_directories(datastore_test PRIVATE ${SRC_DIR})
 target_link_libraries(datastore_test GTest::gtest_main Qt6::Core Qt6::Network)
+if(RCV_HAS_TRACE_DECODER)
+    target_link_libraries(datastore_test rocprof-trace-decoder::rocprof-trace-decoder-static)
+endif()
 add_test(NAME datastore_test COMMAND datastore_test)

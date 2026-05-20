@@ -88,3 +88,7 @@ compile_commands.json
 
 # Store
 .DS_Store
+
+# AI and scripts
+*CLAUDE.md
+*__pycache__

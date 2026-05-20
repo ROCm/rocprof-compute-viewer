@@ -119,6 +119,11 @@ struct counter_record_t
 };
 
 #ifndef RCV_HAS_TRACE_DECODER
+struct trace_event_payload_t
+{
+    uint64_t raw = 0;
+};
+
 struct trace_event_record_t
 {
     uint64_t size = sizeof(trace_event_record_t);
@@ -127,7 +132,7 @@ struct trace_event_record_t
     uint8_t me_id = 0;
     uint8_t pipe_id = 0;
     uint16_t flags = 0;
-    uint64_t payload = 0;
+    trace_event_payload_t payload{};
     uint64_t byte_offset = 0;
 };
 
@@ -147,8 +152,8 @@ enum
     ROCPROF_TRACE_DECODER_EVENT_TT_FLUSH,
     ROCPROF_TRACE_DECODER_EVENT_DIDT_STALL_BEGIN,
     ROCPROF_TRACE_DECODER_EVENT_DIDT_STALL_END,
-    ROCPROF_TRACE_DECODER_EVENT_CLUSTER_BEGIN, ///< Payload is the ID
-    ROCPROF_TRACE_DECODER_EVENT_CLUSTER_END,   ///< Payload is the ID
+    ROCPROF_TRACE_DECODER_EVENT_CLUSTER_BARRIER_DONE,
+    ROCPROF_TRACE_DECODER_EVENT_RESERVED,
     ROCPROF_TRACE_DECODER_EVENT_GC_RINSE,
     ROCPROF_TRACE_DECODER_EVENT_SPM_SAMPLE,
     ROCPROF_TRACE_DECODER_EVENT_LAST
@@ -194,8 +199,6 @@ inline std::string TraceDecoderEventName(int type)
         case ROCPROF_TRACE_DECODER_EVENT_TT_FLUSH: return "Thread Trace Flush";
         case ROCPROF_TRACE_DECODER_EVENT_DIDT_STALL_BEGIN: return "DIDT Stall Begin";
         case ROCPROF_TRACE_DECODER_EVENT_DIDT_STALL_END: return "DIDT Stall End";
-        case ROCPROF_TRACE_DECODER_EVENT_CLUSTER_BEGIN: return "Cluster Begin";
-        case ROCPROF_TRACE_DECODER_EVENT_CLUSTER_END: return "Cluster End";
         case ROCPROF_TRACE_DECODER_EVENT_GC_RINSE: return "GC Rinse";
         case ROCPROF_TRACE_DECODER_EVENT_SPM_SAMPLE: return "SPM sample taken";
         default: return "Trace Event " + std::to_string(type);

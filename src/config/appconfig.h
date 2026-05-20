@@ -50,6 +50,8 @@ public:
     void setDisplayScaling(bool enabled);
     bool getSeparateLDSPipe() const;
     void setSeparateLDSPipe(bool enabled);
+    bool getShowIdleTime() const;
+    void setShowIdleTime(bool enabled);
 
     // Instruction Column Visibility (uses ASMCodeline::Element values)
     bool getColumnVisible(int element, bool bDefault = true) const;

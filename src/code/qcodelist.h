@@ -92,9 +92,14 @@ public:
     void Highlight(int lbegin, int lend, bool bIntoView, const Color& color = WindowColors::LineSlowHighlight());
 
     void setColumnVisibility(ASMCodeline::Element elem, bool visible);
-    void updateColumnVisibility();           // Re-apply visibility based on current flags
-    void updateMemoryLatencyEnabled();       // Enable/disable Memory Latency option in dropdown
-    void setDrawType(Canvas::DrawType type); // Set the current draw type in dropdown
+    void updateColumnVisibility();                // Re-apply visibility based on current flags
+    void setDrawType(Canvas::DrawType type);      // Set the current draw type in dropdown
+    void selectAnnotation(const std::string& id); // Pick an annotation category in dropdown
+    void refreshLatencyAnnotations();
+    /// Rebuild annotation rows in the View dropdown from the registry, and
+    /// fall back to a built-in row if the active annotation is gone. Call
+    /// after Registry::publish/clear/clearAll.
+    void refreshAnnotations();
 
     std::array<QElementList*, Element::ENUMTYPES> elements{};
 

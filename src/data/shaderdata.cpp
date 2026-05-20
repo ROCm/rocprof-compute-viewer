@@ -112,14 +112,13 @@ void ShaderDataManager::Load(const nlohmann::json& shaderdata_filenames, const s
 
     // Load files in parallel (max 8 at a time)
     constexpr size_t MAX_THREADS = 8;
-    std::map<std::tuple<int, int, int, int>, std::vector<ShaderDataRecord>> tmp;
+    std::map<HWID, std::vector<ShaderDataRecord>> tmp;
     std::array<std::future<std::vector<ShaderDataRecord>>, MAX_THREADS> futures;
     std::array<int, MAX_THREADS> future_se{};
 
     auto collect = [&](size_t idx)
     {
-        for (auto& rec : futures.at(idx).get())
-            tmp[std::make_tuple(future_se.at(idx), rec.cu, rec.simd, rec.wave_id)].push_back(std::move(rec));
+        for (auto& rec : futures.at(idx).get()) tmp[{rec.se, rec.cu, rec.simd, rec.wave_id}].push_back(std::move(rec));
     };
 
     for (size_t i = 0; i < file_tasks.size(); i++)
@@ -143,10 +142,9 @@ void ShaderDataManager::Load(const nlohmann::json& shaderdata_filenames, const s
     }
 }
 
-ShaderDataRecordVec ShaderDataManager::GetRecords(int se, int cu, int simd, int slot) const
+ShaderDataRecordVec ShaderDataManager::GetRecords(HWID hwid) const
 {
-    auto key = std::make_tuple(se, cu, simd, slot);
-    auto it = m_records_by_location.find(key);
+    auto it = m_records_by_location.find(hwid);
     if (it != m_records_by_location.end()) return it->second;
     return nullptr;
 }
@@ -161,7 +159,7 @@ void ShaderDataManager::AddRecord(int se, const shaderdata_record_t& rec)
     r.wave_id = rec.wave_id;
     r.flags = rec.flags;
     r.se = se;
-    m_pending[std::make_tuple(se, r.cu, r.simd, r.wave_id)].push_back(std::move(r));
+    m_pending[{r.se, r.cu, r.simd, r.wave_id}].push_back(std::move(r));
 }
 
 void ShaderDataManager::Finalize()
@@ -182,10 +180,9 @@ void ShaderDataManager::Finalize()
 void ShaderDataManager::ApplyTimeOffsets(const std::map<int, int64_t>& offsets)
 {
     if (offsets.empty()) return;
-    for (auto& [key, records] : m_pending)
+    for (auto& [hwid, records] : m_pending)
     {
-        int se = std::get<0>(key);
-        auto it = offsets.find(se);
+        auto it = offsets.find(hwid.se);
         if (it == offsets.end() || it->second == 0) continue;
         int64_t off = it->second;
         for (auto& r : records) r.time += off;
@@ -193,8 +190,7 @@ void ShaderDataManager::ApplyTimeOffsets(const std::map<int, int64_t>& offsets)
 
     for (auto& [key, records_ptr] : m_records_by_location)
     {
-        int se = std::get<0>(key);
-        auto it = offsets.find(se);
+        auto it = offsets.find(key.se);
         if (it == offsets.end() || it->second == 0 || !records_ptr) continue;
 
         auto shifted = std::make_shared<std::vector<ShaderDataRecord>>(*records_ptr);
@@ -208,15 +204,15 @@ std::set<int> ShaderDataManager::SEs() const
 {
     std::set<int> ses;
     for (const auto& [key, records] : m_pending)
-        if (!records.empty()) ses.insert(std::get<0>(key));
+        if (!records.empty()) ses.insert(key.se);
     for (const auto& [key, records] : m_records_by_location)
-        if (records && !records->empty()) ses.insert(std::get<0>(key));
+        if (records && !records->empty()) ses.insert(key.se);
     return ses;
 }
 
-MarkerSpanVec ShaderDataManager::GetMarkers(int se, int cu, int simd, int slot) const
+MarkerSpanVec ShaderDataManager::GetMarkers(HWID hwid) const
 {
-    auto it = m_markers_by_location.find(std::make_tuple(se, cu, simd, slot));
+    auto it = m_markers_by_location.find(hwid);
     if (it != m_markers_by_location.end()) return it->second;
     return nullptr;
 }
@@ -235,10 +231,9 @@ void ShaderDataManager::ResolveMarkers(const MarkerResolveAtFn& resolver)
 
     if (m_records_by_location.empty()) return;
 
-    for (const auto& [key, records_ptr] : m_records_by_location)
+    for (const auto& [hwid, records_ptr] : m_records_by_location)
     {
         if (!records_ptr || records_ptr->empty()) continue;
-        const auto& [se, cu, simd, slot] = key;
         const auto& records = *records_ptr;
 
         // Adapt ShaderDataRecord stream into the pure walker's input format.
@@ -249,12 +244,11 @@ void ShaderDataManager::ResolveMarkers(const MarkerResolveAtFn& resolver)
         MarkerResolveFn bucket_resolver;
         if (resolver)
         {
-            bucket_resolver = [&](uint32_t id, int64_t time) -> ResolvedMarker
-            { return resolver(se, cu, simd, slot, id, time); };
+            bucket_resolver = [&](uint32_t id, int64_t time) -> ResolvedMarker { return resolver(hwid, id, time); };
         }
 
         std::vector<MarkerSpan> spans;
-        walkMarkerStream(in, se, cu, simd, slot, bucket_resolver, &spans, &m_marker_diags);
+        walkMarkerStream(in, hwid, bucket_resolver, &spans, &m_marker_diags);
 
         if (spans.empty()) continue;
 
@@ -265,7 +259,7 @@ void ShaderDataManager::ResolveMarkers(const MarkerResolveAtFn& resolver)
             [](const MarkerSpan& a, const MarkerSpan& b) { return a.enter_time < b.enter_time; }
         );
 
-        m_markers_by_location[key] = std::make_shared<const std::vector<MarkerSpan>>(std::move(spans));
+        m_markers_by_location[hwid] = std::make_shared<const std::vector<MarkerSpan>>(std::move(spans));
         m_has_markers = true;
     }
 }
@@ -295,9 +289,9 @@ void ShaderDataManager::ResolveMarkers(
     namespace cobj = rocprof_trace_decoder::codeobj;
 
     ResolveMarkers(
-        [&](int se, int cu, int simd, int slot, uint32_t id, int64_t time) -> ResolvedMarker
+        [&](HWID hwid, uint32_t id, int64_t time) -> ResolvedMarker
         {
-            const uint64_t coid = active_codeobj_fn ? active_codeobj_fn(se, cu, simd, slot, time) : 0ull;
+            const uint64_t coid = active_codeobj_fn ? active_codeobj_fn(hwid, time) : 0ull;
             if (coid == 0) return {};
 
             cobj::Funcmap::EntryPtr entry = codeobj_map.getMarker(coid, id);
