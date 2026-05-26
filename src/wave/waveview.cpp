@@ -249,7 +249,7 @@ void QWaveView::leaveEvent(QEvent* event)
 
 void QWaveView::mousePressEvent(QMouseEvent* event)
 {
-    QWARNING(QCodelist::singleton && MainWindow::window, "Invalid codelist", return );
+    QWARNING(QCodelist::singleton && MainWindow::window, "Invalid codelist", return);
 
     if (tool && event->button() & Qt::RightButton)
     {
@@ -361,22 +361,33 @@ void QWaveView::keyPressEvent(QKeyEvent* event)
 
 void QWaveSlots::wheelEvent(QWheelEvent* event)
 {
-    if (!(QApplication::keyboardModifiers() & Qt::ControlModifier))
+    if (QApplication::keyboardModifiers() & Qt::ControlModifier)
     {
-        this->Super::wheelEvent(event);
+        if (!cuwaves_content) return;
+        IMPLEMENT_FPS_LIMITER();
+
+        float mouse_x_in_content = event->position().x() - cuwaves_content->pos().x();
+        int64_t clock_at_mouse = Token::PosToClock(mouse_x_in_content) + view->start;
+
+        // Calculate ratio based on the clock position relative to the visible range
+        float ratio = float(clock_at_mouse - view->start) / float(view->range);
+
+        if (mouse_x_in_content > 0) MainWindow::incrementWaveViewMipmap(event->angleDelta().y() > 0 ? 1 : -1, ratio);
         return;
     }
 
-    if (!cuwaves_content) return;
-    IMPLEMENT_FPS_LIMITER();
+    // Horizontal scroll: forward to the backing scrollbar, which implements
+    // horizontal scrolling.
+    const bool hasHoriz =
+        event->angleDelta().x() != 0 || (!event->pixelDelta().isNull() && event->pixelDelta().x() != 0);
+    if (hasHoriz)
+    {
+        for (auto* parent : view->parents) QApplication::sendEvent(parent->scrollbar, event);
+        event->accept();
+        return;
+    }
 
-    float mouse_x_in_content = event->position().x() - cuwaves_content->pos().x();
-    int64_t clock_at_mouse = Token::PosToClock(mouse_x_in_content) + view->start;
-
-    // Calculate ratio based on the clock position relative to the visible range
-    float ratio = float(clock_at_mouse - view->start) / float(view->range);
-
-    if (mouse_x_in_content > 0) MainWindow::incrementWaveViewMipmap(event->angleDelta().y() > 0 ? 1 : -1, ratio);
+    Super::wheelEvent(event);
 }
 
 void QWaveSlots::keyPressEvent(QKeyEvent* event)
@@ -739,7 +750,7 @@ void QUtilization::ClearOtherSimd()
 
 void QUtilization::AddTokens(int simd, const TokenMap& tokens)
 {
-    QWARNING(simd < 4, "Invalid simd " << simd, return );
+    QWARNING(simd < 4, "Invalid simd " << simd, return);
 
     // Use base here as some decoder versions don't consider stalls for MSG
     // We dont want to show full cycles to avoid clutter in the timeline display
