@@ -461,7 +461,7 @@ void QWaveSlots::paintEvent(QPaintEvent* event)
     int fmheight = 0;
     {
         QFont font = painter.font();
-        font.setPointSize(MainWindow::font() * MainWindow::getScaling() + 0.9);
+        font.setPointSize(MainWindow::font());
         painter.setFont(font);
         fmheight = QFontMetrics(font).overlinePos();
     }
