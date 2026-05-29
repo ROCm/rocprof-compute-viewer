@@ -273,7 +273,7 @@ void TraceDecoderEmitter::alignSEClocks()
     for (auto& [se, lo] : first)
     {
         const auto& hi = last.at(se);
-        if (hi.sc > lo.sc > 0 && hi.rc > lo.rc)
+        if (hi.sc > lo.sc && lo.sc > 0 && hi.rc > lo.rc)
         {
             delta_shader += hi.sc - lo.sc;
             delta_realtime += hi.rc - lo.rc;
