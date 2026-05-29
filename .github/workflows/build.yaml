@@ -72,6 +72,13 @@ jobs:
             echo "$(cygpath -w "$rocm_root/bin")" >> "$GITHUB_PATH"
           elif [ ! -f "$rocm_root/lib/libamd_comgr.so" ]; then
             continue
+          else
+            rocm_llvm_lib="$rocm_root/lib/llvm/lib"
+            rocm_sysdeps_lib="$rocm_root/lib/rocm_sysdeps/lib"
+            if [ -d "$rocm_llvm_lib" ] && [ -d "$rocm_sysdeps_lib" ]; then
+              echo "LD_LIBRARY_PATH=$rocm_root/lib:$rocm_llvm_lib:$rocm_sysdeps_lib:${LD_LIBRARY_PATH:-}" >> "$GITHUB_ENV"
+              echo "LDFLAGS=-Wl,-rpath-link,$rocm_llvm_lib -Wl,-rpath-link,$rocm_sysdeps_lib ${LDFLAGS:-}" >> "$GITHUB_ENV"
+            fi
           fi
 
           echo "found=true" >> "$GITHUB_OUTPUT"
@@ -90,7 +97,7 @@ jobs:
       uses: actions/cache/restore@v4
       with:
         path: ${{ runner.temp }}/rocm-sdk-comgr
-        key: ${{ matrix.system.host }}-rocm-sdk-comgr-${{ env.ROCM_SDK_VERSION }}-v1
+        key: ${{ matrix.system.host }}-rocm-sdk-comgr-${{ env.ROCM_SDK_VERSION }}-v2
 
     - name: Install ROCm SDK COMGR
       if: ${{ matrix.system.host != 'mac' && steps.system-comgr.outputs.found != 'true' && steps.rocm-sdk-cache.outputs.cache-hit != 'true' }}
@@ -125,6 +132,10 @@ jobs:
                 member_name == "_rocm_sdk_core/bin/amd_comgr.dll"
                 or member_name == "_rocm_sdk_core/lib/amd_comgr.lib"
                 or member_name.startswith("_rocm_sdk_core/lib/libamd_comgr.so")
+                or member_name.startswith("_rocm_sdk_core/lib/llvm/lib/libLLVM.so")
+                or member_name.startswith("_rocm_sdk_core/lib/llvm/lib/libclang-cpp.so")
+                or member_name.startswith("_rocm_sdk_core/lib/rocm_sysdeps/lib/librocm_sysdeps_z.so")
+                or member_name.startswith("_rocm_sdk_core/lib/rocm_sysdeps/lib/librocm_sysdeps_zstd.so")
                 or member_name.startswith("_rocm_sdk_core/include/amd_comgr/")
                 or member_name.startswith("_rocm_sdk_core/share/doc/amd_comgr/")
             )
@@ -165,7 +176,7 @@ jobs:
       continue-on-error: true
       with:
         path: ${{ runner.temp }}/rocm-sdk-comgr
-        key: ${{ matrix.system.host }}-rocm-sdk-comgr-${{ env.ROCM_SDK_VERSION }}-v1
+        key: ${{ matrix.system.host }}-rocm-sdk-comgr-${{ env.ROCM_SDK_VERSION }}-v2
 
     - name: Export ROCm SDK path
       if: ${{ matrix.system.host != 'mac' && steps.system-comgr.outputs.found != 'true' }}
@@ -181,6 +192,12 @@ jobs:
         echo "ROCM_PATH=$rocm_root" >> "$GITHUB_ENV"
         echo "CMAKE_PREFIX_PATH=$rocm_root" >> "$GITHUB_ENV"
         echo "Using ROCm SDK at $rocm_root"
+        if [ "${{ matrix.system.host }}" = "linux" ]; then
+          rocm_llvm_lib="$rocm_root/lib/llvm/lib"
+          rocm_sysdeps_lib="$rocm_root/lib/rocm_sysdeps/lib"
+          echo "LD_LIBRARY_PATH=$rocm_root/lib:$rocm_llvm_lib:$rocm_sysdeps_lib:${LD_LIBRARY_PATH:-}" >> "$GITHUB_ENV"
+          echo "LDFLAGS=-Wl,-rpath-link,$rocm_llvm_lib -Wl,-rpath-link,$rocm_sysdeps_lib ${LDFLAGS:-}" >> "$GITHUB_ENV"
+        fi
 
     - name: Verify ROCm SDK COMGR
       if: ${{ matrix.system.host != 'mac' }}
@@ -197,6 +214,10 @@ jobs:
           test -f "$ROCM_PATH/bin/amd_comgr.dll"
         else
           test -f "$ROCM_PATH/lib/libamd_comgr.so" || test -f "$ROCM_PATH/lib/libamd_comgr.so.3"
+          compgen -G "$ROCM_PATH/lib/llvm/lib/libLLVM.so*" > /dev/null
+          compgen -G "$ROCM_PATH/lib/llvm/lib/libclang-cpp.so*" > /dev/null
+          compgen -G "$ROCM_PATH/lib/rocm_sysdeps/lib/librocm_sysdeps_z.so*" > /dev/null
+          compgen -G "$ROCM_PATH/lib/rocm_sysdeps/lib/librocm_sysdeps_zstd.so*" > /dev/null
         fi
         echo "Verified amd_comgr in $ROCM_PATH"
 

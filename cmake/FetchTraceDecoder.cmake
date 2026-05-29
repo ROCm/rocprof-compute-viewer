@@ -40,6 +40,28 @@ if(NOT DEFINED RCV_TRACE_DECODER_FETCH_DIR)
         CACHE PATH "Sparse-cloned rocm-systems checkout; lives outside the build tree")
 endif()
 
+function(_rcv_trace_decoder_apply_consumer_link_options)
+    foreach(_td_target IN ITEMS rocprof-trace-decoder::rocprof-trace-decoder-static rocprof-trace-decoder::rocprof-trace-decoder)
+        if(NOT TARGET ${_td_target})
+            continue()
+        endif()
+
+        set(_td_prefixes "${CMAKE_PREFIX_PATH}")
+        if(NOT _td_prefixes AND DEFINED ENV{ROCM_PATH})
+            list(APPEND _td_prefixes "$ENV{ROCM_PATH}")
+        endif()
+        foreach(_td_prefix IN LISTS _td_prefixes)
+            set(_td_llvm_lib_dir "${_td_prefix}/lib/llvm/lib")
+            set(_td_sysdeps_lib_dir "${_td_prefix}/lib/rocm_sysdeps/lib")
+            if(NOT WIN32 AND EXISTS "${_td_llvm_lib_dir}" AND EXISTS "${_td_sysdeps_lib_dir}")
+                set_property(TARGET ${_td_target} APPEND PROPERTY INTERFACE_LINK_OPTIONS
+                    "-Wl,-rpath-link,${_td_llvm_lib_dir}"
+                    "-Wl,-rpath-link,${_td_sysdeps_lib_dir}")
+            endif()
+        endforeach()
+    endforeach()
+endfunction()
+
 function(rcv_fetch_trace_decoder)
     set(RCV_HAS_TRACE_DECODER OFF PARENT_SCOPE)
 
@@ -48,6 +70,7 @@ function(rcv_fetch_trace_decoder)
             PATHS ${TRACE_DECODER_ROOT}
             PATH_SUFFIXES source lib/cmake/rocprof-trace-decoder
             NO_DEFAULT_PATH)
+        _rcv_trace_decoder_apply_consumer_link_options()
         message(STATUS "Trace-decoder enabled (external): ${rocprof-trace-decoder_DIR}")
         set(RCV_HAS_TRACE_DECODER ON PARENT_SCOPE)
         return()
@@ -116,6 +139,18 @@ function(rcv_fetch_trace_decoder)
     endif()
     if(_td_prefix_path)
         list(APPEND _td_cfg_args "-DCMAKE_PREFIX_PATH=${_td_prefix_path}")
+        foreach(_td_prefix IN LISTS _td_prefix_path)
+            set(_td_llvm_lib_dir "${_td_prefix}/lib/llvm/lib")
+            set(_td_sysdeps_lib_dir "${_td_prefix}/lib/rocm_sysdeps/lib")
+            if(NOT WIN32 AND EXISTS "${_td_llvm_lib_dir}" AND EXISTS "${_td_sysdeps_lib_dir}")
+                set(_td_rpath_link_flags
+                    "-Wl,-rpath-link,${_td_llvm_lib_dir} -Wl,-rpath-link,${_td_sysdeps_lib_dir}")
+                list(APPEND _td_cfg_args
+                    "-DCMAKE_SHARED_LINKER_FLAGS=${CMAKE_SHARED_LINKER_FLAGS} ${_td_rpath_link_flags}"
+                    "-DCMAKE_EXE_LINKER_FLAGS=${CMAKE_EXE_LINKER_FLAGS} ${_td_rpath_link_flags}")
+                break()
+            endif()
+        endforeach()
     endif()
     if(WIN32)
         set(_td_compat_file "${_td_build_dir}/rcv_decoder_compat.cmake")
@@ -154,6 +189,7 @@ function(rcv_fetch_trace_decoder)
         PATHS ${_td_build_dir}
         PATH_SUFFIXES source
         NO_DEFAULT_PATH)
+    _rcv_trace_decoder_apply_consumer_link_options()
 
     message(STATUS "Trace-decoder enabled (fetched): ${rocprof-trace-decoder_DIR}")
     set(RCV_HAS_TRACE_DECODER ON PARENT_SCOPE)
