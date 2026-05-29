@@ -55,10 +55,30 @@ jobs:
       if: ${{ matrix.system.host != 'mac' }}
       uses: KyleMayes/install-llvm-action@ebc0426251bc40c7cd31162802432c68818ab8f0 # v2.0.9
       timeout-minutes: 15
+      env:
+        ACTIONS_STEP_DEBUG: true
       with:
         version: '21.1.8'
         directory: ${{ runner.temp }}/llvm
-        cached: true
+        cached: false
+
+    # Sanity-check the install: action exports LLVM_PATH even when extraction
+    # produces nothing (observed with cached: true restoring a poisoned cache),
+    # which lets the failure leak into later steps with a confusing error.
+    # Fail loudly here so the broken step is the install step itself.
+    - name: Verify LLVM install
+      if: ${{ matrix.system.host != 'mac' }}
+      shell: bash
+      run: |
+        echo "LLVM_PATH=${LLVM_PATH:-<unset>}"
+        if [ -z "${LLVM_PATH:-}" ] || [ ! -d "$LLVM_PATH" ]; then
+          echo "::error::install-llvm-action did not populate LLVM_PATH"
+          exit 1
+        fi
+        echo "--- $LLVM_PATH ---"
+        ls -la "$LLVM_PATH"
+        echo "--- $LLVM_PATH/lib/cmake (if any) ---"
+        ls -la "$LLVM_PATH/lib/cmake" || true
 
     # install-llvm-action exports LLVM_PATH pointing at the actual extracted
     # root (which on Linux is a nested clang+llvm-*/ directory, not the
