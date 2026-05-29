@@ -60,10 +60,28 @@ jobs:
         directory: ${{ runner.temp }}/llvm
         cached: true
 
+    # install-llvm-action exports LLVM_PATH pointing at the actual extracted
+    # root (which on Linux is a nested clang+llvm-*/ directory, not the
+    # `directory:` input). Derive LLVM_DIR from that and fail loudly if the
+    # CMake config dir isn't there — otherwise find_package(LLVM) silently
+    # falls back to whatever LLVM the runner image preinstalled (Ubuntu's
+    # llvm-18, which doesn't know gfx950).
     - name: Export LLVM_DIR
       if: ${{ matrix.system.host != 'mac' }}
       shell: bash
-      run: echo "LLVM_DIR=${{ runner.temp }}/llvm/lib/cmake/llvm" >> "$GITHUB_ENV"
+      run: |
+        if [ -z "${LLVM_PATH:-}" ]; then
+          echo "::error::LLVM_PATH not set by install-llvm-action"; exit 1
+        fi
+        LLVM_CMAKE_DIR="$LLVM_PATH/lib/cmake/llvm"
+        if [ ! -f "$LLVM_CMAKE_DIR/LLVMConfig.cmake" ]; then
+          echo "::error::LLVMConfig.cmake not found at $LLVM_CMAKE_DIR"
+          ls -la "$LLVM_PATH" || true
+          ls -la "$LLVM_PATH/lib/cmake" || true
+          exit 1
+        fi
+        echo "LLVM_DIR=$LLVM_CMAKE_DIR" >> "$GITHUB_ENV"
+        echo "Using LLVM_DIR=$LLVM_CMAKE_DIR"
 
     - name: Install Qt
       uses: jurplel/install-qt-action@48d3ad6db93f3627c8ee7a0454bc6f3744f7e730 # v4.3.1
@@ -80,7 +98,15 @@ jobs:
     # time (see cmake/FetchTraceDecoder.cmake), so allow extra wall time.
     - name: Configure CMake
       timeout-minutes: 45
-      run: cmake -B ${{github.workspace}}/build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} -DBUILD_LOCATION=${{github.workspace}}/build ${{ matrix.system.cmake }}
+      shell: bash
+      run: |
+        LLVM_DIR_ARG=""
+        if [ -n "${LLVM_DIR:-}" ]; then LLVM_DIR_ARG="-DLLVM_DIR=$LLVM_DIR"; fi
+        cmake -B "${{github.workspace}}/build" \
+          -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} \
+          -DBUILD_LOCATION="${{github.workspace}}/build" \
+          $LLVM_DIR_ARG \
+          ${{ matrix.system.cmake }}
 
     - name: Build
       timeout-minutes: 10
@@ -92,7 +118,14 @@ jobs:
     - name: Configure Tests
       if: ${{ matrix.system.host != 'mac' }}
       timeout-minutes: 30
-      run: cmake -S ${{github.workspace}}/tests -B ${{github.workspace}}/build-tests -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} -DRCV_FETCH_TRACE_DECODER=ON
+      shell: bash
+      run: |
+        LLVM_DIR_ARG=""
+        if [ -n "${LLVM_DIR:-}" ]; then LLVM_DIR_ARG="-DLLVM_DIR=$LLVM_DIR"; fi
+        cmake -S "${{github.workspace}}/tests" -B "${{github.workspace}}/build-tests" \
+          -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} \
+          -DRCV_FETCH_TRACE_DECODER=ON \
+          $LLVM_DIR_ARG
 
     - name: Build Tests
       if: ${{ matrix.system.host != 'mac' }}
