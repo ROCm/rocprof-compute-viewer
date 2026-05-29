@@ -16,7 +16,6 @@ permissions:
 env:
   # Customize the CMake build type here (Release, Debug, RelWithDebInfo, etc.)
   BUILD_TYPE: Release
-  LLVM_VERSION: 21.1.8
   ROCM_SDK_VERSION: 7.14.0a20260529
 
 jobs:
@@ -46,143 +45,160 @@ jobs:
         sudo apt install -y cmake rpm libffi-dev libedit-dev libtinfo-dev zlib1g-dev
         sudo cat /etc/os-release
 
-    # The trace decoder's LLVM disasm backend needs a full LLVM development
-    # install (CMake config files + AMDGPU target including the newest chips
-    # such as gfx950). Distro LLVM lags upstream by enough that the gfx950
-    # subtarget is missing on Ubuntu 24's apt llvm-18, and LLVM's official
-    # Windows binaries are built without AMDGPU. On Windows, use TheRock's
-    # pinned ROCm SDK devel wheel, which carries AMDGPU-enabled LLVM dev libs.
-    - name: Install LLVM (Linux)
-      if: ${{ matrix.system.host == 'linux' }}
-      uses: KyleMayes/install-llvm-action@ebc0426251bc40c7cd31162802432c68818ab8f0 # v2.0.9
-      timeout-minutes: 15
-      env:
-        ACTIONS_STEP_DEBUG: true
-      with:
-        version: ${{ env.LLVM_VERSION }}
-        directory: ${{ runner.temp }}/llvm
-        cached: false
+    # Use amd_comgr for the decoder disassembly backend on CI. It is the
+    # decoder's preferred ROCm backend and avoids LLVM package/export problems:
+    # official Windows LLVM lacks AMDGPU, TheRock's LLVM export references
+    # tools outside the devel wheel, and Linux LLVM component archives can fail
+    # to link with the system linker.
+    - name: Detect system ROCm COMGR
+      if: ${{ matrix.system.host != 'mac' }}
+      id: system-comgr
+      shell: bash
+      run: |
+        set -euo pipefail
+        candidates=()
+        if [ -n "${ROCM_PATH:-}" ]; then candidates+=("$ROCM_PATH"); fi
+        if [ "${{ matrix.system.host }}" = "linux" ]; then candidates+=("/opt/rocm"); fi
 
-    - name: Restore ROCm SDK devel cache (Windows)
-      if: ${{ matrix.system.host == 'windows' }}
-      id: windows-rocm-sdk-cache
+        for rocm_root in "${candidates[@]}"; do
+          if [ ! -d "$rocm_root" ] || [ ! -f "$rocm_root/include/amd_comgr/amd_comgr.h" ]; then
+            continue
+          fi
+
+          if [ "${{ matrix.system.host }}" = "windows" ]; then
+            if [ ! -f "$rocm_root/lib/amd_comgr.lib" ] || [ ! -f "$rocm_root/bin/amd_comgr.dll" ]; then
+              continue
+            fi
+            echo "$(cygpath -w "$rocm_root/bin")" >> "$GITHUB_PATH"
+          elif [ ! -f "$rocm_root/lib/libamd_comgr.so" ]; then
+            continue
+          fi
+
+          echo "found=true" >> "$GITHUB_OUTPUT"
+          echo "ROCM_PATH=$rocm_root" >> "$GITHUB_ENV"
+          echo "CMAKE_PREFIX_PATH=$rocm_root" >> "$GITHUB_ENV"
+          echo "Using system ROCm COMGR at $rocm_root"
+          exit 0
+        done
+
+        echo "found=false" >> "$GITHUB_OUTPUT"
+        echo "System ROCm COMGR not found; using CI wheel fallback"
+
+    - name: Restore ROCm SDK COMGR cache
+      if: ${{ matrix.system.host != 'mac' && steps.system-comgr.outputs.found != 'true' }}
+      id: rocm-sdk-cache
       uses: actions/cache/restore@v4
       with:
-        path: ${{ runner.temp }}/rocm-sdk-devel
-        key: windows-rocm-sdk-devel-${{ env.ROCM_SDK_VERSION }}-v1
+        path: ${{ runner.temp }}/rocm-sdk-comgr
+        key: ${{ matrix.system.host }}-rocm-sdk-comgr-${{ env.ROCM_SDK_VERSION }}-v1
 
-    - name: Install ROCm SDK devel LLVM (Windows)
-      if: ${{ matrix.system.host == 'windows' && steps.windows-rocm-sdk-cache.outputs.cache-hit != 'true' }}
+    - name: Install ROCm SDK COMGR
+      if: ${{ matrix.system.host != 'mac' && steps.system-comgr.outputs.found != 'true' && steps.rocm-sdk-cache.outputs.cache-hit != 'true' }}
       timeout-minutes: 20
-      shell: pwsh
+      shell: bash
       run: |
-        $ErrorActionPreference = 'Stop'
+        set -euo pipefail
+        if command -v cygpath >/dev/null 2>&1; then
+          temp_root="$(cygpath -u "${RUNNER_TEMP}")"
+          wheel_platform="win_amd64"
+        else
+          temp_root="${RUNNER_TEMP}"
+          wheel_platform="linux_x86_64"
+        fi
 
-        $installRoot = Join-Path $env:RUNNER_TEMP 'rocm-sdk-devel'
-        $wheel = Join-Path $env:RUNNER_TEMP "rocm_sdk_devel-$env:ROCM_SDK_VERSION-py3-none-win_amd64.whl"
-        $wheelUrl = "https://rocm.nightlies.amd.com/whl-multi-arch/rocm_sdk_devel-$env:ROCM_SDK_VERSION-py3-none-win_amd64.whl"
+        install_root="$temp_root/rocm-sdk-comgr"
+        wheel="$temp_root/rocm_sdk_core-${ROCM_SDK_VERSION}-py3-none-${wheel_platform}.whl"
+        wheel_url="https://rocm.nightlies.amd.com/whl-multi-arch/rocm_sdk_core-${ROCM_SDK_VERSION}-py3-none-${wheel_platform}.whl"
 
-        Remove-Item -Recurse -Force $installRoot -ErrorAction SilentlyContinue
-        New-Item -ItemType Directory -Force $installRoot | Out-Null
+        rm -rf "$install_root"
+        mkdir -p "$install_root"
+        curl -L --fail --retry 3 --retry-delay 10 "$wheel_url" -o "$wheel"
 
-        curl.exe -L --fail --retry 3 --retry-delay 10 $wheelUrl -o $wheel
-
-        $env:ROCM_SDK_WHEEL = $wheel
-        $env:ROCM_SDK_INSTALL_ROOT = $installRoot
-        $extractScript = @'
-        import os
+        python - "$wheel" "$install_root" <<'PY'
         import shutil
-        import tarfile
+        import sys
         import zipfile
         from pathlib import Path
 
-        wheel = Path(os.environ["ROCM_SDK_WHEEL"])
-        install_root = Path(os.environ["ROCM_SDK_INSTALL_ROOT"])
+        def keep(member_name):
+            return (
+                member_name == "_rocm_sdk_core/bin/amd_comgr.dll"
+                or member_name == "_rocm_sdk_core/lib/amd_comgr.lib"
+                or member_name.startswith("_rocm_sdk_core/lib/libamd_comgr.so")
+                or member_name.startswith("_rocm_sdk_core/include/amd_comgr/")
+                or member_name.startswith("_rocm_sdk_core/share/doc/amd_comgr/")
+            )
+
+        wheel = Path(sys.argv[1])
+        install_root = Path(sys.argv[2])
         install_root_resolved = install_root.resolve()
         with zipfile.ZipFile(wheel) as zf:
-            zf.extract("rocm_sdk_devel/_devel.tar", install_root)
-        tar_path = install_root / "rocm_sdk_devel" / "_devel.tar"
-        with tarfile.open(tar_path) as tf:
-            for member in tf:
-                target = (install_root / member.name).resolve()
-                if not str(target).startswith(str(install_root_resolved)):
-                    raise RuntimeError(f"Refusing to extract {member.name}")
-                if member.isdir():
+            for member in zf.infolist():
+                if not keep(member.filename):
+                    continue
+                target = (install_root / member.filename).resolve()
+                try:
+                    target.relative_to(install_root_resolved)
+                except ValueError:
+                    raise RuntimeError(f"Refusing to extract {member.filename}")
+                if member.is_dir():
                     target.mkdir(parents=True, exist_ok=True)
-                elif member.isfile():
+                else:
                     target.parent.mkdir(parents=True, exist_ok=True)
-                    with tf.extractfile(member) as src, target.open("wb") as dst:
-                        shutil.copyfileobj(src, dst)
-        tar_path.unlink()
-        '@
-        $extractScript | python
+                    target.write_bytes(zf.read(member))
 
-    - name: Save ROCm SDK devel cache (Windows)
-      if: ${{ matrix.system.host == 'windows' && steps.windows-rocm-sdk-cache.outputs.cache-hit != 'true' }}
+        # The Linux wheel ships only the versioned SONAME. Add the unversioned
+        # linker name so CMake's find_library(NAMES amd_comgr) can find it.
+        lib_dir = install_root / "_rocm_sdk_core" / "lib"
+        linker_so = lib_dir / "libamd_comgr.so"
+        versioned_sos = sorted(lib_dir.glob("libamd_comgr.so.*"))
+        if versioned_sos and not linker_so.exists():
+            try:
+                linker_so.symlink_to(versioned_sos[-1].name)
+            except (NotImplementedError, OSError):
+                shutil.copy2(versioned_sos[-1], linker_so)
+        PY
+
+    - name: Save ROCm SDK COMGR cache
+      if: ${{ matrix.system.host != 'mac' && steps.system-comgr.outputs.found != 'true' && steps.rocm-sdk-cache.outputs.cache-hit != 'true' }}
       uses: actions/cache/save@v4
       continue-on-error: true
       with:
-        path: ${{ runner.temp }}/rocm-sdk-devel
-        key: windows-rocm-sdk-devel-${{ env.ROCM_SDK_VERSION }}-v1
+        path: ${{ runner.temp }}/rocm-sdk-comgr
+        key: ${{ matrix.system.host }}-rocm-sdk-comgr-${{ env.ROCM_SDK_VERSION }}-v1
 
-    - name: Export LLVM path (Windows)
-      if: ${{ matrix.system.host == 'windows' }}
+    - name: Export ROCm SDK path
+      if: ${{ matrix.system.host != 'mac' && steps.system-comgr.outputs.found != 'true' }}
       shell: bash
       run: |
-        llvm_root="$(cygpath -u "${RUNNER_TEMP}")/rocm-sdk-devel/_rocm_sdk_devel"
-        echo "LLVM_PATH=$llvm_root" >> "$GITHUB_ENV"
-        echo "$(cygpath -w "$llvm_root/bin")" >> "$GITHUB_PATH"
-        echo "$(cygpath -w "$llvm_root/lib/llvm/bin")" >> "$GITHUB_PATH"
-        echo "Using Windows ROCm SDK LLVM at $llvm_root"
+        if command -v cygpath >/dev/null 2>&1; then
+          rocm_root="$(cygpath -u "${RUNNER_TEMP}")/rocm-sdk-comgr/_rocm_sdk_core"
+          echo "$(cygpath -w "$rocm_root/bin")" >> "$GITHUB_PATH"
+        else
+          rocm_root="${RUNNER_TEMP}/rocm-sdk-comgr/_rocm_sdk_core"
+        fi
 
-    # Sanity-check the install: fail here if LLVM_PATH points at a bad tree so
-    # the later decoder configure step does not pick a stale system LLVM.
-    - name: Verify LLVM install
+        echo "ROCM_PATH=$rocm_root" >> "$GITHUB_ENV"
+        echo "CMAKE_PREFIX_PATH=$rocm_root" >> "$GITHUB_ENV"
+        echo "Using ROCm SDK at $rocm_root"
+
+    - name: Verify ROCm SDK COMGR
       if: ${{ matrix.system.host != 'mac' }}
       shell: bash
       run: |
-        echo "LLVM_PATH=${LLVM_PATH:-<unset>}"
-        if [ -z "${LLVM_PATH:-}" ] || [ ! -d "$LLVM_PATH" ]; then
-          echo "::error::LLVM install did not populate LLVM_PATH"
+        echo "ROCM_PATH=${ROCM_PATH:-<unset>}"
+        if [ -z "${ROCM_PATH:-}" ] || [ ! -d "$ROCM_PATH" ]; then
+          echo "::error::ROCm SDK install did not populate ROCM_PATH"
           exit 1
         fi
-        echo "--- $LLVM_PATH ---"
-        ls -la "$LLVM_PATH"
-        echo "--- $LLVM_PATH/lib/cmake (if any) ---"
-        ls -la "$LLVM_PATH/lib/cmake" || true
-        echo "--- $LLVM_PATH/lib/cmake/llvm (if any) ---"
-        ls -la "$LLVM_PATH/lib/cmake/llvm" || true
-        LLVM_TARGETS_LINE="$(
-          grep -R -n "set(LLVM_TARGETS_TO_BUILD" \
-            "$LLVM_PATH/lib/cmake/llvm" \
-            "$LLVM_PATH/lib/llvm/lib/cmake/llvm" 2>/dev/null || true
-        )"
-        echo "$LLVM_TARGETS_LINE"
-        if ! printf '%s\n' "$LLVM_TARGETS_LINE" | grep -q "AMDGPU"; then
-          echo "::error::LLVM at $LLVM_PATH was built without AMDGPU"
-          exit 1
+        test -f "$ROCM_PATH/include/amd_comgr/amd_comgr.h"
+        if [ "${{ matrix.system.host }}" = "windows" ]; then
+          test -f "$ROCM_PATH/lib/amd_comgr.lib"
+          test -f "$ROCM_PATH/bin/amd_comgr.dll"
+        else
+          test -f "$ROCM_PATH/lib/libamd_comgr.so" || test -f "$ROCM_PATH/lib/libamd_comgr.so.3"
         fi
-
-    # Both install paths export LLVM_PATH pointing at the actual extracted
-    # root. Derive LLVM_DIR from that and fail loudly if the CMake config dir
-    # is not there; otherwise find_package(LLVM) can silently fall back to a
-    # runner-provided LLVM that is too old for gfx950.
-    - name: Export LLVM_DIR
-      if: ${{ matrix.system.host != 'mac' }}
-      shell: bash
-      run: |
-        if [ -z "${LLVM_PATH:-}" ]; then
-          echo "::error::LLVM_PATH not set by LLVM install"; exit 1
-        fi
-        LLVM_CMAKE_DIR="$LLVM_PATH/lib/cmake/llvm"
-        if [ ! -f "$LLVM_CMAKE_DIR/LLVMConfig.cmake" ]; then
-          echo "::error::LLVMConfig.cmake not found at $LLVM_CMAKE_DIR"
-          ls -la "$LLVM_PATH" || true
-          ls -la "$LLVM_PATH/lib/cmake" || true
-          exit 1
-        fi
-        echo "LLVM_DIR=$LLVM_CMAKE_DIR" >> "$GITHUB_ENV"
-        echo "Using LLVM_DIR=$LLVM_CMAKE_DIR"
+        echo "Verified amd_comgr in $ROCM_PATH"
 
     - name: Install Qt
       uses: jurplel/install-qt-action@48d3ad6db93f3627c8ee7a0454bc6f3744f7e730 # v4.3.1
@@ -201,12 +217,12 @@ jobs:
       timeout-minutes: 45
       shell: bash
       run: |
-        LLVM_DIR_ARG=""
-        if [ -n "${LLVM_DIR:-}" ]; then LLVM_DIR_ARG="-DLLVM_DIR=$LLVM_DIR"; fi
+        CMAKE_PREFIX_PATH_ARG=""
+        if [ -n "${CMAKE_PREFIX_PATH:-}" ]; then CMAKE_PREFIX_PATH_ARG="-DCMAKE_PREFIX_PATH=$CMAKE_PREFIX_PATH"; fi
         cmake -B "${{github.workspace}}/build" \
           -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} \
           -DBUILD_LOCATION="${{github.workspace}}/build" \
-          $LLVM_DIR_ARG \
+          $CMAKE_PREFIX_PATH_ARG \
           ${{ matrix.system.cmake }}
 
     - name: Build
@@ -221,12 +237,12 @@ jobs:
       timeout-minutes: 30
       shell: bash
       run: |
-        LLVM_DIR_ARG=""
-        if [ -n "${LLVM_DIR:-}" ]; then LLVM_DIR_ARG="-DLLVM_DIR=$LLVM_DIR"; fi
+        CMAKE_PREFIX_PATH_ARG=""
+        if [ -n "${CMAKE_PREFIX_PATH:-}" ]; then CMAKE_PREFIX_PATH_ARG="-DCMAKE_PREFIX_PATH=$CMAKE_PREFIX_PATH"; fi
         cmake -S "${{github.workspace}}/tests" -B "${{github.workspace}}/build-tests" \
           -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} \
           -DRCV_FETCH_TRACE_DECODER=ON \
-          $LLVM_DIR_ARG
+          $CMAKE_PREFIX_PATH_ARG
 
     - name: Build Tests
       if: ${{ matrix.system.host != 'mac' }}
@@ -239,11 +255,11 @@ jobs:
       shell: bash
       env:
         QT_QPA_PLATFORM: offscreen
-      # On Windows the loader looks at PATH for Qt/LLVM DLLs; on Linux the
-      # rpath handles it. Prepending unconditionally is harmless on Linux
-      # (the dirs are either empty or unused there).
+      # On Windows the loader looks at PATH for Qt/ROCm DLLs; on Linux, keep
+      # the ROCm SDK lib dir available for tests that load amd_comgr.
       run: |
-        export PATH="${QT_ROOT_DIR:-}/bin:${LLVM_PATH:-}/bin:$PATH"
+        export PATH="${QT_ROOT_DIR:-}/bin:${ROCM_PATH:-}/bin:$PATH"
+        export LD_LIBRARY_PATH="${ROCM_PATH:-}/lib:${LD_LIBRARY_PATH:-}"
         ctest --test-dir ${{github.workspace}}/build-tests --output-on-failure --build-config ${{env.BUILD_TYPE}}
 
     - name: Building Packages

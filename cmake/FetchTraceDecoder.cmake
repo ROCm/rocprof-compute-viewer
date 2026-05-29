@@ -99,15 +99,29 @@ function(rcv_fetch_trace_decoder)
     # sub-build at configure time, then consume via find_package — same path
     # the TRACE_DECODER_ROOT mode uses.
     set(_td_build_dir "${CMAKE_BINARY_DIR}/rocm-systems-build")
-    # Build with the LLVM disassembly backend on all platforms. Windows CI
-    # installs LLVM's developer archive rather than the installer, so
-    # LLVMConfig.cmake and the component libraries are available there too.
-    set(_td_disasm_args -DUSE_LLVM_DISASM=ON)
+    # CI supplies a ROCm SDK with amd_comgr on Windows/Linux. Prefer COMGR
+    # there: it avoids global LLVM state collisions and does not depend on
+    # LLVM's CMake package/export details. Non-CI builds without COMGR fall
+    # back inside the decoder to "no disassembly backend", while parser and
+    # ELF metadata support still build.
+    set(_td_disasm_args -DUSE_LLVM_DISASM=OFF -DDISABLE_COMGR=OFF)
     set(_td_cfg_args
         -S ${_td_src_dir}/${_td_subdir}
         -B ${_td_build_dir}
         -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
         ${_td_disasm_args})
+    set(_td_prefix_path "${CMAKE_PREFIX_PATH}")
+    if(NOT _td_prefix_path AND DEFINED ENV{ROCM_PATH})
+        list(APPEND _td_prefix_path "$ENV{ROCM_PATH}")
+    endif()
+    if(_td_prefix_path)
+        list(APPEND _td_cfg_args "-DCMAKE_PREFIX_PATH=${_td_prefix_path}")
+    endif()
+    if(WIN32)
+        set(_td_compat_file "${_td_build_dir}/rcv_decoder_compat.cmake")
+        file(WRITE "${_td_compat_file}" "if(WIN32 AND NOT TARGET pthread)\n  add_library(pthread INTERFACE IMPORTED)\nendif()\n")
+        list(APPEND _td_cfg_args -DCMAKE_PROJECT_INCLUDE=${_td_compat_file})
+    endif()
     if(CMAKE_GENERATOR)
         list(APPEND _td_cfg_args -G ${CMAKE_GENERATOR})
     endif()

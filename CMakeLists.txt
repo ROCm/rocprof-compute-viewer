@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.16...3.22)
 project(
     rocprof-compute-viewer
     VERSION 0.2.0
-    LANGUAGES C CXX) # C needed for LLVM's transitive find checks via the decoder
+    LANGUAGES C CXX) # C is also needed by some decoder backend dependency checks.
 
 set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTOMOC ON)
@@ -48,14 +48,11 @@ endif()
 #      prefix. RCV consumes the decoder via its CMake package config; LLVM
 #      (or amd_comgr) and all transitive include dirs / link libs / compile
 #      defs propagate automatically through the namespaced target.
-#   2. RCV_FETCH_TRACE_DECODER (ON by default) — fetch the decoder from
+#   2. RCV_FETCH_TRACE_DECODER — fetch the decoder from
 #      github.com/ROCm/rocm-systems via a sparse checkout of
-#      projects/rocprof-trace-decoder and add it as a subdirectory. Built
-#      with the LLVM disasm backend.
+#      projects/rocprof-trace-decoder, build it in an isolated sub-build, and
+#      prefer the amd_comgr disassembly backend when a ROCm SDK is available.
 #   3. Neither — trace-decoder support is disabled (JSON input only).
-#
-# To override the LLVM the decoder is built against (rare), set LLVM_DIR
-# before configuring RCV.
 # ----------------------------------------------------------------------------
 # Default the build type before fetching the decoder so the decoder sub-build
 # receives a real -DCMAKE_BUILD_TYPE rather than an empty one.

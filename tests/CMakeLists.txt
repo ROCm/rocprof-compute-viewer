@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.14)
-project(RcvZoomTests LANGUAGES C CXX) # C needed for LLVM's check_c_source_compiles via the decoder
+project(RcvZoomTests LANGUAGES C CXX) # C is also needed by some decoder backend dependency checks.
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
