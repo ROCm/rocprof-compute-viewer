@@ -17,6 +17,7 @@ env:
   # Customize the CMake build type here (Release, Debug, RelWithDebInfo, etc.)
   BUILD_TYPE: Release
   LLVM_VERSION: 21.1.8
+  ROCM_SDK_VERSION: 7.14.0a20260529
 
 jobs:
   build:
@@ -48,11 +49,9 @@ jobs:
     # The trace decoder's LLVM disasm backend needs a full LLVM development
     # install (CMake config files + AMDGPU target including the newest chips
     # such as gfx950). Distro LLVM lags upstream by enough that the gfx950
-    # subtarget is missing on Ubuntu 24's apt llvm-18. The official LLVM
-    # Windows release has both an LLVM-*.exe installer and a clang+llvm-*.tar.xz
-    # developer archive. The installer does not include the CMake package and
-    # static component libraries needed by the decoder; use the archive there.
-    # Pin LLVM 21.x so the AMDGPU backend recognises gfx950.
+    # subtarget is missing on Ubuntu 24's apt llvm-18, and LLVM's official
+    # Windows binaries are built without AMDGPU. On Windows, use TheRock's
+    # pinned ROCm SDK devel wheel, which carries AMDGPU-enabled LLVM dev libs.
     - name: Install LLVM (Linux)
       if: ${{ matrix.system.host == 'linux' }}
       uses: KyleMayes/install-llvm-action@ebc0426251bc40c7cd31162802432c68818ab8f0 # v2.0.9
@@ -64,24 +63,77 @@ jobs:
         directory: ${{ runner.temp }}/llvm
         cached: false
 
-    - name: Install LLVM dev archive (Windows)
+    - name: Restore ROCm SDK devel cache (Windows)
       if: ${{ matrix.system.host == 'windows' }}
+      id: windows-rocm-sdk-cache
+      uses: actions/cache/restore@v4
+      with:
+        path: ${{ runner.temp }}/rocm-sdk-devel
+        key: windows-rocm-sdk-devel-${{ env.ROCM_SDK_VERSION }}-v1
+
+    - name: Install ROCm SDK devel LLVM (Windows)
+      if: ${{ matrix.system.host == 'windows' && steps.windows-rocm-sdk-cache.outputs.cache-hit != 'true' }}
       timeout-minutes: 20
+      shell: pwsh
+      run: |
+        $ErrorActionPreference = 'Stop'
+
+        $installRoot = Join-Path $env:RUNNER_TEMP 'rocm-sdk-devel'
+        $wheel = Join-Path $env:RUNNER_TEMP "rocm_sdk_devel-$env:ROCM_SDK_VERSION-py3-none-win_amd64.whl"
+        $wheelUrl = "https://rocm.nightlies.amd.com/whl-multi-arch/rocm_sdk_devel-$env:ROCM_SDK_VERSION-py3-none-win_amd64.whl"
+
+        Remove-Item -Recurse -Force $installRoot -ErrorAction SilentlyContinue
+        New-Item -ItemType Directory -Force $installRoot | Out-Null
+
+        curl.exe -L --fail --retry 3 --retry-delay 10 $wheelUrl -o $wheel
+
+        $env:ROCM_SDK_WHEEL = $wheel
+        $env:ROCM_SDK_INSTALL_ROOT = $installRoot
+        $extractScript = @'
+        import os
+        import shutil
+        import tarfile
+        import zipfile
+        from pathlib import Path
+
+        wheel = Path(os.environ["ROCM_SDK_WHEEL"])
+        install_root = Path(os.environ["ROCM_SDK_INSTALL_ROOT"])
+        install_root_resolved = install_root.resolve()
+        with zipfile.ZipFile(wheel) as zf:
+            zf.extract("rocm_sdk_devel/_devel.tar", install_root)
+        tar_path = install_root / "rocm_sdk_devel" / "_devel.tar"
+        with tarfile.open(tar_path) as tf:
+            for member in tf:
+                target = (install_root / member.name).resolve()
+                if not str(target).startswith(str(install_root_resolved)):
+                    raise RuntimeError(f"Refusing to extract {member.name}")
+                if member.isdir():
+                    target.mkdir(parents=True, exist_ok=True)
+                elif member.isfile():
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    with tf.extractfile(member) as src, target.open("wb") as dst:
+                        shutil.copyfileobj(src, dst)
+        tar_path.unlink()
+        '@
+        $extractScript | python
+
+    - name: Save ROCm SDK devel cache (Windows)
+      if: ${{ matrix.system.host == 'windows' && steps.windows-rocm-sdk-cache.outputs.cache-hit != 'true' }}
+      uses: actions/cache/save@v4
+      continue-on-error: true
+      with:
+        path: ${{ runner.temp }}/rocm-sdk-devel
+        key: windows-rocm-sdk-devel-${{ env.ROCM_SDK_VERSION }}-v1
+
+    - name: Export LLVM path (Windows)
+      if: ${{ matrix.system.host == 'windows' }}
       shell: bash
       run: |
-        set -euo pipefail
-        llvm_root="$(cygpath -u "${RUNNER_TEMP}")/llvm"
-        llvm_archive="$(cygpath -u "${RUNNER_TEMP}")/llvm-${LLVM_VERSION}-windows-msvc.tar.xz"
-        llvm_url="https://github.com/llvm/llvm-project/releases/download/llvmorg-${LLVM_VERSION}/clang%2Bllvm-${LLVM_VERSION}-x86_64-pc-windows-msvc.tar.xz"
-
-        rm -rf "$llvm_root"
-        mkdir -p "$llvm_root"
-        curl -L --fail --retry 3 --retry-delay 10 "$llvm_url" -o "$llvm_archive"
-        tar -xJf "$llvm_archive" -C "$llvm_root" --strip-components=1
-
+        llvm_root="$(cygpath -u "${RUNNER_TEMP}")/rocm-sdk-devel/_rocm_sdk_devel"
         echo "LLVM_PATH=$llvm_root" >> "$GITHUB_ENV"
         echo "$(cygpath -w "$llvm_root/bin")" >> "$GITHUB_PATH"
-        echo "Installed LLVM dev archive at $llvm_root"
+        echo "$(cygpath -w "$llvm_root/lib/llvm/bin")" >> "$GITHUB_PATH"
+        echo "Using Windows ROCm SDK LLVM at $llvm_root"
 
     # Sanity-check the install: fail here if LLVM_PATH points at a bad tree so
     # the later decoder configure step does not pick a stale system LLVM.
@@ -100,6 +152,16 @@ jobs:
         ls -la "$LLVM_PATH/lib/cmake" || true
         echo "--- $LLVM_PATH/lib/cmake/llvm (if any) ---"
         ls -la "$LLVM_PATH/lib/cmake/llvm" || true
+        LLVM_TARGETS_LINE="$(
+          grep -R -n "set(LLVM_TARGETS_TO_BUILD" \
+            "$LLVM_PATH/lib/cmake/llvm" \
+            "$LLVM_PATH/lib/llvm/lib/cmake/llvm" 2>/dev/null || true
+        )"
+        echo "$LLVM_TARGETS_LINE"
+        if ! printf '%s\n' "$LLVM_TARGETS_LINE" | grep -q "AMDGPU"; then
+          echo "::error::LLVM at $LLVM_PATH was built without AMDGPU"
+          exit 1
+        fi
 
     # Both install paths export LLVM_PATH pointing at the actual extracted
     # root. Derive LLVM_DIR from that and fail loudly if the CMake config dir
