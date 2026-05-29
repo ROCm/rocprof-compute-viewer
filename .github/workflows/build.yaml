@@ -41,24 +41,27 @@ jobs:
       timeout-minutes: 10
       run: |
         sudo apt update
-        sudo apt install -y cmake rpm llvm-dev libclang-dev libffi-dev libedit-dev libtinfo-dev
+        sudo apt install -y cmake rpm libffi-dev libedit-dev libtinfo-dev zlib1g-dev
         sudo cat /etc/os-release
 
     # The trace decoder's LLVM disasm backend needs a full LLVM development
-    # install (CMake config files + AMDGPU target). The official LLVM Windows
-    # binary release does not ship dev libs, so use install-llvm-action which
-    # pulls a complete pre-built tree and sets LLVM_DIR for find_package.
-    - name: Install LLVM (Windows)
-      if: ${{ contains(matrix.system.host, 'windows') }}
+    # install (CMake config files + AMDGPU target including the newest chips
+    # such as gfx950). Distro LLVM lags upstream by enough that the gfx950
+    # subtarget is missing on Ubuntu 24's apt llvm-18, and the official LLVM
+    # Windows binary release does not ship dev libs at all. install-llvm-action
+    # pulls a complete pre-built dev tree for both Linux and Windows; pin LLVM
+    # 20.x so the AMDGPU backend recognises gfx950.
+    - name: Install LLVM
+      if: ${{ matrix.system.host != 'mac' }}
       uses: KyleMayes/install-llvm-action@ebc0426251bc40c7cd31162802432c68818ab8f0 # v2.0.9
       timeout-minutes: 15
       with:
-        version: '18.1.8'
+        version: '21.1.8'
         directory: ${{ runner.temp }}/llvm
         cached: true
 
-    - name: Export LLVM_DIR (Windows)
-      if: ${{ contains(matrix.system.host, 'windows') }}
+    - name: Export LLVM_DIR
+      if: ${{ matrix.system.host != 'mac' }}
       shell: bash
       run: echo "LLVM_DIR=${{ runner.temp }}/llvm/lib/cmake/llvm" >> "$GITHUB_ENV"
 
