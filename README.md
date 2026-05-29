@@ -201,6 +201,10 @@ rocprofv3 --att-perfcounter-ctrl 3 --att-perfcounters "SQ_VALU_MFMA_BUSY_CYCLES 
 ```bash
 # This enables SQ_INSTS_VALU for all SIMDs, and show individual SQ_INSTS_SALU counters per SIMD [0,1,2]
 rocprofv3 --att-perfcounter-ctrl 3 --att-perfcounters "SQ_INSTS_VALU:0xF SQ_INSTS_SALU:0x1 SQ_INSTS_SALU:0x2 SQ_INSTS_SALU:0x4"
+
+# In rocm 7.13+, the following parameter is available to generate counters only for the target CU.
+# This is recommended when using a high polling rate:
+rocprofv3 --att-perfcounter-target-only 1 [...]
 ```
 
 Counters can be used to visualize specific types of hardware utilization. For instance:
@@ -290,6 +294,17 @@ For QT 6.4, use:
 cmake -DQT_VERSION_MINOR=4 ..
 ```
 
+### Operating system, QT version and support list
+
+|   OS   | Recommended QT Version | Support |
+| ------ | :-------------: | :-----: |
+| Win 11  |   6.8+          |    ✔    |
+| MacARM |   6.4+          |    ✔    |
+| Macx86 |   6.4+          | Partial |
+| WSL2   |   6.4+          |    ✔    |
+| Ub 24  |   6.4+          |    ✔    |
+| Ub 22  |   5.15          | Partial |
+
 ### MacOS (Homebrew)
 
 Install Qt5 or Qt6:
@@ -336,71 +351,58 @@ cmake .. -DQT_VERSION_MAJOR=5
 make -j
 ```
 
-#### Building with trace-decoder support
+### Trace-decoder support
 
-Trace-decoder support is disabled by default. Enabling it lets RCV open directories of raw `.att` / `.out` files (and `.rocpd` files) directly, without needing rocprofv3 to convert them to JSON first.
+Trace-decoder support lets RCV open directories of raw `.att` / `.out` files (and `.rocpd` files) directly, without needing rocprofv3 to convert them to JSON first.
 
-There is a **single** CMake knob:
+It is **disabled by default** so a plain `cmake -B build` produces a JSON-only viewer with no extra dependencies. Opt in by either fetching the decoder automatically or pointing at a pre-built one.
 
-| Variable | Effect |
-|---|---|
-| `TRACE_DECODER_ROOT` | Path to the decoder's **build tree** (or install prefix). When set, RCV pulls the decoder in via `find_package(rocprof-trace-decoder CONFIG)` and inherits its disassembly backend (LLVM-C or amd_comgr) transitively. No second `find_package(LLVM)` in RCV. |
+##### Prerequisites (only when enabling the decoder)
 
-The decoder doesn't need to be installed — its build tree exports a CMake package that RCV can consume directly. The disasm backend (LLVM, amd_comgr, or none) is fixed at decoder build time and propagates through the `rocprof-trace-decoder::rocprof-trace-decoder-static` namespaced target's PUBLIC interface.
-
-##### Building the trace decoder
-
-The decoder lives in the [`rocm-systems`](https://github.com/ROCm/rocm-systems) monorepo under `projects/rocprof-trace-decoder`. The full monorepo is large; a sparse checkout pulls just the decoder:
+The decoder's disassembly backend uses LLVM. Install a system LLVM development package (with the AMDGPU target enabled — the standard distro builds qualify):
 
 ```bash
-git clone --filter=blob:none --no-checkout https://github.com/ROCm/rocm-systems.git
-cd rocm-systems
-git sparse-checkout init --cone
-git sparse-checkout set projects/rocprof-trace-decoder
-git checkout develop
-cd projects/rocprof-trace-decoder
+# Ubuntu
+sudo apt install -y llvm-dev libclang-dev
+
+# Fedora / RHEL
+sudo dnf install -y llvm-devel clang-devel
 ```
 
-The trace decoder must be built with `VERSION_MINOR=2` for the handle-based API (SOVERSION 0.2). V1 (`VERSION_MINOR=1`) is a legacy API for rocprofiler-sdk ≤ 7.13 and is not supported by RCV.
+On Windows, install a full LLVM dev package (e.g. via the official installer or `choco install llvm`) and pass `-DLLVM_DIR=<path-to>/lib/cmake/llvm` at configure time.
+
+##### CMake options
+
+| Variable | Default | Effect |
+|---|---|---|
+| `RCV_FETCH_TRACE_DECODER` | `OFF` | When `ON`, fetch and build the trace decoder automatically at configure time. |
+| `TRACE_DECODER_ROOT` | *(unset)* | Use a **pre-built** decoder tree (build dir or install prefix) instead of fetching. Takes precedence over `RCV_FETCH_TRACE_DECODER`. |
+| `RCV_TRACE_DECODER_REPO` | rocm-systems upstream | Git URL to fetch from. |
+| `RCV_TRACE_DECODER_TAG` | tracked branch | Branch / tag / commit to check out. |
+| `RCV_TRACE_DECODER_FETCH_DIR` | `${CMAKE_SOURCE_DIR}/external/rocm-systems` | Where to place the sparse checkout. Lives outside `build/` so a clean rebuild does not re-download the monorepo. |
+
+##### Common configurations
 
 ```bash
-mkdir build && cd build
-cmake .. -DVERSION_MINOR=2
-make -j
+# Default — JSON-only, no decoder, no LLVM required.
+cmake -B build
+cmake --build build -j
+
+# Fetch and build the decoder automatically.
+cmake -B build -DRCV_FETCH_TRACE_DECODER=ON
+cmake --build build -j
+
+# Use a pre-built decoder you maintain yourself.
+cmake -B build -DTRACE_DECODER_ROOT=/path/to/rocprof-trace-decoder/build
+cmake --build build -j
 ```
 
-The default disassembly backend is **LLVM-C** — no `amd_comgr` or ROCm install is required. To pin a specific LLVM (e.g. ROCm-bundled LLVM 22 for gfx1250 support, or a custom build for new-ASIC bringup) pass `-DLLVM_DIR=/path/to/llvm/lib/cmake/llvm`. The decoder records that LLVM_DIR in its package config so RCV automatically uses the same one — no need to repeat the flag on the RCV side. See the [decoder README](https://github.com/ROCm/rocm-systems/tree/develop/projects/rocprof-trace-decoder) for the full set of options (legacy `amd_comgr` backend, no-disasm build, etc.).
-
-The decoder doesn't need to be installed — RCV consumes it from the build tree directly. Note `${PWD}` here for use in the next step:
-
-```bash
-echo "TRACE_DECODER_ROOT=$(pwd)"
-```
-
-##### Configuring RCV
-
-Point RCV at the decoder build tree:
-
-```bash
-cd ROCProfiler-ATT-Viewer
-mkdir build && cd build
-cmake .. -DTRACE_DECODER_ROOT=/path/to/rocprof-trace-decoder/build \
-         -DQT_VERSION_MINOR=4
-make -j
-```
-
-Confirm the configure output shows:
+The configure step prints one of:
 
 ```
 -- Trace-decoder enabled: .../source
--- Found LLVM <version> ...      # only when the decoder uses LLVM
+-- Trace-decoder disabled (set RCV_FETCH_TRACE_DECODER=ON or TRACE_DECODER_ROOT to enable)
 ```
-
-If you instead see `-- Trace-decoder disabled (set TRACE_DECODER_ROOT to enable)` the path didn't resolve. The `find_package` call searches `${TRACE_DECODER_ROOT}/source` (build-tree layout) and `${TRACE_DECODER_ROOT}/lib/cmake/rocprof-trace-decoder` (install layout) for `rocprof-trace-decoder-config.cmake`.
-
-##### JSON-only build (no decoder, no LLVM)
-
-For a minimal build that only opens rocprofv3 `ui_output_*` JSON directories, simply omit `TRACE_DECODER_ROOT`. No LLVM, no ROCm, and no decoder library are needed.
 
 ### Windows WSL
 

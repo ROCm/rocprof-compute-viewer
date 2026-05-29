@@ -10,15 +10,24 @@ if(RCV_ENABLE_EXTRA_LOGGING)
     add_compile_definitions(RCV_ENABLE_EXTRA_LOGGING)
 endif()
 
-if(DEFINED TRACE_DECODER_ROOT)
-    find_package(rocprof-trace-decoder REQUIRED CONFIG
-        PATHS ${TRACE_DECODER_ROOT}
-        PATH_SUFFIXES source lib/cmake/rocprof-trace-decoder
-        NO_DEFAULT_PATH)
-    set(RCV_HAS_TRACE_DECODER ON)
+if(CMAKE_BUILD_TYPE STREQUAL "")
+    set(CMAKE_BUILD_TYPE Release)
+endif()
+
+list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/../cmake)
+include(FetchTraceDecoder)
+rcv_fetch_trace_decoder()
+if(RCV_HAS_TRACE_DECODER)
     add_compile_definitions(RCV_HAS_TRACE_DECODER)
-else()
-    set(RCV_HAS_TRACE_DECODER OFF)
+endif()
+
+# When the decoder was fetched, extract all of its bundled datasets so the
+# att_loader_test can cross-check RCV's per-instruction aggregates against
+# the decoder's golden CSVs for every available trace.
+if(RCV_HAS_TRACE_DECODER AND RCV_TRACE_DECODER_SRC_DIR)
+    rcv_extract_decoder_test_data(
+        "${RCV_TRACE_DECODER_SRC_DIR}"
+        "${CMAKE_BINARY_DIR}/decoder_test_data")
 endif()
 
 # Output all test binaries to build/bin/

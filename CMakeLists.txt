@@ -43,34 +43,32 @@ endif()
 # ----------------------------------------------------------------------------
 # Trace-decoder + disassembly support.
 #
-# Single knob: TRACE_DECODER_ROOT — path to the decoder's build tree (or
-# install prefix). When set, RCV consumes the decoder via its CMake package
-# config; LLVM (or amd_comgr) and all transitive include dirs / link libs /
-# compile defs propagate automatically through the namespaced target. There
-# is no separate `RCV_USE_LLVM` knob — the disasm backend is fixed at decoder
-# build time and RCV just inherits it.
+# Three modes, evaluated in this order:
+#   1. TRACE_DECODER_ROOT — path to an existing decoder build tree / install
+#      prefix. RCV consumes the decoder via its CMake package config; LLVM
+#      (or amd_comgr) and all transitive include dirs / link libs / compile
+#      defs propagate automatically through the namespaced target.
+#   2. RCV_FETCH_TRACE_DECODER (ON by default) — fetch the decoder from
+#      github.com/ROCm/rocm-systems via a sparse checkout of
+#      projects/rocprof-trace-decoder and add it as a subdirectory. Built
+#      with the LLVM disasm backend.
+#   3. Neither — trace-decoder support is disabled (JSON input only).
 #
-# To override the LLVM the decoder was built against (rare — only useful if
-# you want RCV to link a different LLVM than the decoder), set LLVM_DIR
-# before configuring RCV; the package config respects it.
+# To override the LLVM the decoder is built against (rare), set LLVM_DIR
+# before configuring RCV.
 # ----------------------------------------------------------------------------
-if(DEFINED TRACE_DECODER_ROOT)
-    # Search both the build-tree export (CMake config in build/source/) and
-    # the standard install layout (lib/cmake/rocprof-trace-decoder/).
-    find_package(rocprof-trace-decoder REQUIRED CONFIG
-        PATHS ${TRACE_DECODER_ROOT}
-        PATH_SUFFIXES source lib/cmake/rocprof-trace-decoder
-        NO_DEFAULT_PATH)
-    set(RCV_ENABLE_TRACE_DECODER ON)
-    message(STATUS "Trace-decoder enabled: ${rocprof-trace-decoder_DIR}")
-    add_compile_definitions(RCV_HAS_TRACE_DECODER)
-else()
-    set(RCV_ENABLE_TRACE_DECODER OFF)
-    message(STATUS "Trace-decoder disabled (set TRACE_DECODER_ROOT to enable)")
-endif()
-
+# Default the build type before fetching the decoder so the decoder sub-build
+# receives a real -DCMAKE_BUILD_TYPE rather than an empty one.
 if(CMAKE_BUILD_TYPE STREQUAL "")
     set(CMAKE_BUILD_TYPE Release)
+endif()
+
+list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
+include(FetchTraceDecoder)
+rcv_fetch_trace_decoder()
+set(RCV_ENABLE_TRACE_DECODER ${RCV_HAS_TRACE_DECODER})
+if(RCV_ENABLE_TRACE_DECODER)
+    add_compile_definitions(RCV_HAS_TRACE_DECODER)
 endif()
 
 include_directories(src)

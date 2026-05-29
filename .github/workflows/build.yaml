@@ -23,10 +23,10 @@ jobs:
       fail-fast: false
       matrix:
         system: [
-          {name: 'windows-x86', runner: windows-2022, host: 'windows', arch: 'win64_msvc2022_64', cmake: '', cmd: ''},
+          {name: 'windows-x86', runner: windows-2022, host: 'windows', arch: 'win64_msvc2022_64', cmake: '-DRCV_FETCH_TRACE_DECODER=ON', cmd: ''},
           {name: 'macos-x86', runner: macos-15-intel, host: 'mac', arch: 'clang_64', cmake: '-DCMAKE_OSX_ARCHITECTURES=x86_64 -DCMAKE_OSX_DEPLOYMENT_TARGET="12.7.3"', cmd: 'x86'},
-          {name: 'ubuntu-22-x86', runner: ubuntu-22.04, host: 'linux', arch: 'linux_gcc_64', cmake: '', cmd: ''},
-          {name: 'ubuntu-24-x86', runner: ubuntu-24.04, host: 'linux', arch: 'linux_gcc_64', cmake: '', cmd: ''},
+          {name: 'ubuntu-22-x86', runner: ubuntu-22.04, host: 'linux', arch: 'linux_gcc_64', cmake: '-DRCV_FETCH_TRACE_DECODER=ON', cmd: ''},
+          {name: 'ubuntu-24-x86', runner: ubuntu-24.04, host: 'linux', arch: 'linux_gcc_64', cmake: '-DRCV_FETCH_TRACE_DECODER=ON', cmd: ''},
           {name: 'macos-arm64', runner: macos-14, host: 'mac', arch: 'clang_64', cmake: '-DCMAKE_OSX_ARCHITECTURES="arm64" -DCMAKE_OSX_DEPLOYMENT_TARGET="12.7.3"', cmd: 'arm64'}
         ]
 
@@ -41,8 +41,26 @@ jobs:
       timeout-minutes: 10
       run: |
         sudo apt update
-        sudo apt install -y cmake rpm
+        sudo apt install -y cmake rpm llvm-dev libclang-dev
         sudo cat /etc/os-release
+
+    # The trace decoder's LLVM disasm backend needs a full LLVM development
+    # install (CMake config files + AMDGPU target). The official LLVM Windows
+    # binary release does not ship dev libs, so use install-llvm-action which
+    # pulls a complete pre-built tree and sets LLVM_DIR for find_package.
+    - name: Install LLVM (Windows)
+      if: ${{ contains(matrix.system.host, 'windows') }}
+      uses: KyleMayes/install-llvm-action@v2
+      timeout-minutes: 15
+      with:
+        version: '18.1.8'
+        directory: ${{ runner.temp }}/llvm
+        cached: true
+
+    - name: Export LLVM_DIR (Windows)
+      if: ${{ contains(matrix.system.host, 'windows') }}
+      shell: bash
+      run: echo "LLVM_DIR=${{ runner.temp }}/llvm/lib/cmake/llvm" >> "$GITHUB_ENV"
 
     - name: Install Qt
       uses: jurplel/install-qt-action@48d3ad6db93f3627c8ee7a0454bc6f3744f7e730 # v4.3.1
@@ -55,30 +73,41 @@ jobs:
         arch: ${{ matrix.system.arch }}
         cache: true
 
+    # Configure also builds the rocprof-trace-decoder sub-project at configure
+    # time (see cmake/FetchTraceDecoder.cmake), so allow extra wall time.
     - name: Configure CMake
-      timeout-minutes: 15
+      timeout-minutes: 45
       run: cmake -B ${{github.workspace}}/build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} -DBUILD_LOCATION=${{github.workspace}}/build ${{ matrix.system.cmake }}
 
     - name: Build
       timeout-minutes: 10
       run: cmake --build ${{github.workspace}}/build --config ${{env.BUILD_TYPE}} --parallel 16
 
+    # The tests project re-uses the decoder sub-build cached by the main
+    # configure (shared external/ checkout + reused build tree), so this is
+    # usually fast — but keep a generous budget for the cold path.
     - name: Configure Tests
-      if: ${{ contains(matrix.system.host, 'linux') }}
-      timeout-minutes: 15
-      run: cmake -S ${{github.workspace}}/tests -B ${{github.workspace}}/build-tests -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}}
+      if: ${{ matrix.system.host != 'mac' }}
+      timeout-minutes: 30
+      run: cmake -S ${{github.workspace}}/tests -B ${{github.workspace}}/build-tests -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} -DRCV_FETCH_TRACE_DECODER=ON
 
     - name: Build Tests
-      if: ${{ contains(matrix.system.host, 'linux') }}
+      if: ${{ matrix.system.host != 'mac' }}
       timeout-minutes: 5
       run: cmake --build ${{github.workspace}}/build-tests --config ${{env.BUILD_TYPE}} --parallel 16
 
     - name: Run Tests
-      if: ${{ contains(matrix.system.host, 'linux') }}
+      if: ${{ matrix.system.host != 'mac' }}
       timeout-minutes: 10
+      shell: bash
       env:
         QT_QPA_PLATFORM: offscreen
-      run: ctest --test-dir ${{github.workspace}}/build-tests --output-on-failure --build-config ${{env.BUILD_TYPE}}
+      # On Windows the loader looks at PATH for Qt/LLVM DLLs; on Linux the
+      # rpath handles it. Prepending unconditionally is harmless on Linux
+      # (the dirs are either empty or unused there).
+      run: |
+        export PATH="${QT_ROOT_DIR:-}/bin:${LLVM_PATH:-}/bin:$PATH"
+        ctest --test-dir ${{github.workspace}}/build-tests --output-on-failure --build-config ${{env.BUILD_TYPE}}
 
     - name: Building Packages
       timeout-minutes: 10
