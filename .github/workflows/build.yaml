@@ -41,7 +41,7 @@ jobs:
       timeout-minutes: 10
       run: |
         sudo apt update
-        sudo apt install -y cmake rpm llvm-dev libclang-dev
+        sudo apt install -y cmake rpm llvm-dev libclang-dev libffi-dev libedit-dev libtinfo-dev
         sudo cat /etc/os-release
 
     # The trace decoder's LLVM disasm backend needs a full LLVM development
@@ -50,7 +50,7 @@ jobs:
     # pulls a complete pre-built tree and sets LLVM_DIR for find_package.
     - name: Install LLVM (Windows)
       if: ${{ contains(matrix.system.host, 'windows') }}
-      uses: KyleMayes/install-llvm-action@v2
+      uses: KyleMayes/install-llvm-action@ebc0426251bc40c7cd31162802432c68818ab8f0 # v2.0.9
       timeout-minutes: 15
       with:
         version: '18.1.8'
