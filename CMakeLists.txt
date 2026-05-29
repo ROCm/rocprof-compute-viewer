@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.16...3.22)
 project(
     rocprof-compute-viewer
     VERSION 0.2.0
-    LANGUAGES CXX)
+    LANGUAGES C CXX) # C needed for LLVM's transitive find checks via the decoder
 
 set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTOMOC ON)
