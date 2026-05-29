@@ -26,7 +26,7 @@ option(RCV_FETCH_TRACE_DECODER
     "Fetch and build rocprof-trace-decoder from github.com/ROCm/rocm-systems if TRACE_DECODER_ROOT is not set" OFF)
 set(RCV_TRACE_DECODER_REPO "https://github.com/ROCm/rocm-systems.git"
     CACHE STRING "Git repository for the rocprof-trace-decoder source")
-set(RCV_TRACE_DECODER_TAG "users/gbaraldi/decoder-cxx20-c-lang"
+set(RCV_TRACE_DECODER_TAG "users/gbaraldi/decoder-build-msvc"
     CACHE STRING "Git branch/tag of rocm-systems to check out for the trace decoder")
 # TODO: flip back to "develop" once the decoder fix (LANGUAGES C CXX +
 # CMAKE_CXX_STANDARD 20) is merged.
@@ -99,11 +99,15 @@ function(rcv_fetch_trace_decoder)
     # sub-build at configure time, then consume via find_package — same path
     # the TRACE_DECODER_ROOT mode uses.
     set(_td_build_dir "${CMAKE_BINARY_DIR}/rocm-systems-build")
+    # Build with the LLVM disassembly backend on all platforms. Windows CI
+    # installs LLVM's developer archive rather than the installer, so
+    # LLVMConfig.cmake and the component libraries are available there too.
+    set(_td_disasm_args -DUSE_LLVM_DISASM=ON)
     set(_td_cfg_args
         -S ${_td_src_dir}/${_td_subdir}
         -B ${_td_build_dir}
         -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
-        -DUSE_LLVM_DISASM=ON)
+        ${_td_disasm_args})
     if(CMAKE_GENERATOR)
         list(APPEND _td_cfg_args -G ${CMAKE_GENERATOR})
     endif()
@@ -126,7 +130,7 @@ function(rcv_fetch_trace_decoder)
 
     message(STATUS "Building rocprof-trace-decoder (first time may take a while)")
     execute_process(
-        COMMAND ${CMAKE_COMMAND} --build ${_td_build_dir} --parallel
+        COMMAND ${CMAKE_COMMAND} --build ${_td_build_dir} --config ${CMAKE_BUILD_TYPE} --parallel
         RESULT_VARIABLE _td_build_result)
     if(NOT _td_build_result EQUAL 0)
         message(FATAL_ERROR "Failed to build rocprof-trace-decoder (exit ${_td_build_result})")

@@ -16,6 +16,7 @@ permissions:
 env:
   # Customize the CMake build type here (Release, Debug, RelWithDebInfo, etc.)
   BUILD_TYPE: Release
+  LLVM_VERSION: 21.1.8
 
 jobs:
   build:
@@ -47,51 +48,69 @@ jobs:
     # The trace decoder's LLVM disasm backend needs a full LLVM development
     # install (CMake config files + AMDGPU target including the newest chips
     # such as gfx950). Distro LLVM lags upstream by enough that the gfx950
-    # subtarget is missing on Ubuntu 24's apt llvm-18, and the official LLVM
-    # Windows binary release does not ship dev libs at all. install-llvm-action
-    # pulls a complete pre-built dev tree for both Linux and Windows; pin LLVM
-    # 20.x so the AMDGPU backend recognises gfx950.
-    - name: Install LLVM
-      if: ${{ matrix.system.host != 'mac' }}
+    # subtarget is missing on Ubuntu 24's apt llvm-18. The official LLVM
+    # Windows release has both an LLVM-*.exe installer and a clang+llvm-*.tar.xz
+    # developer archive. The installer does not include the CMake package and
+    # static component libraries needed by the decoder; use the archive there.
+    # Pin LLVM 21.x so the AMDGPU backend recognises gfx950.
+    - name: Install LLVM (Linux)
+      if: ${{ matrix.system.host == 'linux' }}
       uses: KyleMayes/install-llvm-action@ebc0426251bc40c7cd31162802432c68818ab8f0 # v2.0.9
       timeout-minutes: 15
       env:
         ACTIONS_STEP_DEBUG: true
       with:
-        version: '21.1.8'
+        version: ${{ env.LLVM_VERSION }}
         directory: ${{ runner.temp }}/llvm
         cached: false
 
-    # Sanity-check the install: action exports LLVM_PATH even when extraction
-    # produces nothing (observed with cached: true restoring a poisoned cache),
-    # which lets the failure leak into later steps with a confusing error.
-    # Fail loudly here so the broken step is the install step itself.
+    - name: Install LLVM dev archive (Windows)
+      if: ${{ matrix.system.host == 'windows' }}
+      timeout-minutes: 20
+      shell: bash
+      run: |
+        set -euo pipefail
+        llvm_root="$(cygpath -u "${RUNNER_TEMP}")/llvm"
+        llvm_archive="$(cygpath -u "${RUNNER_TEMP}")/llvm-${LLVM_VERSION}-windows-msvc.tar.xz"
+        llvm_url="https://github.com/llvm/llvm-project/releases/download/llvmorg-${LLVM_VERSION}/clang%2Bllvm-${LLVM_VERSION}-x86_64-pc-windows-msvc.tar.xz"
+
+        rm -rf "$llvm_root"
+        mkdir -p "$llvm_root"
+        curl -L --fail --retry 3 --retry-delay 10 "$llvm_url" -o "$llvm_archive"
+        tar -xJf "$llvm_archive" -C "$llvm_root" --strip-components=1
+
+        echo "LLVM_PATH=$llvm_root" >> "$GITHUB_ENV"
+        echo "$(cygpath -w "$llvm_root/bin")" >> "$GITHUB_PATH"
+        echo "Installed LLVM dev archive at $llvm_root"
+
+    # Sanity-check the install: fail here if LLVM_PATH points at a bad tree so
+    # the later decoder configure step does not pick a stale system LLVM.
     - name: Verify LLVM install
       if: ${{ matrix.system.host != 'mac' }}
       shell: bash
       run: |
         echo "LLVM_PATH=${LLVM_PATH:-<unset>}"
         if [ -z "${LLVM_PATH:-}" ] || [ ! -d "$LLVM_PATH" ]; then
-          echo "::error::install-llvm-action did not populate LLVM_PATH"
+          echo "::error::LLVM install did not populate LLVM_PATH"
           exit 1
         fi
         echo "--- $LLVM_PATH ---"
         ls -la "$LLVM_PATH"
         echo "--- $LLVM_PATH/lib/cmake (if any) ---"
         ls -la "$LLVM_PATH/lib/cmake" || true
+        echo "--- $LLVM_PATH/lib/cmake/llvm (if any) ---"
+        ls -la "$LLVM_PATH/lib/cmake/llvm" || true
 
-    # install-llvm-action exports LLVM_PATH pointing at the actual extracted
-    # root (which on Linux is a nested clang+llvm-*/ directory, not the
-    # `directory:` input). Derive LLVM_DIR from that and fail loudly if the
-    # CMake config dir isn't there — otherwise find_package(LLVM) silently
-    # falls back to whatever LLVM the runner image preinstalled (Ubuntu's
-    # llvm-18, which doesn't know gfx950).
+    # Both install paths export LLVM_PATH pointing at the actual extracted
+    # root. Derive LLVM_DIR from that and fail loudly if the CMake config dir
+    # is not there; otherwise find_package(LLVM) can silently fall back to a
+    # runner-provided LLVM that is too old for gfx950.
     - name: Export LLVM_DIR
       if: ${{ matrix.system.host != 'mac' }}
       shell: bash
       run: |
         if [ -z "${LLVM_PATH:-}" ]; then
-          echo "::error::LLVM_PATH not set by install-llvm-action"; exit 1
+          echo "::error::LLVM_PATH not set by LLVM install"; exit 1
         fi
         LLVM_CMAKE_DIR="$LLVM_PATH/lib/cmake/llvm"
         if [ ! -f "$LLVM_CMAKE_DIR/LLVMConfig.cmake" ]; then
