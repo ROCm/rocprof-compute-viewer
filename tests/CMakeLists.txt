@@ -20,6 +20,12 @@ else()
     set(_rcv_sanitizer_tests_default ON)
 endif()
 option(RCV_ENABLE_SANITIZER_TESTS "Build sanitizer-instrumented test targets" ${_rcv_sanitizer_tests_default})
+if(MSVC AND RCV_ENABLE_SANITIZER_TESTS)
+    message(WARNING "MSVC sanitizer test variants are disabled; GoogleTest must be built with matching ASan STL annotations.")
+    set(RCV_ENABLE_SANITIZER_TESTS
+        OFF
+        CACHE BOOL "Build sanitizer-instrumented test targets" FORCE)
+endif()
 
 function(rcv_enable_asan target)
     if(NOT RCV_ENABLE_SANITIZER_TESTS)
