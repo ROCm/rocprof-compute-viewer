@@ -17,22 +17,22 @@ target_include_directories(marker_test PRIVATE ${SRC_DIR})
 target_link_libraries(marker_test GTest::gtest_main)
 add_test(NAME marker_test COMMAND marker_test)
 
-# ============================================================================
-# ASAN build (Address Sanitizer)
-# ============================================================================
-add_executable(marker_test_asan ${TEST_SOURCES})
-target_include_directories(marker_test_asan PRIVATE ${SRC_DIR})
-target_link_libraries(marker_test_asan GTest::gtest_main)
-target_compile_options(marker_test_asan PRIVATE -fsanitize=address -fno-omit-frame-pointer -g)
-target_link_options(marker_test_asan PRIVATE -fsanitize=address)
-add_test(NAME marker_test_asan COMMAND marker_test_asan)
+if(RCV_ENABLE_SANITIZER_TESTS)
+    # ============================================================================
+    # ASAN build (Address Sanitizer)
+    # ============================================================================
+    add_executable(marker_test_asan ${TEST_SOURCES})
+    target_include_directories(marker_test_asan PRIVATE ${SRC_DIR})
+    target_link_libraries(marker_test_asan GTest::gtest_main)
+    rcv_enable_asan(marker_test_asan)
+    add_test(NAME marker_test_asan COMMAND marker_test_asan)
 
-# ============================================================================
-# UBSAN build (Undefined Behavior Sanitizer)
-# ============================================================================
-add_executable(marker_test_ubsan ${TEST_SOURCES})
-target_include_directories(marker_test_ubsan PRIVATE ${SRC_DIR})
-target_link_libraries(marker_test_ubsan GTest::gtest_main)
-target_compile_options(marker_test_ubsan PRIVATE -fsanitize=undefined -fno-omit-frame-pointer -g)
-target_link_options(marker_test_ubsan PRIVATE -fsanitize=undefined)
-add_test(NAME marker_test_ubsan COMMAND marker_test_ubsan)
+    # ============================================================================
+    # UBSAN build (Undefined Behavior Sanitizer)
+    # ============================================================================
+    add_executable(marker_test_ubsan ${TEST_SOURCES})
+    target_include_directories(marker_test_ubsan PRIVATE ${SRC_DIR})
+    target_link_libraries(marker_test_ubsan GTest::gtest_main)
+    rcv_enable_ubsan(marker_test_ubsan)
+    add_test(NAME marker_test_ubsan COMMAND marker_test_ubsan)
+endif()

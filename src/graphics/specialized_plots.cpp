@@ -22,6 +22,7 @@
 
 #include "specialized_plots.h"
 #include <QMessageBox>
+#include <cstdint>
 #include <fstream>
 #include <set>
 #include "container/datanode.h"
@@ -250,7 +251,8 @@ std::vector<double> CounterPlotView::GetPeakRates()
 
     for (auto& node : rootnodes)
     {
-        std::vector<CounterData> counters = node->AccumFromMask(~0ul, ~0ul);
+        constexpr uint64_t all_mask = ~uint64_t{0};
+        std::vector<CounterData> counters = node->AccumFromMask(all_mask, all_mask);
 
         for (int c = 0; c < CNT_BANK; c++)
         {
