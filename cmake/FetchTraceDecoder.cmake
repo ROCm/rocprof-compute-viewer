@@ -26,8 +26,10 @@ option(RCV_FETCH_TRACE_DECODER
     "Fetch and build rocprof-trace-decoder from github.com/ROCm/rocm-systems if TRACE_DECODER_ROOT is not set" OFF)
 set(RCV_TRACE_DECODER_REPO "https://github.com/ROCm/rocm-systems.git"
     CACHE STRING "Git repository for the rocprof-trace-decoder source")
-set(RCV_TRACE_DECODER_TAG "users/gbaraldi/trace-decoder-API"
+set(RCV_TRACE_DECODER_TAG "users/gbaraldi/decoder-cxx20-c-lang"
     CACHE STRING "Git branch/tag of rocm-systems to check out for the trace decoder")
+# TODO: flip back to "develop" once the decoder fix (LANGUAGES C CXX +
+# CMAKE_CXX_STANDARD 20) is merged.
 # Keep the sparse checkout outside any single build tree so a clean rebuild
 # of the main project or the tests project doesn't trigger a re-clone of the
 # (large) rocm-systems monorepo. Resolved relative to the *outermost* source
@@ -97,19 +99,10 @@ function(rcv_fetch_trace_decoder)
     # sub-build at configure time, then consume via find_package — same path
     # the TRACE_DECODER_ROOT mode uses.
     set(_td_build_dir "${CMAKE_BINARY_DIR}/rocm-systems-build")
-    # The decoder uses C++20 features (e.g. designated initializers in
-    # trace_parser.hpp) but does not request the standard itself, so MSVC
-    # defaults to C++14 and fails. Force C++20 here.
-    # CMAKE_PROJECT_TOP_LEVEL_INCLUDES injects a snippet right after the
-    # decoder's project() call to enable_language(C) — needed because the
-    # installed LLVMConfig.cmake on Linux distros runs C compile checks.
     set(_td_cfg_args
         -S ${_td_src_dir}/${_td_subdir}
         -B ${_td_build_dir}
         -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
-        -DCMAKE_CXX_STANDARD=20
-        -DCMAKE_CXX_STANDARD_REQUIRED=ON
-        -DCMAKE_PROJECT_TOP_LEVEL_INCLUDES=${CMAKE_CURRENT_LIST_DIR}/decoder_subbuild_inject.cmake
         -DUSE_LLVM_DISASM=ON)
     if(CMAKE_GENERATOR)
         list(APPEND _td_cfg_args -G ${CMAKE_GENERATOR})
