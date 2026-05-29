@@ -248,7 +248,7 @@ jobs:
 
     - name: Build
       timeout-minutes: 10
-      run: cmake --build ${{github.workspace}}/build --config ${{env.BUILD_TYPE}} --parallel 16
+      run: cmake --build "${{github.workspace}}/build" --config "${{env.BUILD_TYPE}}" --parallel 16
 
     # The tests project re-uses the decoder sub-build cached by the main
     # configure (shared external/ checkout + reused build tree), so this is
@@ -268,7 +268,7 @@ jobs:
     - name: Build Tests
       if: ${{ matrix.system.host != 'mac' }}
       timeout-minutes: 5
-      run: cmake --build ${{github.workspace}}/build-tests --config ${{env.BUILD_TYPE}} --parallel 16
+      run: cmake --build "${{github.workspace}}/build-tests" --config "${{env.BUILD_TYPE}}" --parallel 16
 
     - name: Run Tests
       if: ${{ matrix.system.host != 'mac' }}
@@ -279,13 +279,22 @@ jobs:
       # On Windows the loader looks at PATH for Qt/ROCm DLLs; on Linux, keep
       # the ROCm SDK lib dir available for tests that load amd_comgr.
       run: |
+        test_dir="${{github.workspace}}/build-tests"
+        if command -v cygpath >/dev/null 2>&1; then
+          test_dir="$(cygpath -u "$test_dir")"
+        fi
+        if [ ! -d "$test_dir" ]; then
+          echo "::error::CTest directory not found: $test_dir"
+          exit 1
+        fi
         export PATH="${QT_ROOT_DIR:-}/bin:${ROCM_PATH:-}/bin:$PATH"
         export LD_LIBRARY_PATH="${ROCM_PATH:-}/lib:${LD_LIBRARY_PATH:-}"
-        ctest --test-dir ${{github.workspace}}/build-tests --output-on-failure --build-config ${{env.BUILD_TYPE}}
+        echo "Running tests from $test_dir"
+        ctest --test-dir "$test_dir" --output-on-failure --build-config "${{env.BUILD_TYPE}}"
 
     - name: Building Packages
       timeout-minutes: 10
-      run: cmake --build ${{github.workspace}}/build --config ${{env.BUILD_TYPE}} --target package --parallel 16
+      run: cmake --build "${{github.workspace}}/build" --config "${{env.BUILD_TYPE}}" --target package --parallel 16
 
     - name: Rename Packages
       if: ${{ contains(matrix.system.host, 'mac') }}
