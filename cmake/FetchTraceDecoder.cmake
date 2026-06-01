@@ -103,6 +103,30 @@ function(rcv_find_amd_comgr_dll out_var trace_decoder_target)
     message(FATAL_ERROR "Trace-decoder uses amd_comgr, but amd_comgr.dll was not found")
 endfunction()
 
+function(_rcv_trace_decoder_verify_static_target)
+    if(NOT WIN32 OR NOT TARGET rocprof-trace-decoder::rocprof-trace-decoder-static)
+        return()
+    endif()
+
+    get_target_property(_td_imported_configs rocprof-trace-decoder::rocprof-trace-decoder-static
+                        IMPORTED_CONFIGURATIONS)
+    if(NOT _td_imported_configs)
+        set(_td_imported_configs NOCONFIG)
+    endif()
+
+    foreach(_td_config IN LISTS _td_imported_configs)
+        get_target_property(_td_static_location rocprof-trace-decoder::rocprof-trace-decoder-static
+                            IMPORTED_LOCATION_${_td_config})
+        if(_td_static_location MATCHES "rocprof-trace-decoder\\.lib$")
+            message(
+                FATAL_ERROR
+                    "rocprof-trace-decoder static target resolves to ${_td_static_location}; "
+                    "expected rocprof-trace-decoder-static.lib so RCV does not import "
+                    "rocprof-trace-decoder.dll")
+        endif()
+    endforeach()
+endfunction()
+
 function(rcv_fetch_trace_decoder)
     set(RCV_HAS_TRACE_DECODER OFF PARENT_SCOPE)
 
@@ -112,6 +136,7 @@ function(rcv_fetch_trace_decoder)
             PATH_SUFFIXES source lib/cmake/rocprof-trace-decoder
             NO_DEFAULT_PATH)
         _rcv_trace_decoder_apply_consumer_link_options()
+        _rcv_trace_decoder_verify_static_target()
         message(STATUS "Trace-decoder enabled (external): ${rocprof-trace-decoder_DIR}")
         set(RCV_HAS_TRACE_DECODER ON PARENT_SCOPE)
         return()
@@ -231,6 +256,7 @@ function(rcv_fetch_trace_decoder)
         PATH_SUFFIXES source
         NO_DEFAULT_PATH)
     _rcv_trace_decoder_apply_consumer_link_options()
+    _rcv_trace_decoder_verify_static_target()
 
     message(STATUS "Trace-decoder enabled (fetched): ${rocprof-trace-decoder_DIR}")
     set(RCV_HAS_TRACE_DECODER ON PARENT_SCOPE)
