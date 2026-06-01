@@ -156,7 +156,12 @@ qt_deploy_runtime_dependencies(
     if(RCV_ENABLE_TRACE_DECODER)
         # Namespaced target carries LLVM (or comgr) transitively via PUBLIC
         # link/include/define interface — nothing else to wire up here.
-        target_link_libraries(${PROJECT_NAME} PRIVATE rocprof-trace-decoder::rocprof-trace-decoder-static)
+        if(WIN32)
+            set(RCV_TRACE_DECODER_TARGET rocprof-trace-decoder::rocprof-trace-decoder)
+        else()
+            set(RCV_TRACE_DECODER_TARGET rocprof-trace-decoder::rocprof-trace-decoder-static)
+        endif()
+        target_link_libraries(${PROJECT_NAME} PRIVATE ${RCV_TRACE_DECODER_TARGET})
     endif()
 
     install(
@@ -165,11 +170,11 @@ qt_deploy_runtime_dependencies(
         RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 
     if(WIN32 AND RCV_ENABLE_TRACE_DECODER)
-        get_target_property(_rcv_td_compile_defs rocprof-trace-decoder::rocprof-trace-decoder-static
-                            INTERFACE_COMPILE_DEFINITIONS)
+        install(FILES "$<TARGET_FILE:${RCV_TRACE_DECODER_TARGET}>" DESTINATION ${CMAKE_INSTALL_BINDIR})
+
+        get_target_property(_rcv_td_compile_defs ${RCV_TRACE_DECODER_TARGET} INTERFACE_COMPILE_DEFINITIONS)
         if(_rcv_td_compile_defs MATCHES "(^|;)ROCPROF_TRACE_DECODER_USE_COMGR($|;)")
-            get_target_property(_rcv_td_link_libs rocprof-trace-decoder::rocprof-trace-decoder-static
-                                INTERFACE_LINK_LIBRARIES)
+            get_target_property(_rcv_td_link_libs ${RCV_TRACE_DECODER_TARGET} INTERFACE_LINK_LIBRARIES)
             set(_rcv_amd_comgr_dll_candidates)
             foreach(_rcv_link_lib IN LISTS _rcv_td_link_libs)
                 get_filename_component(_rcv_link_lib_name "${_rcv_link_lib}" NAME)

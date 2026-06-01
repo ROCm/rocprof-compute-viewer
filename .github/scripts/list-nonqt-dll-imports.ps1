@@ -32,6 +32,15 @@ function Test-IsQtDll([string] $Name) {
     return $Name -match "^Qt[0-9].*\.dll$"
 }
 
+function Test-IsQtDeploymentFile([System.IO.FileInfo] $File, [string] $Root) {
+    if (Test-IsQtDll $File.Name) {
+        return $true
+    }
+
+    $relative = [System.IO.Path]::GetRelativePath($Root, $File.FullName)
+    return $relative -match "^plugins[\\/]"
+}
+
 function Test-IsSystemOrToolchainDll([string] $Name) {
     $lower = $Name.ToLowerInvariant()
     $known = @(
@@ -41,6 +50,7 @@ function Test-IsSystemOrToolchainDll([string] $Name) {
         "comctl32.dll",
         "comdlg32.dll",
         "crypt32.dll",
+        "d3d9.dll",
         "dwmapi.dll",
         "dxgi.dll",
         "gdi32.dll",
@@ -61,6 +71,7 @@ function Test-IsSystemOrToolchainDll([string] $Name) {
         "setupapi.dll",
         "shell32.dll",
         "shlwapi.dll",
+        "uiautomationcore.dll",
         "user32.dll",
         "userenv.dll",
         "usp10.dll",
@@ -124,12 +135,12 @@ Get-ChildItem -Path $packageRoot -Recurse -File -Filter *.dll | ForEach-Object {
 Write-Host ""
 Write-Host "Packaged non-Qt DLLs:"
 Get-ChildItem -Path $packageRoot -Recurse -File -Filter *.dll |
-    Where-Object { -not (Test-IsQtDll $_.Name) } |
+    Where-Object { -not (Test-IsQtDeploymentFile $_ $packageRoot) } |
     Sort-Object FullName |
     ForEach-Object { Write-Host "  $([System.IO.Path]::GetRelativePath($packageRoot, $_.FullName))" }
 
 $binaries = @(Get-ChildItem -Path $packageRoot -Recurse -File |
-    Where-Object { $_.Extension -in @(".exe", ".dll") -and -not (Test-IsQtDll $_.Name) } |
+    Where-Object { $_.Extension -in @(".exe", ".dll") -and -not (Test-IsQtDeploymentFile $_ $packageRoot) } |
     Sort-Object FullName)
 
 $imports = New-Object System.Collections.Generic.List[object]
