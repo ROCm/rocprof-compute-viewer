@@ -46,22 +46,8 @@ if(RCV_ENABLE_EXTRA_LOGGING)
     add_compile_definitions(RCV_ENABLE_EXTRA_LOGGING)
 endif()
 
-# ----------------------------------------------------------------------------
-# Trace-decoder + disassembly support.
-#
-# Three modes, evaluated in this order:
-#   1. TRACE_DECODER_ROOT — path to an existing decoder build tree / install
-#      prefix. RCV consumes the decoder via its CMake package config; LLVM
-#      (or amd_comgr) and all transitive include dirs / link libs / compile
-#      defs propagate automatically through the namespaced target.
-#   2. RCV_FETCH_TRACE_DECODER — fetch the decoder from
-#      github.com/ROCm/rocm-systems via a sparse checkout of
-#      projects/rocprof-trace-decoder, build it in an isolated sub-build, and
-#      prefer the amd_comgr disassembly backend when a ROCm SDK is available.
-#   3. Neither — trace-decoder support is disabled (JSON input only).
-# ----------------------------------------------------------------------------
-# Default the build type before fetching the decoder so the decoder sub-build
-# receives a real -DCMAKE_BUILD_TYPE rather than an empty one.
+# Trace-decoder support is enabled from TRACE_DECODER_ROOT or by setting
+# RCV_FETCH_TRACE_DECODER.
 if(CMAKE_BUILD_TYPE STREQUAL "")
     set(CMAKE_BUILD_TYPE Release)
 endif()
@@ -165,7 +151,8 @@ qt_deploy_runtime_dependencies(
         RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 
     if(WIN32 AND RCV_ENABLE_TRACE_DECODER)
-        rcv_find_amd_comgr_dll(_rcv_amd_comgr_dll rocprof-trace-decoder::rocprof-trace-decoder-static)
+        find_file(_rcv_amd_comgr_dll amd_comgr.dll HINTS ${CMAKE_PREFIX_PATH} "$ENV{ROCM_PATH}" PATH_SUFFIXES bin
+                  NO_DEFAULT_PATH)
         if(_rcv_amd_comgr_dll)
             install(FILES "${_rcv_amd_comgr_dll}" DESTINATION ${CMAKE_INSTALL_BINDIR})
         endif()

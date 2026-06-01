@@ -1,129 +1,47 @@
-# cmake/FetchTraceDecoder.cmake
-#
-# Shared between the main RCV build and the tests project.
-# Resolves the rocprof-trace-decoder in one of three ways and, on success,
-# sets RCV_HAS_TRACE_DECODER=ON and makes the namespaced target
-# rocprof-trace-decoder::rocprof-trace-decoder and
-# rocprof-trace-decoder::rocprof-trace-decoder-static available.
-#
-# Cache variables consumed:
-#   TRACE_DECODER_ROOT           — existing build/install (mode 1)
-#   RCV_FETCH_TRACE_DECODER      — fetch + sub-build (mode 2, default ON)
-#   RCV_TRACE_DECODER_REPO       — git URL
-#   RCV_TRACE_DECODER_TAG        — branch/tag
-#   RCV_TRACE_DECODER_FETCH_DIR  — where to keep the sparse checkout
-#                                  (outside the build tree so a clean
-#                                  rebuild does not re-clone)
-#
-# Output:
-#   RCV_HAS_TRACE_DECODER (parent scope) — ON if available, else OFF
-#   RCV_TRACE_DECODER_SRC_DIR (parent scope, set when mode 2) — path to the
-#       checked-out projects/rocprof-trace-decoder directory; useful for
-#       reaching the bundled test data.
+# Shared by the app and tests. Provides:
+#   rcv_fetch_trace_decoder()
+#   rcv_extract_decoder_test_data(src_dir dest_dir)
 
 include_guard(GLOBAL)
 
-option(RCV_FETCH_TRACE_DECODER
-    "Fetch and build rocprof-trace-decoder from github.com/ROCm/rocm-systems if TRACE_DECODER_ROOT is not set" OFF)
+option(RCV_FETCH_TRACE_DECODER "Fetch and build rocprof-trace-decoder when TRACE_DECODER_ROOT is not set" OFF)
 set(RCV_TRACE_DECODER_REPO "https://github.com/ROCm/rocm-systems.git"
-    CACHE STRING "Git repository for the rocprof-trace-decoder source")
+    CACHE STRING "Git repository for rocprof-trace-decoder")
 set(RCV_TRACE_DECODER_TAG "users/gbaraldi/decoder-build-msvc"
-    CACHE STRING "Git branch/tag of rocm-systems to check out for the trace decoder")
-# TODO: flip back to "develop" once the decoder fix (LANGUAGES C CXX +
-# CMAKE_CXX_STANDARD 20) is merged.
-# Keep the sparse checkout outside any single build tree so a clean rebuild
-# of the main project or the tests project doesn't trigger a re-clone of the
-# (large) rocm-systems monorepo. Resolved relative to the *outermost* source
-# dir we can identify so the main project and tests project share one copy.
+    CACHE STRING "Git branch/tag for rocprof-trace-decoder")
 if(NOT DEFINED RCV_TRACE_DECODER_FETCH_DIR)
-    get_filename_component(_rcv_module_root "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
-    set(RCV_TRACE_DECODER_FETCH_DIR "${_rcv_module_root}/external/rocm-systems"
-        CACHE PATH "Sparse-cloned rocm-systems checkout; lives outside the build tree")
+    get_filename_component(_rcv_repo_root "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
+    set(RCV_TRACE_DECODER_FETCH_DIR "${_rcv_repo_root}/external/rocm-systems"
+        CACHE PATH "Sparse checkout for rocm-systems")
 endif()
 
-function(_rcv_trace_decoder_apply_consumer_link_options)
-    foreach(_td_target IN ITEMS rocprof-trace-decoder::rocprof-trace-decoder-static rocprof-trace-decoder::rocprof-trace-decoder)
-        if(NOT TARGET ${_td_target})
+function(_rcv_rocm_prefixes out_var)
+    set(_prefixes ${CMAKE_PREFIX_PATH})
+    if(NOT _prefixes AND DEFINED ENV{ROCM_PATH})
+        list(APPEND _prefixes "$ENV{ROCM_PATH}")
+    endif()
+    set(${out_var} ${_prefixes} PARENT_SCOPE)
+endfunction()
+
+function(_rcv_add_rocm_rpath_links)
+    if(WIN32)
+        return()
+    endif()
+
+    _rcv_rocm_prefixes(_prefixes)
+    foreach(_target IN ITEMS rocprof-trace-decoder::rocprof-trace-decoder-static rocprof-trace-decoder::rocprof-trace-decoder)
+        if(NOT TARGET ${_target})
             continue()
         endif()
-
-        set(_td_prefixes "${CMAKE_PREFIX_PATH}")
-        if(NOT _td_prefixes AND DEFINED ENV{ROCM_PATH})
-            list(APPEND _td_prefixes "$ENV{ROCM_PATH}")
-        endif()
-        foreach(_td_prefix IN LISTS _td_prefixes)
-            set(_td_llvm_lib_dir "${_td_prefix}/lib/llvm/lib")
-            set(_td_sysdeps_lib_dir "${_td_prefix}/lib/rocm_sysdeps/lib")
-            if(NOT WIN32 AND EXISTS "${_td_llvm_lib_dir}" AND EXISTS "${_td_sysdeps_lib_dir}")
-                set_property(TARGET ${_td_target} APPEND PROPERTY INTERFACE_LINK_OPTIONS
-                    "-Wl,-rpath-link,${_td_llvm_lib_dir}"
-                    "-Wl,-rpath-link,${_td_sysdeps_lib_dir}")
+        foreach(_prefix IN LISTS _prefixes)
+            set(_llvm_lib "${_prefix}/lib/llvm/lib")
+            set(_sysdeps_lib "${_prefix}/lib/rocm_sysdeps/lib")
+            if(EXISTS "${_llvm_lib}" AND EXISTS "${_sysdeps_lib}")
+                set_property(TARGET ${_target} APPEND PROPERTY INTERFACE_LINK_OPTIONS
+                    "-Wl,-rpath-link,${_llvm_lib}"
+                    "-Wl,-rpath-link,${_sysdeps_lib}")
             endif()
         endforeach()
-    endforeach()
-endfunction()
-
-function(rcv_find_amd_comgr_dll out_var trace_decoder_target)
-    set(${out_var} "" PARENT_SCOPE)
-    if(NOT WIN32)
-        return()
-    endif()
-
-    get_target_property(_rcv_td_compile_defs ${trace_decoder_target} INTERFACE_COMPILE_DEFINITIONS)
-    if(NOT _rcv_td_compile_defs MATCHES "(^|;)ROCPROF_TRACE_DECODER_USE_COMGR($|;)")
-        return()
-    endif()
-
-    get_target_property(_rcv_td_link_libs ${trace_decoder_target} INTERFACE_LINK_LIBRARIES)
-    set(_rcv_amd_comgr_dll_candidates)
-    foreach(_rcv_link_lib IN LISTS _rcv_td_link_libs)
-        get_filename_component(_rcv_link_lib_name "${_rcv_link_lib}" NAME)
-        if(_rcv_link_lib_name STREQUAL "amd_comgr.lib")
-            get_filename_component(_rcv_link_lib_dir "${_rcv_link_lib}" DIRECTORY)
-            list(APPEND _rcv_amd_comgr_dll_candidates
-                 "${_rcv_link_lib_dir}/../bin/amd_comgr.dll"
-                 "${_rcv_link_lib_dir}/amd_comgr.dll")
-        endif()
-    endforeach()
-    foreach(_rcv_prefix IN LISTS CMAKE_PREFIX_PATH)
-        list(APPEND _rcv_amd_comgr_dll_candidates "${_rcv_prefix}/bin/amd_comgr.dll")
-    endforeach()
-    if(DEFINED ENV{ROCM_PATH})
-        list(APPEND _rcv_amd_comgr_dll_candidates "$ENV{ROCM_PATH}/bin/amd_comgr.dll")
-    endif()
-
-    foreach(_rcv_amd_comgr_dll IN LISTS _rcv_amd_comgr_dll_candidates)
-        file(TO_CMAKE_PATH "${_rcv_amd_comgr_dll}" _rcv_amd_comgr_dll)
-        if(EXISTS "${_rcv_amd_comgr_dll}")
-            set(${out_var} "${_rcv_amd_comgr_dll}" PARENT_SCOPE)
-            return()
-        endif()
-    endforeach()
-
-    message(FATAL_ERROR "Trace-decoder uses amd_comgr, but amd_comgr.dll was not found")
-endfunction()
-
-function(_rcv_trace_decoder_verify_static_target)
-    if(NOT WIN32 OR NOT TARGET rocprof-trace-decoder::rocprof-trace-decoder-static)
-        return()
-    endif()
-
-    get_target_property(_td_imported_configs rocprof-trace-decoder::rocprof-trace-decoder-static
-                        IMPORTED_CONFIGURATIONS)
-    if(NOT _td_imported_configs)
-        set(_td_imported_configs NOCONFIG)
-    endif()
-
-    foreach(_td_config IN LISTS _td_imported_configs)
-        get_target_property(_td_static_location rocprof-trace-decoder::rocprof-trace-decoder-static
-                            IMPORTED_LOCATION_${_td_config})
-        if(_td_static_location MATCHES "rocprof-trace-decoder\\.lib$")
-            message(
-                FATAL_ERROR
-                    "rocprof-trace-decoder static target resolves to ${_td_static_location}; "
-                    "expected rocprof-trace-decoder-static.lib so RCV does not import "
-                    "rocprof-trace-decoder.dll")
-        endif()
     endforeach()
 endfunction()
 
@@ -135,163 +53,117 @@ function(rcv_fetch_trace_decoder)
             PATHS ${TRACE_DECODER_ROOT}
             PATH_SUFFIXES source lib/cmake/rocprof-trace-decoder
             NO_DEFAULT_PATH)
-        _rcv_trace_decoder_apply_consumer_link_options()
-        _rcv_trace_decoder_verify_static_target()
-        message(STATUS "Trace-decoder enabled (external): ${rocprof-trace-decoder_DIR}")
+        _rcv_add_rocm_rpath_links()
+        message(STATUS "Trace-decoder enabled: ${rocprof-trace-decoder_DIR}")
         set(RCV_HAS_TRACE_DECODER ON PARENT_SCOPE)
         return()
     endif()
 
     if(NOT RCV_FETCH_TRACE_DECODER)
-        message(STATUS "Trace-decoder disabled (set TRACE_DECODER_ROOT or enable RCV_FETCH_TRACE_DECODER)")
+        message(STATUS "Trace-decoder disabled")
         return()
     endif()
 
-    set(_td_src_dir "${RCV_TRACE_DECODER_FETCH_DIR}")
-    set(_td_subdir "projects/rocprof-trace-decoder")
+    set(_src_dir "${RCV_TRACE_DECODER_FETCH_DIR}")
+    set(_subdir "projects/rocprof-trace-decoder")
+    set(_decoder_src "${_src_dir}/${_subdir}")
+    set(_build_dir "${CMAKE_BINARY_DIR}/rocm-systems-build")
+
     find_package(Git REQUIRED)
-
-    if(NOT EXISTS "${_td_src_dir}/.git")
-        message(STATUS "Fetching rocprof-trace-decoder from ${RCV_TRACE_DECODER_REPO} (${RCV_TRACE_DECODER_TAG}) into ${_td_src_dir}")
-        get_filename_component(_td_parent "${_td_src_dir}" DIRECTORY)
-        file(MAKE_DIRECTORY "${_td_parent}")
+    if(NOT EXISTS "${_src_dir}/.git")
+        message(STATUS "Fetching rocprof-trace-decoder from ${RCV_TRACE_DECODER_REPO} (${RCV_TRACE_DECODER_TAG})")
+        get_filename_component(_src_parent "${_src_dir}" DIRECTORY)
+        file(MAKE_DIRECTORY "${_src_parent}")
         execute_process(
-            COMMAND ${GIT_EXECUTABLE} clone
-                --filter=blob:none
-                --sparse
-                --depth 1
-                --branch ${RCV_TRACE_DECODER_TAG}
-                ${RCV_TRACE_DECODER_REPO}
-                ${_td_src_dir}
-            RESULT_VARIABLE _td_clone_result)
-        if(NOT _td_clone_result EQUAL 0)
-            message(FATAL_ERROR "Failed to clone ${RCV_TRACE_DECODER_REPO} (branch ${RCV_TRACE_DECODER_TAG})")
+            COMMAND ${GIT_EXECUTABLE} clone --filter=blob:none --sparse --depth 1
+                    --branch ${RCV_TRACE_DECODER_TAG} ${RCV_TRACE_DECODER_REPO} ${_src_dir}
+            RESULT_VARIABLE _clone_result)
+        if(NOT _clone_result EQUAL 0)
+            message(FATAL_ERROR "Failed to clone ${RCV_TRACE_DECODER_REPO}")
         endif()
         execute_process(
-            COMMAND ${GIT_EXECUTABLE} -C ${_td_src_dir} sparse-checkout set ${_td_subdir}
-            RESULT_VARIABLE _td_sparse_result)
-        if(NOT _td_sparse_result EQUAL 0)
-            message(FATAL_ERROR "Failed to set sparse checkout to ${_td_subdir}")
+            COMMAND ${GIT_EXECUTABLE} -C ${_src_dir} sparse-checkout set ${_subdir}
+            RESULT_VARIABLE _sparse_result)
+        if(NOT _sparse_result EQUAL 0)
+            message(FATAL_ERROR "Failed to sparse-checkout ${_subdir}")
         endif()
     endif()
-
-    if(NOT EXISTS "${_td_src_dir}/${_td_subdir}/CMakeLists.txt")
-        message(FATAL_ERROR
-            "Sparse checkout of rocprof-trace-decoder is incomplete at "
-            "${_td_src_dir}/${_td_subdir}. Delete ${_td_src_dir} and reconfigure, "
-            "or set TRACE_DECODER_ROOT to a pre-built decoder.")
+    if(NOT EXISTS "${_decoder_src}/CMakeLists.txt")
+        message(FATAL_ERROR "rocprof-trace-decoder checkout is incomplete at ${_decoder_src}")
     endif()
 
-    # The decoder's own CMakeLists uses ${CMAKE_SOURCE_DIR} (the top-level
-    # source dir) in places where it really means its own source dir, so it
-    # cannot safely be add_subdirectory'd. Configure+build it as an isolated
-    # sub-build at configure time, then consume via find_package — same path
-    # the TRACE_DECODER_ROOT mode uses.
-    set(_td_build_dir "${CMAKE_BINARY_DIR}/rocm-systems-build")
-    # CI supplies a ROCm SDK with amd_comgr on Windows/Linux. Prefer COMGR
-    # there: it avoids global LLVM state collisions and does not depend on
-    # LLVM's CMake package/export details. Non-CI builds without COMGR fall
-    # back inside the decoder to "no disassembly backend", while parser and
-    # ELF metadata support still build.
-    set(_td_disasm_args -DUSE_LLVM_DISASM=OFF -DDISABLE_COMGR=OFF)
-    set(_td_cfg_args
-        -S ${_td_src_dir}/${_td_subdir}
-        -B ${_td_build_dir}
+    set(_cfg_args
+        -S ${_decoder_src}
+        -B ${_build_dir}
         -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
-        ${_td_disasm_args})
-    set(_td_prefix_path "${CMAKE_PREFIX_PATH}")
-    if(NOT _td_prefix_path AND DEFINED ENV{ROCM_PATH})
-        list(APPEND _td_prefix_path "$ENV{ROCM_PATH}")
+        -DUSE_LLVM_DISASM=OFF
+        -DDISABLE_COMGR=OFF)
+
+    _rcv_rocm_prefixes(_prefixes)
+    if(_prefixes)
+        list(APPEND _cfg_args "-DCMAKE_PREFIX_PATH=${_prefixes}")
     endif()
-    if(_td_prefix_path)
-        list(APPEND _td_cfg_args "-DCMAKE_PREFIX_PATH=${_td_prefix_path}")
-        foreach(_td_prefix IN LISTS _td_prefix_path)
-            set(_td_llvm_lib_dir "${_td_prefix}/lib/llvm/lib")
-            set(_td_sysdeps_lib_dir "${_td_prefix}/lib/rocm_sysdeps/lib")
-            if(NOT WIN32 AND EXISTS "${_td_llvm_lib_dir}" AND EXISTS "${_td_sysdeps_lib_dir}")
-                set(_td_rpath_link_flags
-                    "-Wl,-rpath-link,${_td_llvm_lib_dir} -Wl,-rpath-link,${_td_sysdeps_lib_dir}")
-                list(APPEND _td_cfg_args
-                    "-DCMAKE_SHARED_LINKER_FLAGS=${CMAKE_SHARED_LINKER_FLAGS} ${_td_rpath_link_flags}"
-                    "-DCMAKE_EXE_LINKER_FLAGS=${CMAKE_EXE_LINKER_FLAGS} ${_td_rpath_link_flags}")
-                break()
-            endif()
-        endforeach()
-    endif()
+    foreach(_prefix IN LISTS _prefixes)
+        if(NOT WIN32 AND EXISTS "${_prefix}/lib/llvm/lib" AND EXISTS "${_prefix}/lib/rocm_sysdeps/lib")
+            set(_rpath_link "-Wl,-rpath-link,${_prefix}/lib/llvm/lib -Wl,-rpath-link,${_prefix}/lib/rocm_sysdeps/lib")
+            list(APPEND _cfg_args
+                "-DCMAKE_SHARED_LINKER_FLAGS=${CMAKE_SHARED_LINKER_FLAGS} ${_rpath_link}"
+                "-DCMAKE_EXE_LINKER_FLAGS=${CMAKE_EXE_LINKER_FLAGS} ${_rpath_link}")
+            break()
+        endif()
+    endforeach()
     if(WIN32)
-        set(_td_compat_file "${_td_build_dir}/rcv_decoder_compat.cmake")
-        file(WRITE "${_td_compat_file}" "if(WIN32 AND NOT TARGET pthread)\n  add_library(pthread INTERFACE IMPORTED)\nendif()\n")
-        list(APPEND _td_cfg_args -DCMAKE_PROJECT_INCLUDE=${_td_compat_file})
+        set(_compat_file "${_build_dir}/rcv_decoder_compat.cmake")
+        file(WRITE "${_compat_file}" "if(WIN32 AND NOT TARGET pthread)\n  add_library(pthread INTERFACE IMPORTED)\nendif()\n")
+        list(APPEND _cfg_args -DCMAKE_PROJECT_INCLUDE=${_compat_file})
     endif()
     if(CMAKE_GENERATOR)
-        list(APPEND _td_cfg_args -G ${CMAKE_GENERATOR})
+        list(APPEND _cfg_args -G "${CMAKE_GENERATOR}")
     endif()
-    if(CMAKE_C_COMPILER)
-        list(APPEND _td_cfg_args -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER})
-    endif()
-    if(CMAKE_CXX_COMPILER)
-        list(APPEND _td_cfg_args -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER})
-    endif()
-
-    if(NOT EXISTS "${_td_build_dir}/CMakeCache.txt")
-        message(STATUS "Configuring rocprof-trace-decoder in ${_td_build_dir}")
-        execute_process(
-            COMMAND ${CMAKE_COMMAND} ${_td_cfg_args}
-            RESULT_VARIABLE _td_cfg_result)
-        if(NOT _td_cfg_result EQUAL 0)
-            message(FATAL_ERROR "Failed to configure rocprof-trace-decoder (exit ${_td_cfg_result})")
+    foreach(_arg IN ITEMS CMAKE_C_COMPILER CMAKE_CXX_COMPILER)
+        if(DEFINED ${_arg} AND NOT "${${_arg}}" STREQUAL "")
+            list(APPEND _cfg_args "-D${_arg}=${${_arg}}")
         endif()
-    endif()
+    endforeach()
 
-    message(STATUS "Building rocprof-trace-decoder (first time may take a while)")
+    execute_process(COMMAND ${CMAKE_COMMAND} ${_cfg_args} RESULT_VARIABLE _cfg_result)
+    if(NOT _cfg_result EQUAL 0)
+        message(FATAL_ERROR "Failed to configure rocprof-trace-decoder")
+    endif()
     execute_process(
-        COMMAND ${CMAKE_COMMAND} --build ${_td_build_dir} --config ${CMAKE_BUILD_TYPE} --parallel
-        RESULT_VARIABLE _td_build_result)
-    if(NOT _td_build_result EQUAL 0)
-        message(FATAL_ERROR "Failed to build rocprof-trace-decoder (exit ${_td_build_result})")
+        COMMAND ${CMAKE_COMMAND} --build ${_build_dir} --config ${CMAKE_BUILD_TYPE} --parallel
+        RESULT_VARIABLE _build_result)
+    if(NOT _build_result EQUAL 0)
+        message(FATAL_ERROR "Failed to build rocprof-trace-decoder")
     endif()
 
     find_package(rocprof-trace-decoder REQUIRED CONFIG
-        PATHS ${_td_build_dir}
+        PATHS ${_build_dir}
         PATH_SUFFIXES source
         NO_DEFAULT_PATH)
-    _rcv_trace_decoder_apply_consumer_link_options()
-    _rcv_trace_decoder_verify_static_target()
-
-    message(STATUS "Trace-decoder enabled (fetched): ${rocprof-trace-decoder_DIR}")
+    _rcv_add_rocm_rpath_links()
+    message(STATUS "Trace-decoder enabled: ${rocprof-trace-decoder_DIR}")
     set(RCV_HAS_TRACE_DECODER ON PARENT_SCOPE)
-    set(RCV_TRACE_DECODER_SRC_DIR "${_td_src_dir}/${_td_subdir}" PARENT_SCOPE)
+    set(RCV_TRACE_DECODER_SRC_DIR "${_decoder_src}" PARENT_SCOPE)
 endfunction()
 
-
-# Extract every *.tar.gz in the decoder's test/data into a flat directory of
-# per-dataset folders. Sets RCV_DECODER_TEST_DATA_DIR in parent scope.
 function(rcv_extract_decoder_test_data src_dir dest_dir)
     if(NOT EXISTS "${src_dir}/test/data")
-        message(WARNING "Decoder test/data dir not found at ${src_dir}/test/data; integration tests will be skipped")
         set(RCV_DECODER_TEST_DATA_DIR "" PARENT_SCOPE)
         return()
     endif()
+
     file(MAKE_DIRECTORY "${dest_dir}")
     file(GLOB _archives "${src_dir}/test/data/*.tar.gz")
     foreach(_archive IN LISTS _archives)
         get_filename_component(_name "${_archive}" NAME_WE)
-        # strip a single trailing .tar if present (NAME_WE only drops .gz)
         string(REGEX REPLACE "\\.tar$" "" _name "${_name}")
         set(_marker "${dest_dir}/.${_name}.extracted")
         if(EXISTS "${_marker}")
             continue()
         endif()
-        message(STATUS "Extracting ${_name}.tar.gz")
-        execute_process(
-            COMMAND ${CMAKE_COMMAND} -E tar xzf "${_archive}"
-            WORKING_DIRECTORY "${dest_dir}"
-            RESULT_VARIABLE _xr)
-        if(NOT _xr EQUAL 0)
-            message(WARNING "Failed to extract ${_archive}")
-        else()
-            file(TOUCH "${_marker}")
-        endif()
+        execute_process(COMMAND ${CMAKE_COMMAND} -E tar xzf "${_archive}" WORKING_DIRECTORY "${dest_dir}")
+        file(TOUCH "${_marker}")
     endforeach()
     set(RCV_DECODER_TEST_DATA_DIR "${dest_dir}" PARENT_SCOPE)
 endfunction()
