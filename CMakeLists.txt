@@ -4,6 +4,8 @@ project(
     VERSION 0.2.0
     LANGUAGES C CXX) # C is also needed by some decoder backend dependency checks.
 
+include(GNUInstallDirs)
+
 set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
@@ -161,6 +163,45 @@ qt_deploy_runtime_dependencies(
         TARGETS ${PROJECT_NAME}
         BUNDLE DESTINATION .
         RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+
+    if(WIN32 AND RCV_ENABLE_TRACE_DECODER)
+        get_target_property(_rcv_td_compile_defs rocprof-trace-decoder::rocprof-trace-decoder-static
+                            INTERFACE_COMPILE_DEFINITIONS)
+        if(_rcv_td_compile_defs MATCHES "(^|;)ROCPROF_TRACE_DECODER_USE_COMGR($|;)")
+            get_target_property(_rcv_td_link_libs rocprof-trace-decoder::rocprof-trace-decoder-static
+                                INTERFACE_LINK_LIBRARIES)
+            set(_rcv_amd_comgr_dll_candidates)
+            foreach(_rcv_link_lib IN LISTS _rcv_td_link_libs)
+                get_filename_component(_rcv_link_lib_name "${_rcv_link_lib}" NAME)
+                if(_rcv_link_lib_name STREQUAL "amd_comgr.lib")
+                    get_filename_component(_rcv_link_lib_dir "${_rcv_link_lib}" DIRECTORY)
+                    list(APPEND _rcv_amd_comgr_dll_candidates
+                         "${_rcv_link_lib_dir}/../bin/amd_comgr.dll"
+                         "${_rcv_link_lib_dir}/amd_comgr.dll")
+                endif()
+            endforeach()
+            foreach(_rcv_prefix IN LISTS CMAKE_PREFIX_PATH)
+                list(APPEND _rcv_amd_comgr_dll_candidates "${_rcv_prefix}/bin/amd_comgr.dll")
+            endforeach()
+            if(DEFINED ENV{ROCM_PATH})
+                list(APPEND _rcv_amd_comgr_dll_candidates "$ENV{ROCM_PATH}/bin/amd_comgr.dll")
+            endif()
+
+            set(_rcv_amd_comgr_dll_found FALSE)
+            foreach(_rcv_amd_comgr_dll IN LISTS _rcv_amd_comgr_dll_candidates)
+                file(TO_CMAKE_PATH "${_rcv_amd_comgr_dll}" _rcv_amd_comgr_dll)
+                if(EXISTS "${_rcv_amd_comgr_dll}")
+                    install(FILES "${_rcv_amd_comgr_dll}" DESTINATION ${CMAKE_INSTALL_BINDIR})
+                    set(_rcv_amd_comgr_dll_found TRUE)
+                    break()
+                endif()
+            endforeach()
+            if(NOT _rcv_amd_comgr_dll_found)
+                message(FATAL_ERROR "Trace-decoder uses amd_comgr, but amd_comgr.dll was not found for packaging")
+            endif()
+        endif()
+    endif()
+
     install(SCRIPT ${deploy_script})
 
     set(RCVIEW_CONFIG_DESTINATION ${CMAKE_INSTALL_PREFIX}/share/rocprof-compute-viewer)
