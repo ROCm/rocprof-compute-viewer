@@ -156,12 +156,7 @@ qt_deploy_runtime_dependencies(
     if(RCV_ENABLE_TRACE_DECODER)
         # Namespaced target carries LLVM (or comgr) transitively via PUBLIC
         # link/include/define interface — nothing else to wire up here.
-        if(WIN32)
-            set(RCV_TRACE_DECODER_TARGET rocprof-trace-decoder::rocprof-trace-decoder)
-        else()
-            set(RCV_TRACE_DECODER_TARGET rocprof-trace-decoder::rocprof-trace-decoder-static)
-        endif()
-        target_link_libraries(${PROJECT_NAME} PRIVATE ${RCV_TRACE_DECODER_TARGET})
+        target_link_libraries(${PROJECT_NAME} PRIVATE rocprof-trace-decoder::rocprof-trace-decoder-static)
     endif()
 
     install(
@@ -170,40 +165,9 @@ qt_deploy_runtime_dependencies(
         RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 
     if(WIN32 AND RCV_ENABLE_TRACE_DECODER)
-        install(FILES "$<TARGET_FILE:${RCV_TRACE_DECODER_TARGET}>" DESTINATION ${CMAKE_INSTALL_BINDIR})
-
-        get_target_property(_rcv_td_compile_defs ${RCV_TRACE_DECODER_TARGET} INTERFACE_COMPILE_DEFINITIONS)
-        if(_rcv_td_compile_defs MATCHES "(^|;)ROCPROF_TRACE_DECODER_USE_COMGR($|;)")
-            get_target_property(_rcv_td_link_libs ${RCV_TRACE_DECODER_TARGET} INTERFACE_LINK_LIBRARIES)
-            set(_rcv_amd_comgr_dll_candidates)
-            foreach(_rcv_link_lib IN LISTS _rcv_td_link_libs)
-                get_filename_component(_rcv_link_lib_name "${_rcv_link_lib}" NAME)
-                if(_rcv_link_lib_name STREQUAL "amd_comgr.lib")
-                    get_filename_component(_rcv_link_lib_dir "${_rcv_link_lib}" DIRECTORY)
-                    list(APPEND _rcv_amd_comgr_dll_candidates
-                         "${_rcv_link_lib_dir}/../bin/amd_comgr.dll"
-                         "${_rcv_link_lib_dir}/amd_comgr.dll")
-                endif()
-            endforeach()
-            foreach(_rcv_prefix IN LISTS CMAKE_PREFIX_PATH)
-                list(APPEND _rcv_amd_comgr_dll_candidates "${_rcv_prefix}/bin/amd_comgr.dll")
-            endforeach()
-            if(DEFINED ENV{ROCM_PATH})
-                list(APPEND _rcv_amd_comgr_dll_candidates "$ENV{ROCM_PATH}/bin/amd_comgr.dll")
-            endif()
-
-            set(_rcv_amd_comgr_dll_found FALSE)
-            foreach(_rcv_amd_comgr_dll IN LISTS _rcv_amd_comgr_dll_candidates)
-                file(TO_CMAKE_PATH "${_rcv_amd_comgr_dll}" _rcv_amd_comgr_dll)
-                if(EXISTS "${_rcv_amd_comgr_dll}")
-                    install(FILES "${_rcv_amd_comgr_dll}" DESTINATION ${CMAKE_INSTALL_BINDIR})
-                    set(_rcv_amd_comgr_dll_found TRUE)
-                    break()
-                endif()
-            endforeach()
-            if(NOT _rcv_amd_comgr_dll_found)
-                message(FATAL_ERROR "Trace-decoder uses amd_comgr, but amd_comgr.dll was not found for packaging")
-            endif()
+        rcv_find_amd_comgr_dll(_rcv_amd_comgr_dll rocprof-trace-decoder::rocprof-trace-decoder-static)
+        if(_rcv_amd_comgr_dll)
+            install(FILES "${_rcv_amd_comgr_dll}" DESTINATION ${CMAKE_INSTALL_BINDIR})
         endif()
     endif()
 

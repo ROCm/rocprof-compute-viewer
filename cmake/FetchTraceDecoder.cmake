@@ -3,6 +3,7 @@
 # Shared between the main RCV build and the tests project.
 # Resolves the rocprof-trace-decoder in one of three ways and, on success,
 # sets RCV_HAS_TRACE_DECODER=ON and makes the namespaced target
+# rocprof-trace-decoder::rocprof-trace-decoder and
 # rocprof-trace-decoder::rocprof-trace-decoder-static available.
 #
 # Cache variables consumed:
@@ -60,6 +61,46 @@ function(_rcv_trace_decoder_apply_consumer_link_options)
             endif()
         endforeach()
     endforeach()
+endfunction()
+
+function(rcv_find_amd_comgr_dll out_var trace_decoder_target)
+    set(${out_var} "" PARENT_SCOPE)
+    if(NOT WIN32)
+        return()
+    endif()
+
+    get_target_property(_rcv_td_compile_defs ${trace_decoder_target} INTERFACE_COMPILE_DEFINITIONS)
+    if(NOT _rcv_td_compile_defs MATCHES "(^|;)ROCPROF_TRACE_DECODER_USE_COMGR($|;)")
+        return()
+    endif()
+
+    get_target_property(_rcv_td_link_libs ${trace_decoder_target} INTERFACE_LINK_LIBRARIES)
+    set(_rcv_amd_comgr_dll_candidates)
+    foreach(_rcv_link_lib IN LISTS _rcv_td_link_libs)
+        get_filename_component(_rcv_link_lib_name "${_rcv_link_lib}" NAME)
+        if(_rcv_link_lib_name STREQUAL "amd_comgr.lib")
+            get_filename_component(_rcv_link_lib_dir "${_rcv_link_lib}" DIRECTORY)
+            list(APPEND _rcv_amd_comgr_dll_candidates
+                 "${_rcv_link_lib_dir}/../bin/amd_comgr.dll"
+                 "${_rcv_link_lib_dir}/amd_comgr.dll")
+        endif()
+    endforeach()
+    foreach(_rcv_prefix IN LISTS CMAKE_PREFIX_PATH)
+        list(APPEND _rcv_amd_comgr_dll_candidates "${_rcv_prefix}/bin/amd_comgr.dll")
+    endforeach()
+    if(DEFINED ENV{ROCM_PATH})
+        list(APPEND _rcv_amd_comgr_dll_candidates "$ENV{ROCM_PATH}/bin/amd_comgr.dll")
+    endif()
+
+    foreach(_rcv_amd_comgr_dll IN LISTS _rcv_amd_comgr_dll_candidates)
+        file(TO_CMAKE_PATH "${_rcv_amd_comgr_dll}" _rcv_amd_comgr_dll)
+        if(EXISTS "${_rcv_amd_comgr_dll}")
+            set(${out_var} "${_rcv_amd_comgr_dll}" PARENT_SCOPE)
+            return()
+        endif()
+    endforeach()
+
+    message(FATAL_ERROR "Trace-decoder uses amd_comgr, but amd_comgr.dll was not found")
 endfunction()
 
 function(rcv_fetch_trace_decoder)
