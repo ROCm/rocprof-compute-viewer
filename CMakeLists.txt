@@ -119,6 +119,28 @@ if(${QT_VERSION_MAJOR} EQUAL 6 AND ${QT_VERSION_MINOR} GREATER_EQUAL 8)
         set(executable_path "$<TARGET_FILE:${PROJECT_NAME}>")
     endif()
 
+    set(rcv_deploy_extra_script "")
+    if(UNIX AND NOT APPLE AND RCV_ENABLE_TRACE_DECODER)
+        set(_rcv_rocm_prefixes ${CMAKE_PREFIX_PATH})
+        if(DEFINED ENV{ROCM_PATH})
+            list(APPEND _rcv_rocm_prefixes "$ENV{ROCM_PATH}")
+        endif()
+        list(APPEND _rcv_rocm_prefixes /opt/rocm)
+        list(REMOVE_DUPLICATES _rcv_rocm_prefixes)
+        foreach(_prefix IN LISTS _rcv_rocm_prefixes)
+            file(GLOB _rcv_comgr_libs "${_prefix}/lib/libamd_comgr.so*")
+            if(NOT EXISTS "${_prefix}/include/amd_comgr/amd_comgr.h" AND NOT _rcv_comgr_libs)
+                continue()
+            endif()
+            foreach(_suffix IN ITEMS lib lib64 lib/llvm/lib lib/rocm_sysdeps/lib)
+                set(_dir "${_prefix}/${_suffix}")
+                if(EXISTS "${_dir}")
+                    string(APPEND rcv_deploy_extra_script "list(APPEND QT_DEPLOY_IGNORED_LIB_DIRS \"${_dir}\")\n")
+                endif()
+            endforeach()
+        endforeach()
+    endif()
+
     # Generate a deployment script to be executed at install time
 
     qt_generate_deploy_script(
@@ -129,6 +151,7 @@ if(${QT_VERSION_MAJOR} EQUAL 6 AND ${QT_VERSION_MINOR} GREATER_EQUAL 8)
         CONTENT
         "
 include(\"${QT_DEPLOY_SUPPORT}\")
+${rcv_deploy_extra_script}
 qt_deploy_runtime_dependencies(
     EXECUTABLE \"${executable_path}\"
     DEPLOY_TOOL_OPTIONS ${deploy_tool_options_arg}
