@@ -1836,7 +1836,7 @@ void MainWindow::GatherWaves()
     auto preload_wave = [this](HotspotView* view, WaveEntry entry)
     {
         auto instance = data_store->getWave(entry);
-        view->Add(instance->tokens);
+        if (instance) view->Add(instance->tokens);
     };
 
     {
@@ -1872,7 +1872,7 @@ void MainWindow::GatherWaves()
                     if (entry.end < current_loaded_clk_start || entry.begin > current_loaded_clk_end) continue;
 
                     auto instance = data_store->getWave(entry);
-                    if (instance->cu < 0) continue;
+                    if (!instance || instance->cu < 0) continue;
 
                     gathered_cu = instance->cu;
                     found_cu = true;
@@ -1954,9 +1954,11 @@ void MainWindow::GatherWaves()
                 {
                     if (entry.end < current_loaded_clk_start || entry.begin > current_loaded_clk_end) continue;
 
-                    auto instance = data_store->getWave(entry);
-                    utilization_content->AddTokens(simd_id, instance->tokens);
-                    waves[instance->wave_begin] = instance;
+                    if (auto instance = data_store->getWave(entry))
+                    {
+                        utilization_content->AddTokens(simd_id, instance->tokens);
+                        waves[instance->wave_begin] = instance;
+                    }
                 }
             }
 

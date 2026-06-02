@@ -44,11 +44,18 @@ std::shared_ptr<WaveInstance> WaveInstance::Get(const std::string& path)
         if (reader_cache.find(path) != reader_cache.end()) return reader_cache.at(path);
     }
 
-    auto loaded_wave = std::make_shared<WaveInstance>(path);
+    try
+    {
+        auto loaded_wave = std::make_shared<WaveInstance>(path);
 
-    std::unique_lock<std::shared_mutex> lk(wave_mutex);
-    reader_cache[path] = loaded_wave;
-    return loaded_wave;
+        std::unique_lock<std::shared_mutex> lk(wave_mutex);
+        reader_cache[path] = loaded_wave;
+        return loaded_wave;
+    }
+    catch (std::exception& e)
+    {
+        QWARNING(false, e.what(), return nullptr);
+    }
 }
 
 void WaveInstance::InvalidadeCache()
@@ -297,13 +304,21 @@ void WaveInstance::populateExecMetadata(int wave_id, bool isIdleInfo)
 WaveInstance::WaveInstance(const std::string& _path) : path(_path)
 {
     JsonRequest json(path);
+    QWARNING(json.bValid, "Invalid json path: " << path, return );
     nlohmann::json& data = json.data;
 
     auto& instructions = data["wave"]["instructions"];
     int wave_id = data["wave"]["id"];
 
     bool isIdleInfo = true;
-    code = CodeData::LoadCode(path.substr(0, path.rfind("se")) + "code.json");
+    try
+    {
+        code = CodeData::LoadCode(path.substr(0, path.rfind("se")) + "code.json");
+    }
+    catch (std::exception& e)
+    {
+        QWARNING(false, "Invalid code path!", );
+    }
 
     std::array<int64_t, 4> prev_clock{};
     std::array<int64_t, 4> last_clock{};
