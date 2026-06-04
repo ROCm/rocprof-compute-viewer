@@ -1088,6 +1088,16 @@ void QOutsideWaveView::mouseMoveEvent(QMouseEvent* event)
 
     const int64_t clock_pos = QGlobalView::PosToClock(event->pos().x());
 
+    if (markers.empty())
+    {
+        int sd_idx = FindShaderDataAt(clock_pos);
+        if (sd_idx >= 0)
+        {
+            QToolTip::showText(event->globalPos(), (*shaderdata_records)[sd_idx].ToolTip().c_str());
+            return;
+        }
+    }
+
     int dispatch_idx = FindDispatchAt(clock_pos);
     if (dispatch_idx >= 0)
     {
@@ -1121,12 +1131,7 @@ void QOutsideWaveView::mouseMoveEvent(QMouseEvent* event)
     int index = 0;
     while (index < waves.size() && waves[index].end < clock_pos) index++;
 
-    if (index >= waves.size() || waves[index].begin > clock_pos)
-    {
-        int sd_idx = markers.empty() ? FindShaderDataAt(clock_pos) : -1;
-        if (sd_idx >= 0) QToolTip::showText(event->globalPos(), (*shaderdata_records)[sd_idx].ToolTip().c_str());
-        return;
-    }
+    if (index >= waves.size() || waves[index].begin > clock_pos) return;
 
     const auto& wave = waves[index];
     std::stringstream tooltip;

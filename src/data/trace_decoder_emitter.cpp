@@ -90,6 +90,21 @@ MarkerKind toMarkerKind(rocprof_trace_decoder::codeobj::FuncmapEntryKind kind)
     }
     return MarkerKind::Unknown;
 }
+
+bool hasRuntimeMarkerEntries(
+    rocprof_trace_decoder::codeobj::CodeobjAddressTranslate& codeobj_map, uint64_t codeobj_id
+)
+{
+    if (codeobj_id == 0) return false;
+    try
+    {
+        return !codeobj_map.getFuncmap(codeobj_id).by_id.empty();
+    }
+    catch (...)
+    {
+        return false;
+    }
+}
 } // namespace
 
 TraceDecoderEmitter::TraceDecoderEmitter(const InputInfo& in, RecordDispatcher& disp, DataStore& st) :
@@ -213,14 +228,20 @@ void TraceDecoderEmitter::run()
                 namespace cobj = rocprof_trace_decoder::codeobj;
 
                 const uint64_t codeobj_id = this->activeCodeobjAt(se, cu, simd, slot, time);
-                if (codeobj_id == 0) return ResolvedMarker{};
-
                 ResolvedMarker json_resolved = code_json_funcmap.Resolve(id, codeobj_id);
 
-                cobj::Funcmap::EntryPtr entry = codeobj_map.getMarker(codeobj_id, id);
-                if (!entry) return json_resolved;
+                const bool has_decoder_markers = hasRuntimeMarkerEntries(codeobj_map, codeobj_id);
+                if (!json_resolved.found && !has_decoder_markers) return ResolvedMarker{};
+
+                cobj::Funcmap::EntryPtr entry = has_decoder_markers ? codeobj_map.getMarker(codeobj_id, id) : nullptr;
+                if (!entry)
+                {
+                    if (has_decoder_markers) json_resolved.metadata_available = true;
+                    return json_resolved;
+                }
 
                 ResolvedMarker resolved;
+                resolved.metadata_available = true;
                 resolved.found = true;
                 resolved.kind = toMarkerKind(entry->kind);
                 resolved.name = entry->name;
