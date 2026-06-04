@@ -28,6 +28,7 @@
 #include <QScrollBar>
 #include <QToolTip>
 #include <algorithm>
+#include <cstdlib>
 #include <sstream>
 #include <utility>
 #include "code/qcodelist.h"
@@ -46,6 +47,24 @@ constexpr int64_t SQTT_POINT_MARKER_MIN_CYCLES = 8;
 int markerRowForDepth(int depth, int rows) { return rows - 1 - std::clamp(depth, 0, rows - 1); }
 
 int markerDepthForRow(int row, int rows) { return rows - 1 - std::clamp(row, 0, rows - 1); }
+
+bool horizontalScrollDominates(const QWheelEvent* event)
+{
+    const QPoint& pixel = event->pixelDelta();
+    int dx;
+    int dy;
+    if (!pixel.isNull())
+    {
+        dx = pixel.x();
+        dy = pixel.y();
+    }
+    else
+    {
+        dx = event->angleDelta().x();
+        dy = event->angleDelta().y();
+    }
+    return dx != 0 && std::abs(dx) > std::abs(dy);
+}
 } // namespace
 
 QWaveView::QWaveView(QCustomScroll* parent) : view(parent->view), tool(parent->tool)
@@ -376,13 +395,13 @@ void QWaveSlots::wheelEvent(QWheelEvent* event)
         return;
     }
 
-    // Horizontal scroll: forward to the backing scrollbar, which implements
-    // horizontal scrolling.
-    const bool hasHoriz =
-        event->angleDelta().x() != 0 || (!event->pixelDelta().isNull() && event->pixelDelta().x() != 0);
-    if (hasHoriz)
+    // Horizontal scroll: forward to a single scrollbar. It doesn't matter which
+    // one — ScrollValue::notify() syncs all parents to the same value, so the
+    // others follow. Forwarding to more than one would apply the delta twice.
+    if (horizontalScrollDominates(event))
     {
-        for (auto* parent : view->parents) QApplication::sendEvent(parent->scrollbar, event);
+        if (!view->parents.empty())
+            QApplication::sendEvent(view->parents.front()->scrollbar, event);
         event->accept();
         return;
     }
