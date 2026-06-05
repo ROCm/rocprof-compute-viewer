@@ -5,6 +5,8 @@
 include_guard(GLOBAL)
 
 option(RCV_FETCH_TRACE_DECODER "Fetch and build rocprof-trace-decoder when TRACE_DECODER_ROOT is not set" OFF)
+option(RCV_FETCH_TRACE_DECODER_WITH_DISASSEMBLY
+       "When fetching rocprof-trace-decoder, build with a disassembly backend (amd_comgr)" ON)
 set(RCV_TRACE_DECODER_REPO "https://github.com/ROCm/rocm-systems.git"
     CACHE STRING "Git repository for rocprof-trace-decoder")
 set(RCV_TRACE_DECODER_TAG "users/gbaraldi/eventtracing"
@@ -104,12 +106,18 @@ function(rcv_fetch_trace_decoder)
         message(FATAL_ERROR "rocprof-trace-decoder checkout is incomplete at ${_decoder_src}")
     endif()
 
+    if(RCV_FETCH_TRACE_DECODER_WITH_DISASSEMBLY)
+        set(_disable_comgr OFF)
+    else()
+        set(_disable_comgr ON)
+    endif()
+
     set(_cfg_args
         -S ${_decoder_src}
         -B ${_build_dir}
         -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
         -DUSE_LLVM_DISASM=OFF
-        -DDISABLE_COMGR=OFF)
+        -DDISABLE_COMGR=${_disable_comgr})
 
     _rcv_rocm_prefixes(_prefixes)
     if(_prefixes)
@@ -132,7 +140,8 @@ function(rcv_fetch_trace_decoder)
     if(CMAKE_GENERATOR)
         list(APPEND _cfg_args -G "${CMAKE_GENERATOR}")
     endif()
-    foreach(_arg IN ITEMS CMAKE_C_COMPILER CMAKE_CXX_COMPILER)
+    foreach(_arg IN ITEMS CMAKE_C_COMPILER CMAKE_CXX_COMPILER CMAKE_OSX_ARCHITECTURES CMAKE_OSX_DEPLOYMENT_TARGET
+                          CMAKE_OSX_SYSROOT)
         if(DEFINED ${_arg} AND NOT "${${_arg}}" STREQUAL "")
             list(APPEND _cfg_args "-D${_arg}=${${_arg}}")
         endif()
