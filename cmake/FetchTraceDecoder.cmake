@@ -49,8 +49,20 @@ function(rcv_fetch_trace_decoder)
     set(RCV_HAS_TRACE_DECODER OFF PARENT_SCOPE)
 
     if(DEFINED TRACE_DECODER_ROOT)
+        get_filename_component(_trace_decoder_root "${TRACE_DECODER_ROOT}" ABSOLUTE)
+        if(DEFINED rocprof-trace-decoder_DIR)
+            get_filename_component(_trace_decoder_cached_dir "${rocprof-trace-decoder_DIR}" ABSOLUTE)
+            string(FIND "${_trace_decoder_cached_dir}/" "${_trace_decoder_root}/" _trace_decoder_cached_dir_in_root)
+            if(NOT _trace_decoder_cached_dir_in_root EQUAL 0)
+                message(
+                    STATUS
+                        "Ignoring cached rocprof-trace-decoder_DIR outside TRACE_DECODER_ROOT: "
+                        "${rocprof-trace-decoder_DIR}")
+                unset(rocprof-trace-decoder_DIR CACHE)
+            endif()
+        endif()
         find_package(rocprof-trace-decoder REQUIRED CONFIG
-            PATHS ${TRACE_DECODER_ROOT}
+            PATHS "${TRACE_DECODER_ROOT}"
             PATH_SUFFIXES source lib/cmake/rocprof-trace-decoder
             NO_DEFAULT_PATH)
         _rcv_add_rocm_rpath_links()

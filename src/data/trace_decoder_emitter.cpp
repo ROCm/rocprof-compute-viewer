@@ -585,6 +585,7 @@ rocprofiler_thread_trace_decoder_status_t TraceDecoderEmitter::isaCallback(
         *size = inst_text.size();
         return ROCPROFILER_THREAD_TRACE_DECODER_STATUS_ERROR_OUT_OF_RESOURCES;
     }
+
     std::memcpy(instruction, inst_text.c_str(), inst_text.size());
     *size = inst_text.size();
     *memory_size = inst_mem_size;
@@ -1018,11 +1019,7 @@ rocprofiler_thread_trace_decoder_status_t TraceDecoderEmitter::traceCallback(
         case ROCPROFILER_THREAD_TRACE_DECODER_RECORD_EVENT:
         {
             auto* event = static_cast<rocprofiler_thread_trace_decoder_event_t*>(trace_events);
-            if (trace_size != 1)
-                std::cerr << "[trace_decoder][se=" << ctx->se << "] warning: expected one EVENT record, got "
-                          << trace_size << "\n";
-            if (trace_size == 0) break;
-            handleTraceEvent(*ctx, event);
+            for (size_t i=0; i<trace_size; i++) handleTraceEvent(*ctx, event + i);
             break;
         }
 

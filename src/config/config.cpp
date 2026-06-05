@@ -253,11 +253,6 @@ const QColor& DecoderEventPacketLossColor()
     static QColor dark(255, 0, 0, 191);
     return dark;
 }
-const QColor& DecoderEventDispatchEndColor()
-{
-    static QColor dark(255, 255, 0, 255);
-    return dark;
-}
 const QColor& DecoderEventStallColor()
 {
     static QColor dark(255, 160, 0, 95);
@@ -268,17 +263,30 @@ const QColor& DecoderEventCodeObjectColor()
     static QColor dark(255, 255, 0, 224);
     return dark;
 }
+const QColor& DecoderEventMiscColor()
+{
+    static QColor dark(255, 255, 255, 127);
+    static QColor light(0, 0, 0, 127);
+    return bDarkTheme ? dark : light;
+}
+
 const QColor& DecoderEventColor(int type)
 {
     switch (type)
     {
         case ROCPROF_TRACE_DECODER_EVENT_CS_PARTIAL_FLUSH: return DecoderEventCsPartialFlushColor();
         case ROCPROF_TRACE_DECODER_EVENT_PACKET_LOSS: return DecoderEventPacketLossColor();
-        case ROCPROF_TRACE_DECODER_EVENT_DISPATCH_END: return DecoderEventDispatchEndColor();
+        case ROCPROF_TRACE_DECODER_EVENT_DIDT_STALL_BEGIN:
+        case ROCPROF_TRACE_DECODER_EVENT_DIDT_STALL_END:
         case ROCPROF_TRACE_DECODER_EVENT_TT_STALL_BEGIN:
         case ROCPROF_TRACE_DECODER_EVENT_TT_STALL_END: return DecoderEventStallColor();
         case ROCPROF_TRACE_DECODER_EVENT_CODE_OBJECT_LOAD:
         case ROCPROF_TRACE_DECODER_EVENT_CODE_OBJECT_UNLOAD: return DecoderEventCodeObjectColor();
+        case ROCPROF_TRACE_DECODER_EVENT_TT_FLUSH:
+        case ROCPROF_TRACE_DECODER_EVENT_GC_RINSE:
+        case ROCPROF_TRACE_DECODER_EVENT_SPM_SAMPLE:
+        case ROCPROF_TRACE_DECODER_EVENT_BOTTOM_OF_PIPE_TS:
+        case ROCPROF_TRACE_DECODER_EVENT_DISPATCH_END: return DecoderEventMiscColor();
         default: return DecoderEventDefaultColor();
     }
 }
