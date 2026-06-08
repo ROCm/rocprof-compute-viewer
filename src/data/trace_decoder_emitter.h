@@ -54,6 +54,7 @@ private:
     struct ISALine
     {
         std::string text;
+        std::string cppline;
         uint64_t memory_size = 0;
         uint64_t addr = 0;
         uint64_t codeobj_id = 0;
