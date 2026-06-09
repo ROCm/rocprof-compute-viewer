@@ -181,7 +181,7 @@ inline std::string TraceDecoderEventName(int type)
     switch (type)
     {
         case ROCPROF_TRACE_DECODER_EVENT_CS_PARTIAL_FLUSH: return "CS Partial Flush";
-        case ROCPROF_TRACE_DECODER_EVENT_BOTTOM_OF_PIPE_TS: return "Bottom Of Pipe";
+        case ROCPROF_TRACE_DECODER_EVENT_BOTTOM_OF_PIPE_TS: return "Bottom Of Pipe Timestamp";
         case ROCPROF_TRACE_DECODER_EVENT_SAVE_CONTEXT: return "Save Context";
         case ROCPROF_TRACE_DECODER_EVENT_DISPATCH_END: return "Dispatch End";
         case ROCPROF_TRACE_DECODER_EVENT_CACHE_FLUSH: return "Cache Flush";
