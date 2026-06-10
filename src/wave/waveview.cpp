@@ -28,6 +28,7 @@
 #include <QScrollBar>
 #include <QToolTip>
 #include <algorithm>
+#include <cstdlib>
 #include <sstream>
 #include <utility>
 #include "code/qcodelist.h"
@@ -46,6 +47,24 @@ constexpr int64_t SQTT_POINT_MARKER_MIN_CYCLES = 8;
 int markerRowForDepth(int depth, int rows) { return rows - 1 - std::clamp(depth, 0, rows - 1); }
 
 int markerDepthForRow(int row, int rows) { return rows - 1 - std::clamp(row, 0, rows - 1); }
+
+bool horizontalScrollDominates(const QWheelEvent* event)
+{
+    const QPoint& pixel = event->pixelDelta();
+    int dx;
+    int dy;
+    if (!pixel.isNull())
+    {
+        dx = pixel.x();
+        dy = pixel.y();
+    }
+    else
+    {
+        dx = event->angleDelta().x();
+        dy = event->angleDelta().y();
+    }
+    return dx != 0 && std::abs(dx) > std::abs(dy);
+}
 } // namespace
 
 QWaveView::QWaveView(QCustomScroll* parent) : view(parent->view), tool(parent->tool)
@@ -249,7 +268,7 @@ void QWaveView::leaveEvent(QEvent* event)
 
 void QWaveView::mousePressEvent(QMouseEvent* event)
 {
-    QWARNING(QCodelist::singleton && MainWindow::window, "Invalid codelist", return );
+    QWARNING(QCodelist::singleton && MainWindow::window, "Invalid codelist", return);
 
     if (tool && event->button() & Qt::RightButton)
     {
@@ -361,22 +380,33 @@ void QWaveView::keyPressEvent(QKeyEvent* event)
 
 void QWaveSlots::wheelEvent(QWheelEvent* event)
 {
-    if (!(QApplication::keyboardModifiers() & Qt::ControlModifier))
+    if (QApplication::keyboardModifiers() & Qt::ControlModifier)
     {
-        this->Super::wheelEvent(event);
+        if (!cuwaves_content) return;
+        IMPLEMENT_FPS_LIMITER();
+
+        float mouse_x_in_content = event->position().x() - cuwaves_content->pos().x();
+        int64_t clock_at_mouse = Token::PosToClock(mouse_x_in_content) + view->start;
+
+        // Calculate ratio based on the clock position relative to the visible range
+        float ratio = float(clock_at_mouse - view->start) / float(view->range);
+
+        if (mouse_x_in_content > 0) MainWindow::incrementWaveViewMipmap(event->angleDelta().y() > 0 ? 1 : -1, ratio);
         return;
     }
 
-    if (!cuwaves_content) return;
-    IMPLEMENT_FPS_LIMITER();
+    // Horizontal scroll: forward to a single scrollbar. It doesn't matter which
+    // one — ScrollValue::notify() syncs all parents to the same value, so the
+    // others follow. Forwarding to more than one would apply the delta twice.
+    if (horizontalScrollDominates(event))
+    {
+        if (!view->parents.empty())
+            QApplication::sendEvent(view->parents.front()->scrollbar, event);
+        event->accept();
+        return;
+    }
 
-    float mouse_x_in_content = event->position().x() - cuwaves_content->pos().x();
-    int64_t clock_at_mouse = Token::PosToClock(mouse_x_in_content) + view->start;
-
-    // Calculate ratio based on the clock position relative to the visible range
-    float ratio = float(clock_at_mouse - view->start) / float(view->range);
-
-    if (mouse_x_in_content > 0) MainWindow::incrementWaveViewMipmap(event->angleDelta().y() > 0 ? 1 : -1, ratio);
+    Super::wheelEvent(event);
 }
 
 void QWaveSlots::keyPressEvent(QKeyEvent* event)
@@ -739,7 +769,7 @@ void QUtilization::ClearOtherSimd()
 
 void QUtilization::AddTokens(int simd, const TokenMap& tokens)
 {
-    QWARNING(simd < 4, "Invalid simd " << simd, return );
+    QWARNING(simd < 4, "Invalid simd " << simd, return);
 
     // Use base here as some decoder versions don't consider stalls for MSG
     // We dont want to show full cycles to avoid clutter in the timeline display
