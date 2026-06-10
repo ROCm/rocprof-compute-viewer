@@ -91,9 +91,7 @@ MarkerKind toMarkerKind(rocprof_trace_decoder::codeobj::FuncmapEntryKind kind)
     return MarkerKind::Unknown;
 }
 
-bool hasRuntimeMarkerEntries(
-    rocprof_trace_decoder::codeobj::CodeobjAddressTranslate& codeobj_map, uint64_t codeobj_id
-)
+bool hasRuntimeMarkerEntries(rocprof_trace_decoder::codeobj::CodeobjAddressTranslate& codeobj_map, uint64_t codeobj_id)
 {
     if (codeobj_id == 0) return false;
     try
@@ -1019,7 +1017,7 @@ rocprofiler_thread_trace_decoder_status_t TraceDecoderEmitter::traceCallback(
         case ROCPROFILER_THREAD_TRACE_DECODER_RECORD_EVENT:
         {
             auto* event = static_cast<rocprofiler_thread_trace_decoder_event_t*>(trace_events);
-            for (size_t i=0; i<trace_size; i++) handleTraceEvent(*ctx, event + i);
+            for (size_t i = 0; i < trace_size; i++) handleTraceEvent(*ctx, event + i);
             break;
         }
 
