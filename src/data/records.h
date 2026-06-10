@@ -126,8 +126,9 @@ struct trace_event_record_t
     int type = 0;
     uint8_t me_id = 0;
     uint8_t pipe_id = 0;
-    uint16_t reserved = 0;
+    uint16_t flags = 0;
     uint64_t payload = 0;
+    uint64_t byte_offset = 0;
 };
 
 enum
