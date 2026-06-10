@@ -71,5 +71,5 @@ public:
 private:
     std::map<std::pair<uint64_t, uint64_t>, int> pc_to_dispatch_;
     std::unordered_map<int, std::string> names_;
-    int next_dispatch_ = 0;
+    int next_dispatch_ = 1; // kid 0 reserved for unknown/idle, matching the JSON profiler
 };
