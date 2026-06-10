@@ -112,9 +112,13 @@ void walkMarkerStream(
 
     auto resolve_id = [&](uint32_t id, int64_t time) -> ResolvedMarker
     {
-        if (!resolver) return ResolvedMarker{};
+        if (!resolver) return {};
         ResolvedMarker out = resolver(id, time);
-        if (out.found && !out.name.empty()) out.name = maybeDemangle(std::move(out.name));
+        if (out.found)
+        {
+            out.metadata_available = true;
+            if (!out.name.empty()) out.name = maybeDemangle(std::move(out.name));
+        }
         return out;
     };
 
@@ -129,6 +133,7 @@ void walkMarkerStream(
         {
             if (stack.empty())
             {
+                if (!resolve_id(0, rec.time).metadata_available) continue;
                 out_diags->push_back(
                     {MarkerDiagnostic::Severity::Warning,
                      "orphan exit marker at " + locTag(se, cu, simd, slot, rec.time)}
@@ -154,6 +159,9 @@ void walkMarkerStream(
         // Transition (0x3): exit prior scope and immediately enter a new one.
         if (exit_prev && is_enter)
         {
+            ResolvedMarker entry = resolve_id(id, rec.time);
+            if (!entry.metadata_available && stack.empty()) continue;
+
             if (stack.empty())
             {
                 out_diags->push_back(
@@ -178,7 +186,8 @@ void walkMarkerStream(
                 stack.pop_back();
             }
 
-            ResolvedMarker entry = resolve_id(id, rec.time);
+            if (!entry.metadata_available) continue;
+
             StackEntry e;
             e.marker_id = id;
             e.enter_time = rec.time;
@@ -206,6 +215,8 @@ void walkMarkerStream(
         if (is_enter)
         {
             ResolvedMarker entry = resolve_id(id, rec.time);
+            if (!entry.metadata_available) continue;
+
             StackEntry e;
             e.marker_id = id;
             e.enter_time = rec.time;
@@ -230,6 +241,8 @@ void walkMarkerStream(
 
         // Point marker (0x0 with id != 0).
         ResolvedMarker entry = resolve_id(id, rec.time);
+        if (!entry.metadata_available) continue;
+
         MarkerSpan span;
         span.enter_time = rec.time;
         span.exit_time = rec.time;

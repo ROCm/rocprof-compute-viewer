@@ -78,5 +78,5 @@ void DispatchResolver::Clear()
 {
     pc_to_dispatch_.clear();
     names_.clear();
-    next_dispatch_ = 0;
+    next_dispatch_ = 1;
 }

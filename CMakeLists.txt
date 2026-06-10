@@ -2,7 +2,9 @@ cmake_minimum_required(VERSION 3.16...3.22)
 project(
     rocprof-compute-viewer
     VERSION 0.2.0
-    LANGUAGES CXX)
+    LANGUAGES C CXX) # C is also needed by some decoder backend dependency checks.
+
+include(GNUInstallDirs)
 
 set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTOMOC ON)
@@ -35,42 +37,27 @@ if(RCV_DISABLE_OPENGL)
 endif(RCV_DISABLE_OPENGL)
 
 option(RCV_ENABLE_EXTRA_LOGGING "Enable extra diagnostic logging" OFF)
-add_compile_options(-include "${CMAKE_CURRENT_SOURCE_DIR}/src/util/diagnostic_log.h")
+if(MSVC)
+    add_compile_options($<$<COMPILE_LANGUAGE:CXX>:/FI${CMAKE_CURRENT_SOURCE_DIR}/src/util/diagnostic_log.h>)
+else()
+    add_compile_options(-include "${CMAKE_CURRENT_SOURCE_DIR}/src/util/diagnostic_log.h")
+endif()
 if(RCV_ENABLE_EXTRA_LOGGING)
     add_compile_definitions(RCV_ENABLE_EXTRA_LOGGING)
 endif()
 
-# ----------------------------------------------------------------------------
-# Trace-decoder + disassembly support.
-#
-# Single knob: TRACE_DECODER_ROOT — path to the decoder's build tree (or
-# install prefix). When set, RCV consumes the decoder via its CMake package
-# config; LLVM (or amd_comgr) and all transitive include dirs / link libs /
-# compile defs propagate automatically through the namespaced target. There
-# is no separate `RCV_USE_LLVM` knob — the disasm backend is fixed at decoder
-# build time and RCV just inherits it.
-#
-# To override the LLVM the decoder was built against (rare — only useful if
-# you want RCV to link a different LLVM than the decoder), set LLVM_DIR
-# before configuring RCV; the package config respects it.
-# ----------------------------------------------------------------------------
-if(DEFINED TRACE_DECODER_ROOT)
-    # Search both the build-tree export (CMake config in build/source/) and
-    # the standard install layout (lib/cmake/rocprof-trace-decoder/).
-    find_package(rocprof-trace-decoder REQUIRED CONFIG
-        PATHS ${TRACE_DECODER_ROOT}
-        PATH_SUFFIXES source lib/cmake/rocprof-trace-decoder
-        NO_DEFAULT_PATH)
-    set(RCV_ENABLE_TRACE_DECODER ON)
-    message(STATUS "Trace-decoder enabled: ${rocprof-trace-decoder_DIR}")
-    add_compile_definitions(RCV_HAS_TRACE_DECODER)
-else()
-    set(RCV_ENABLE_TRACE_DECODER OFF)
-    message(STATUS "Trace-decoder disabled (set TRACE_DECODER_ROOT to enable)")
-endif()
-
+# Trace-decoder support is enabled from TRACE_DECODER_ROOT or by setting
+# RCV_FETCH_TRACE_DECODER.
 if(CMAKE_BUILD_TYPE STREQUAL "")
     set(CMAKE_BUILD_TYPE Release)
+endif()
+
+list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
+include(FetchTraceDecoder)
+rcv_fetch_trace_decoder()
+set(RCV_ENABLE_TRACE_DECODER ${RCV_HAS_TRACE_DECODER})
+if(RCV_ENABLE_TRACE_DECODER)
+    add_compile_definitions(RCV_HAS_TRACE_DECODER)
 endif()
 
 include_directories(src)
@@ -132,6 +119,28 @@ if(${QT_VERSION_MAJOR} EQUAL 6 AND ${QT_VERSION_MINOR} GREATER_EQUAL 8)
         set(executable_path "$<TARGET_FILE:${PROJECT_NAME}>")
     endif()
 
+    set(rcv_deploy_extra_script "")
+    if(UNIX AND NOT APPLE AND RCV_ENABLE_TRACE_DECODER)
+        set(_rcv_rocm_prefixes ${CMAKE_PREFIX_PATH})
+        if(DEFINED ENV{ROCM_PATH})
+            list(APPEND _rcv_rocm_prefixes "$ENV{ROCM_PATH}")
+        endif()
+        list(APPEND _rcv_rocm_prefixes /opt/rocm)
+        list(REMOVE_DUPLICATES _rcv_rocm_prefixes)
+        foreach(_prefix IN LISTS _rcv_rocm_prefixes)
+            file(GLOB _rcv_comgr_libs "${_prefix}/lib/libamd_comgr.so*")
+            if(NOT EXISTS "${_prefix}/include/amd_comgr/amd_comgr.h" AND NOT _rcv_comgr_libs)
+                continue()
+            endif()
+            foreach(_suffix IN ITEMS lib lib64 lib/llvm/lib lib/rocm_sysdeps/lib)
+                set(_dir "${_prefix}/${_suffix}")
+                if(EXISTS "${_dir}")
+                    string(APPEND rcv_deploy_extra_script "list(APPEND QT_DEPLOY_IGNORED_LIB_DIRS \"${_dir}\")\n")
+                endif()
+            endforeach()
+        endforeach()
+    endif()
+
     # Generate a deployment script to be executed at install time
 
     qt_generate_deploy_script(
@@ -142,6 +151,7 @@ if(${QT_VERSION_MAJOR} EQUAL 6 AND ${QT_VERSION_MINOR} GREATER_EQUAL 8)
         CONTENT
         "
 include(\"${QT_DEPLOY_SUPPORT}\")
+${rcv_deploy_extra_script}
 qt_deploy_runtime_dependencies(
     EXECUTABLE \"${executable_path}\"
     DEPLOY_TOOL_OPTIONS ${deploy_tool_options_arg}
@@ -162,6 +172,15 @@ qt_deploy_runtime_dependencies(
         TARGETS ${PROJECT_NAME}
         BUNDLE DESTINATION .
         RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+
+    if(WIN32 AND RCV_ENABLE_TRACE_DECODER)
+        find_file(_rcv_amd_comgr_dll amd_comgr.dll HINTS ${CMAKE_PREFIX_PATH} "$ENV{ROCM_PATH}" PATH_SUFFIXES bin
+                  NO_DEFAULT_PATH)
+        if(_rcv_amd_comgr_dll)
+            install(FILES "${_rcv_amd_comgr_dll}" DESTINATION ${CMAKE_INSTALL_BINDIR})
+        endif()
+    endif()
+
     install(SCRIPT ${deploy_script})
 
     set(RCVIEW_CONFIG_DESTINATION ${CMAKE_INSTALL_PREFIX}/share/rocprof-compute-viewer)

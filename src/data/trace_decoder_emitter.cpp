@@ -90,6 +90,19 @@ MarkerKind toMarkerKind(rocprof_trace_decoder::codeobj::FuncmapEntryKind kind)
     }
     return MarkerKind::Unknown;
 }
+
+bool hasRuntimeMarkerEntries(rocprof_trace_decoder::codeobj::CodeobjAddressTranslate& codeobj_map, uint64_t codeobj_id)
+{
+    if (codeobj_id == 0) return false;
+    try
+    {
+        return !codeobj_map.getFuncmap(codeobj_id).by_id.empty();
+    }
+    catch (...)
+    {
+        return false;
+    }
+}
 } // namespace
 
 TraceDecoderEmitter::TraceDecoderEmitter(const InputInfo& in, RecordDispatcher& disp, DataStore& st) :
@@ -213,14 +226,20 @@ void TraceDecoderEmitter::run()
                 namespace cobj = rocprof_trace_decoder::codeobj;
 
                 const uint64_t codeobj_id = this->activeCodeobjAt(se, cu, simd, slot, time);
-                if (codeobj_id == 0) return ResolvedMarker{};
-
                 ResolvedMarker json_resolved = code_json_funcmap.Resolve(id, codeobj_id);
 
-                cobj::Funcmap::EntryPtr entry = codeobj_map.getMarker(codeobj_id, id);
-                if (!entry) return json_resolved;
+                const bool has_decoder_markers = hasRuntimeMarkerEntries(codeobj_map, codeobj_id);
+                if (!json_resolved.found && !has_decoder_markers) return ResolvedMarker{};
+
+                cobj::Funcmap::EntryPtr entry = has_decoder_markers ? codeobj_map.getMarker(codeobj_id, id) : nullptr;
+                if (!entry)
+                {
+                    if (has_decoder_markers) json_resolved.metadata_available = true;
+                    return json_resolved;
+                }
 
                 ResolvedMarker resolved;
+                resolved.metadata_available = true;
                 resolved.found = true;
                 resolved.kind = toMarkerKind(entry->kind);
                 resolved.name = entry->name;
@@ -273,7 +292,7 @@ void TraceDecoderEmitter::alignSEClocks()
     for (auto& [se, lo] : first)
     {
         const auto& hi = last.at(se);
-        if (hi.sc > lo.sc > 0 && hi.rc > lo.rc)
+        if (hi.sc > lo.sc && lo.sc > 0 && hi.rc > lo.rc)
         {
             delta_shader += hi.sc - lo.sc;
             delta_realtime += hi.rc - lo.rc;
@@ -564,6 +583,7 @@ rocprofiler_thread_trace_decoder_status_t TraceDecoderEmitter::isaCallback(
         *size = inst_text.size();
         return ROCPROFILER_THREAD_TRACE_DECODER_STATUS_ERROR_OUT_OF_RESOURCES;
     }
+
     std::memcpy(instruction, inst_text.c_str(), inst_text.size());
     *size = inst_text.size();
     *memory_size = inst_mem_size;
@@ -997,11 +1017,7 @@ rocprofiler_thread_trace_decoder_status_t TraceDecoderEmitter::traceCallback(
         case ROCPROFILER_THREAD_TRACE_DECODER_RECORD_EVENT:
         {
             auto* event = static_cast<rocprofiler_thread_trace_decoder_event_t*>(trace_events);
-            if (trace_size != 1)
-                std::cerr << "[trace_decoder][se=" << ctx->se << "] warning: expected one EVENT record, got "
-                          << trace_size << "\n";
-            if (trace_size == 0) break;
-            handleTraceEvent(*ctx, event);
+            for (size_t i = 0; i < trace_size; i++) handleTraceEvent(*ctx, event + i);
             break;
         }
 

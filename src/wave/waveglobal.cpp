@@ -449,7 +449,7 @@ QGlobalView::QGlobalView(const std::string& filename)
 
     QVBox* layout = new QVBox();
     maxtime = 0;
-    begintime = 0;
+    begintime = INT64_MAX;
 
     int current_se = -1, current_sa = -1, current_cu = -1;
     int cu_slot_count = 0;
@@ -478,6 +478,7 @@ QGlobalView::QGlobalView(const std::string& filename)
         materializeTraces(traces, views, layout, tool, maxtime, current_se, current_sa, current_cu, cu_slot_count);
         layout->addStretch();
     }
+    if (begintime == INT64_MAX) begintime = 0;
     this->setLayout(layout);
     setMouseTracking(true);
     this->setAttribute(Qt::WA_AlwaysShowToolTips, true);
@@ -489,7 +490,9 @@ QGlobalView::QGlobalView(DataStore& store)
 {
     QVBox* layout = new QVBox();
     maxtime = 0;
-    begintime = 0;
+    // Events/dispatches can precede the first occupancy sample, so origin is the
+    // min over all three record sets.
+    begintime = INT64_MAX;
 
     int current_se = -1, current_sa = -1, current_cu = -1;
     int cu_slot_count = 0;
@@ -498,6 +501,29 @@ QGlobalView::QGlobalView(DataStore& store)
     for (const auto& [se, records] : store.dispatch_records_by_se)
     {
         dispatches_by_se[se] = std::make_shared<std::vector<dispatch_record_t>>(records);
+        for (const auto& rec : records)
+        {
+            begintime = std::min(begintime, rec.time);
+            maxtime = std::max(maxtime, rec.time);
+        }
+    }
+
+    // Build trace-event spans before sizing bars so trailing events extend maxtime.
+    std::map<int, TraceEventRecordVec> trace_events_by_se;
+    for (const auto& [se, records] : store.trace_events_by_se)
+    {
+        auto sorted = std::make_shared<std::vector<trace_event_record_t>>(records);
+        std::sort(
+            sorted->begin(),
+            sorted->end(),
+            [](const trace_event_record_t& a, const trace_event_record_t& b) { return a.time < b.time; }
+        );
+        trace_events_by_se[se] = sorted;
+        if (!sorted->empty())
+        {
+            begintime = std::min(begintime, sorted->front().time);
+            maxtime = std::max(maxtime, sorted->back().time);
+        }
     }
 
     for (auto& [se, records] : store.occupancy_by_se)
@@ -542,17 +568,7 @@ QGlobalView::QGlobalView(DataStore& store)
         layout->addStretch();
     }
 
-    std::map<int, TraceEventRecordVec> trace_events_by_se;
-    for (const auto& [se, records] : store.trace_events_by_se)
-    {
-        auto sorted = std::make_shared<std::vector<trace_event_record_t>>(records);
-        std::sort(
-            sorted->begin(),
-            sorted->end(),
-            [](const trace_event_record_t& a, const trace_event_record_t& b) { return a.time < b.time; }
-        );
-        trace_events_by_se[se] = sorted;
-    }
+    if (begintime == INT64_MAX) begintime = 0;
 
     for (auto* view : views)
     {
@@ -1071,7 +1087,7 @@ int64_t QOutsideWaveView::DrawWave(QPainter& painter, int64_t start, const WaveT
 QSize QOutsideWaveView::sizeHint() const
 {
     int baseheight = QGlobalView::HEIGHT() + markerTrackHeightPx() + markerBottomPadPx();
-    return QSize(waves.size() ? QGlobalView::ClockToPos(waves.back().end) : 256, baseheight + 1);
+    return QSize(waves.size() ? QGlobalView::ClockToPos(QGlobalView::MaxTime()) : 256, baseheight + 1);
 };
 
 void QOutsideWaveView::mouseMoveEvent(QMouseEvent* event)
@@ -1087,6 +1103,16 @@ void QOutsideWaveView::mouseMoveEvent(QMouseEvent* event)
     }
 
     const int64_t clock_pos = QGlobalView::PosToClock(event->pos().x());
+
+    if (markers.empty())
+    {
+        int sd_idx = FindShaderDataAt(clock_pos);
+        if (sd_idx >= 0)
+        {
+            QToolTip::showText(event->globalPos(), (*shaderdata_records)[sd_idx].ToolTip().c_str());
+            return;
+        }
+    }
 
     int dispatch_idx = FindDispatchAt(clock_pos);
     if (dispatch_idx >= 0)
@@ -1121,12 +1147,7 @@ void QOutsideWaveView::mouseMoveEvent(QMouseEvent* event)
     int index = 0;
     while (index < waves.size() && waves[index].end < clock_pos) index++;
 
-    if (index >= waves.size() || waves[index].begin > clock_pos)
-    {
-        int sd_idx = markers.empty() ? FindShaderDataAt(clock_pos) : -1;
-        if (sd_idx >= 0) QToolTip::showText(event->globalPos(), (*shaderdata_records)[sd_idx].ToolTip().c_str());
-        return;
-    }
+    if (index >= waves.size() || waves[index].begin > clock_pos) return;
 
     const auto& wave = waves[index];
     std::stringstream tooltip;

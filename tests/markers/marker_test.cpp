@@ -63,7 +63,9 @@ struct FakeFuncmap
         {
             auto it = entries.find(id);
             if (it != entries.end()) return it->second;
-            return ResolvedMarker{};
+            ResolvedMarker out;
+            out.metadata_available = true;
+            return out;
         };
     }
 };
@@ -411,6 +413,28 @@ TEST(MarkerWalker, UnknownPointIdWarning)
     EXPECT_EQ(r.spans[0].kind, MarkerKind::Unknown);
     EXPECT_EQ(r.spans[0].marker_id, 123u);
     EXPECT_EQ(countDiags(r.diags, MarkerDiagnostic::Severity::Warning), 1);
+}
+
+TEST(MarkerWalker, MissingMarkerMetadataSkipsShaderdataWithoutWarnings)
+{
+    std::vector<MarkerInputRecord> recs = {
+        {5, pointTok(123)},
+        {10, enterTok(42)},
+        {20, exitTok()},
+        {30, transitionTok(7)},
+        {40, exitTok()},
+    };
+
+    auto r = run(
+        recs,
+        [](uint32_t /*id*/, int64_t /*time*/) -> ResolvedMarker
+        {
+            return {};
+        }
+    );
+
+    EXPECT_TRUE(r.spans.empty());
+    EXPECT_TRUE(r.diags.empty());
 }
 
 // ============================================================================

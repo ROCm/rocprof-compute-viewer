@@ -126,8 +126,9 @@ struct trace_event_record_t
     int type = 0;
     uint8_t me_id = 0;
     uint8_t pipe_id = 0;
-    uint16_t reserved = 0;
+    uint16_t flags = 0;
     uint64_t payload = 0;
+    uint64_t byte_offset = 0;
 };
 
 enum
@@ -144,6 +145,12 @@ enum
     ROCPROF_TRACE_DECODER_EVENT_TT_STALL_BEGIN,
     ROCPROF_TRACE_DECODER_EVENT_TT_STALL_END,
     ROCPROF_TRACE_DECODER_EVENT_TT_FLUSH,
+    ROCPROF_TRACE_DECODER_EVENT_DIDT_STALL_BEGIN,
+    ROCPROF_TRACE_DECODER_EVENT_DIDT_STALL_END,
+    ROCPROF_TRACE_DECODER_EVENT_CLUSTER_BEGIN, ///< Payload is the ID
+    ROCPROF_TRACE_DECODER_EVENT_CLUSTER_END,   ///< Payload is the ID
+    ROCPROF_TRACE_DECODER_EVENT_GC_RINSE,
+    ROCPROF_TRACE_DECODER_EVENT_SPM_SAMPLE,
     ROCPROF_TRACE_DECODER_EVENT_LAST
 };
 
@@ -175,7 +182,7 @@ inline std::string TraceDecoderEventName(int type)
     switch (type)
     {
         case ROCPROF_TRACE_DECODER_EVENT_CS_PARTIAL_FLUSH: return "CS Partial Flush";
-        case ROCPROF_TRACE_DECODER_EVENT_BOTTOM_OF_PIPE_TS: return "Bottom Of Pipe";
+        case ROCPROF_TRACE_DECODER_EVENT_BOTTOM_OF_PIPE_TS: return "Bottom Of Pipe Timestamp";
         case ROCPROF_TRACE_DECODER_EVENT_SAVE_CONTEXT: return "Save Context";
         case ROCPROF_TRACE_DECODER_EVENT_DISPATCH_END: return "Dispatch End";
         case ROCPROF_TRACE_DECODER_EVENT_CACHE_FLUSH: return "Cache Flush";
@@ -185,6 +192,12 @@ inline std::string TraceDecoderEventName(int type)
         case ROCPROF_TRACE_DECODER_EVENT_TT_STALL_BEGIN: return "Thread Trace Stall Begin";
         case ROCPROF_TRACE_DECODER_EVENT_TT_STALL_END: return "Thread Trace Stall End";
         case ROCPROF_TRACE_DECODER_EVENT_TT_FLUSH: return "Thread Trace Flush";
+        case ROCPROF_TRACE_DECODER_EVENT_DIDT_STALL_BEGIN: return "DIDT Stall Begin";
+        case ROCPROF_TRACE_DECODER_EVENT_DIDT_STALL_END: return "DIDT Stall End";
+        case ROCPROF_TRACE_DECODER_EVENT_CLUSTER_BEGIN: return "Cluster Begin";
+        case ROCPROF_TRACE_DECODER_EVENT_CLUSTER_END: return "Cluster End";
+        case ROCPROF_TRACE_DECODER_EVENT_GC_RINSE: return "GC Rinse";
+        case ROCPROF_TRACE_DECODER_EVENT_SPM_SAMPLE: return "SPM sample taken";
         default: return "Trace Event " + std::to_string(type);
     }
 }

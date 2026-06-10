@@ -197,10 +197,15 @@ ResolvedMarker SqttFuncmapJson::Resolve(uint32_t marker_id, uint64_t codeobj_id)
     auto co_it = entries_by_codeobj.find(codeobj_id);
     if (co_it == entries_by_codeobj.end()) return {};
 
-    auto marker_it = co_it->second.find(marker_id);
-    if (marker_it == co_it->second.end()) return {};
+    ResolvedMarker out;
+    out.metadata_available = true;
 
-    return marker_it->second;
+    auto marker_it = co_it->second.find(marker_id);
+    if (marker_it == co_it->second.end()) return out;
+
+    out = marker_it->second;
+    out.metadata_available = true;
+    return out;
 }
 
 uint64_t SqttFuncmapJson::CodeobjForKernelName(const std::string& name) const

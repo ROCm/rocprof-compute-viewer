@@ -36,6 +36,8 @@
 struct ResolvedMarker
 {
     bool found = false;
+    /// False means this shaderdata payload is not marker-backed.
+    bool metadata_available = false;
     MarkerKind kind = MarkerKind::Unknown;
     std::string name;
     std::string source_loc;

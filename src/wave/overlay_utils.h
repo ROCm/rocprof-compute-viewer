@@ -79,10 +79,14 @@ inline std::string formatDispatchTooltip(const dispatch_record_t& dispatch, int 
 inline std::string formatTraceEventTooltip(const trace_event_record_t& event, int se)
 {
     std::stringstream ss;
-    ss << TraceDecoderEventName(event.type) << "\nTime: " << event.time << " cycles\n";
+    ss << TraceDecoderEventName(event.type);
+    if (event.flags & 0x2) ss << " (Bottom of Pipe)";
+    ss << "\nTime: " << event.time << " clk\n";
+
     if (se >= 0) ss << "SE:" << se << "  ";
     ss << "ME:" << static_cast<int>(event.me_id) << "  Pipe:" << static_cast<int>(event.pipe_id);
     if (event.payload != 0) ss << "\nPayload: 0x" << std::hex << event.payload << std::dec;
+
     return ss.str();
 }
 

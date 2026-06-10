@@ -239,6 +239,7 @@ public:
     static int64_t ClockToPos(int64_t value) { return (value - begintime) / Delta(); }
     static int64_t Delta() { return 1 << mipmap_level; }
     static int64_t HEIGHT() { return height_scale; }
+    static int64_t MaxTime() { return maxtime; }
 
     static int GetMip() { return mipmap_level; }
     static int SpinToMip(int spinValue) { return std::max(0, std::min(15 - spinValue, 15)); }
