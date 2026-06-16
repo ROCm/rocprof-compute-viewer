@@ -68,11 +68,14 @@ OtherSimdFiles ParseOtherSimdFilenames(const nlohmann::json& filenames, const st
 
 // Read an other-SIMD JSON file and return records overlapping the current clock window.
 std::vector<OtherSimdInstruction> ReadOtherSimdInstructions(
-    const std::string& filepath, int64_t clock_start, int64_t clock_end
+    const std::string& filepath, int64_t clock_start, int64_t clock_end, int64_t time_offset
 )
 {
     JsonRequest request(filepath, false);
     if (!request.bValid) return {};
+
+    const int64_t file_clock_start = clock_start - time_offset;
+    const int64_t file_clock_end = clock_end - time_offset;
 
     size_t time_index = 0;
     size_t duration_index = 1;
@@ -113,7 +116,8 @@ std::vector<OtherSimdInstruction> ReadOtherSimdInstructions(
         if (category_index < item.size()) record.category = item.at(category_index).get<int>();
 
         int64_t end_time = record.time + record.cycles;
-        if (end_time < clock_start || record.time > clock_end) continue;
+        if (end_time < file_clock_start || record.time > file_clock_end) continue;
+        record.time += time_offset;
 
         instructions.push_back(record);
     }
@@ -178,7 +182,7 @@ const std::vector<Token>& OtherSimdData::LoadTokens(int se, int64_t clock_start,
             if (end < clock_start || start > clock_end) continue;
         }
 
-        auto instructions = ReadOtherSimdInstructions(entry.filepath, clock_start, clock_end);
+        auto instructions = ReadOtherSimdInstructions(entry.filepath, clock_start, clock_end, entry.time_offset);
         for (const auto& instruction : instructions)
         {
             int type = instruction.category;

@@ -181,7 +181,7 @@ void ShaderDataManager::Finalize()
 
 void ShaderDataManager::ApplyTimeOffsets(const std::map<int, int64_t>& offsets)
 {
-    if (m_pending.empty() || offsets.empty()) return;
+    if (offsets.empty()) return;
     for (auto& [key, records] : m_pending)
     {
         int se = std::get<0>(key);
@@ -190,6 +190,18 @@ void ShaderDataManager::ApplyTimeOffsets(const std::map<int, int64_t>& offsets)
         int64_t off = it->second;
         for (auto& r : records) r.time += off;
     }
+
+    for (auto& [key, records_ptr] : m_records_by_location)
+    {
+        int se = std::get<0>(key);
+        auto it = offsets.find(se);
+        if (it == offsets.end() || it->second == 0 || !records_ptr) continue;
+
+        auto shifted = std::make_shared<std::vector<ShaderDataRecord>>(*records_ptr);
+        for (auto& r : *shifted) r.time += it->second;
+        records_ptr = shifted;
+    }
+    ClearMarkers();
 }
 
 MarkerSpanVec ShaderDataManager::GetMarkers(int se, int cu, int simd, int slot) const

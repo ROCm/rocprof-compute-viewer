@@ -37,19 +37,20 @@ std::unordered_map<std::string, std::shared_ptr<WaveInstance>> reader_cache;
 
 std::shared_ptr<WaveInstance> WaveInstance::main_wave{nullptr};
 
-std::shared_ptr<WaveInstance> WaveInstance::Get(const std::string& path)
+std::shared_ptr<WaveInstance> WaveInstance::Get(const std::string& path, int64_t time_offset)
 {
+    const std::string cache_key = time_offset == 0 ? path : path + "#" + std::to_string(time_offset);
     {
         std::shared_lock<std::shared_mutex> lk(wave_mutex);
-        if (reader_cache.find(path) != reader_cache.end()) return reader_cache.at(path);
+        if (reader_cache.find(cache_key) != reader_cache.end()) return reader_cache.at(cache_key);
     }
 
     try
     {
-        auto loaded_wave = std::make_shared<WaveInstance>(path);
+        auto loaded_wave = std::make_shared<WaveInstance>(path, time_offset);
 
         std::unique_lock<std::shared_mutex> lk(wave_mutex);
-        reader_cache[path] = loaded_wave;
+        reader_cache[cache_key] = loaded_wave;
         return loaded_wave;
     }
     catch (std::exception& e)
@@ -301,7 +302,7 @@ void WaveInstance::populateExecMetadata(int wave_id, bool isIdleInfo)
     QWARNING(thrownLine == -1, "Token referenced invalid code line: " << thrownLine, (void) 0);
 }
 
-WaveInstance::WaveInstance(const std::string& _path) : path(_path)
+WaveInstance::WaveInstance(const std::string& _path, int64_t time_offset) : path(_path)
 {
     JsonRequest json(path);
     QWARNING(json.bValid, "Invalid json path: " << path, return );
@@ -328,7 +329,7 @@ WaveInstance::WaveInstance(const std::string& _path) : path(_path)
         int stall = int(inst[2]);
 
         Token token{};
-        token.clock = int64_t(inst[0]);
+        token.clock = int64_t(inst[0]) + time_offset;
         token.cycles = std::max(stall, int(inst[3]));
         token.stall = (int16_t) stall;
         token.type = (int16_t) inst[1];
@@ -338,8 +339,8 @@ WaveInstance::WaveInstance(const std::string& _path) : path(_path)
     }
     tokens.Compile();
 
-    this->wave_begin = int64_t(data["wave"]["begin"]);
-    this->wave_end = int64_t(data["wave"]["end"]);
+    this->wave_begin = int64_t(data["wave"]["begin"]) + time_offset;
+    this->wave_end = int64_t(data["wave"]["end"]) + time_offset;
 
     if (data["wave"].contains("cu")) this->cu = int(data["wave"]["cu"]);
 

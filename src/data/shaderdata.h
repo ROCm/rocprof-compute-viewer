@@ -89,9 +89,7 @@ public:
     /// Finalize after all AddRecord calls: sort buckets and wrap in shared_ptr.
     void Finalize();
 
-    /// Add a per-SE clock offset to every pending record for that SE. Must be
-    /// called BEFORE Finalize (i.e. during the decoder load before signalComplete).
-    /// SEs absent from the map are unchanged. No-op for SEs with offset == 0.
+    /// Add a per-SE clock offset to records for that SE.
     void ApplyTimeOffsets(const std::map<int, int64_t>& offsets);
 
     /// Check if any shaderdata was loaded.

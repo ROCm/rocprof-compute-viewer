@@ -45,6 +45,7 @@ struct WaveEntry
     std::string id;
     int64_t begin = 0;
     int64_t end = 0;
+    int64_t time_offset = 0;
 };
 
 using WaveSlotMap = std::map<int, WaveEntry>;
@@ -59,6 +60,7 @@ public:
 
     void clear();
     void loadSourceSnapshots(const nlohmann::json& snapshots_json, const std::string& snapshot_base_dir);
+    bool applyRealtimeAlignment();
     void applyTimeOffsets(const std::map<int, int64_t>& offsets);
 
     int gfxip = 0;

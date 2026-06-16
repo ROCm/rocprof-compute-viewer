@@ -22,6 +22,7 @@
 
 #include "datastore.h"
 #include <algorithm>
+#include <iostream>
 #include <limits>
 #include <mutex>
 #include <shared_mutex>
@@ -98,6 +99,88 @@ void DataStore::loadSourceSnapshots(const nlohmann::json& snapshots_json, const 
     collectSourceSnapshots(snapshots_json, "", snapshot_base_dir, *this);
 }
 
+namespace
+{
+std::map<int, int64_t> realtimeAlignmentOffsets(const DataStore& store)
+{
+    std::map<int, int64_t> empty;
+    if (store.realtime_by_se.size() < 2) return empty;
+
+    struct Anchor
+    {
+        int64_t sc;
+        uint64_t rc;
+    };
+
+    std::map<int, Anchor> first;
+    std::map<int, Anchor> last;
+    for (const auto& [se, recs] : store.realtime_by_se)
+    {
+        if (recs.empty()) continue;
+        Anchor lo{recs.front().shader_clock, recs.front().realtime_clock};
+        Anchor hi = lo;
+        for (const auto& r : recs)
+        {
+            if (r.shader_clock < lo.sc) lo = {r.shader_clock, r.realtime_clock};
+            if (r.shader_clock > hi.sc) hi = {r.shader_clock, r.realtime_clock};
+        }
+        first.emplace(se, lo);
+        last.emplace(se, hi);
+    }
+    if (first.size() < 2) return empty;
+
+    int64_t delta_shader = 25;
+    uint64_t delta_realtime = 1;
+    for (const auto& [se, lo] : first)
+    {
+        const auto& hi = last.at(se);
+        if (hi.sc > lo.sc && lo.sc > 0 && hi.rc > lo.rc)
+        {
+            delta_shader += hi.sc - lo.sc;
+            delta_realtime += hi.rc - lo.rc;
+        }
+    }
+
+    const double k = static_cast<double>(delta_realtime) / static_cast<double>(delta_shader);
+    if (k <= 0.0) return empty;
+
+    std::map<int, double> origin_rt;
+    int anchor_se = first.begin()->first;
+    double anchor_origin = std::numeric_limits<double>::infinity();
+    for (const auto& [se, a] : first)
+    {
+        double origin = static_cast<double>(a.rc) - static_cast<double>(a.sc) * k;
+        origin_rt[se] = origin;
+        if (origin < anchor_origin)
+        {
+            anchor_origin = origin;
+            anchor_se = se;
+        }
+    }
+
+    std::map<int, int64_t> offset;
+    for (const auto& [se, origin] : origin_rt)
+    {
+        double off = (origin - anchor_origin) / k;
+        offset[se] = static_cast<int64_t>(off);
+    }
+
+    const int64_t rt_freq = store.realtime_frequency > 0 ? store.realtime_frequency : 100'000'000;
+    std::cout << "REALTIME alignment: anchor SE=" << anchor_se << ", k=" << k << " (rt_freq=" << rt_freq << " Hz)\n";
+    for (const auto& [se, off] : offset) std::cout << "  SE" << se << " offset=" << off << " cycles\n";
+
+    return offset;
+}
+} // namespace
+
+bool DataStore::applyRealtimeAlignment()
+{
+    const auto offsets = realtimeAlignmentOffsets(*this);
+    if (offsets.empty()) return false;
+    applyTimeOffsets(offsets);
+    return true;
+}
+
 void DataStore::applyTimeOffsets(const std::map<int, int64_t>& offsets)
 {
     {
@@ -113,6 +196,7 @@ void DataStore::applyTimeOffsets(const std::map<int, int64_t>& offsets)
                     {
                         entry.begin += off;
                         entry.end += off;
+                        entry.time_offset += off;
                         auto rec_it = wave_records.find(entry.id);
                         if (rec_it == wave_records.end()) continue;
                         auto& rec = rec_it->second;
@@ -164,6 +248,22 @@ void DataStore::applyTimeOffsets(const std::map<int, int64_t>& offsets)
             for (auto& r : recs) r.time += off;
         }
     );
+
+    for (auto& [se, entries] : other_simd_files)
+    {
+        auto it = offsets.find(se);
+        if (it == offsets.end() || it->second == 0) continue;
+        const int64_t off = it->second;
+        for (auto& entry : entries)
+        {
+            entry.time_offset += off;
+            if (entry.range)
+            {
+                entry.range->first += off;
+                entry.range->second += off;
+            }
+        }
+    }
 
     if (shaderdata) shaderdata->ApplyTimeOffsets(offsets);
 

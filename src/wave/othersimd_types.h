@@ -39,6 +39,7 @@ struct OtherSimdFileEntry
 {
     std::string filepath;
     std::optional<std::pair<int64_t, int64_t>> range;
+    int64_t time_offset = 0;
 };
 
 using OtherSimdFiles = std::map<int, std::vector<OtherSimdFileEntry>>;
