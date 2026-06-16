@@ -28,6 +28,7 @@
 #include <shared_mutex>
 #include <utility>
 #include "data/shaderdata.h"
+#include "util/memtracker.h"
 
 namespace
 {
@@ -83,6 +84,7 @@ void DataStore::clear()
     counters_by_se.clear();
     realtime_frequency = 0;
     realtime_by_se.clear();
+    realtime_alignment_applied = false;
     shaderdata.reset();
     other_simd_files.clear();
     other_simd_by_se.clear();
@@ -175,9 +177,13 @@ std::map<int, int64_t> realtimeAlignmentOffsets(const DataStore& store)
 
 bool DataStore::applyRealtimeAlignment()
 {
+    QWARNING(!realtime_alignment_applied, "REALTIME alignment already applied", return false)
     const auto offsets = realtimeAlignmentOffsets(*this);
     if (offsets.empty()) return false;
+    for (const auto& [se, _] : wave_hierarchy)
+        QWARNING(offsets.count(se), "REALTIME alignment skipped; missing realtime samples for SE" << se, return false)
     applyTimeOffsets(offsets);
+    realtime_alignment_applied = true;
     return true;
 }
 
@@ -266,15 +272,6 @@ void DataStore::applyTimeOffsets(const std::map<int, int64_t>& offsets)
     }
 
     if (shaderdata) shaderdata->ApplyTimeOffsets(offsets);
-
-    applyOffsetsBySE(
-        offsets,
-        realtime_by_se,
-        [](auto& recs, int64_t off)
-        {
-            for (auto& r : recs) r.shader_clock += off;
-        }
-    );
 }
 
 ActiveCodeobjIndex::ActiveCodeobjIndex(const DataStore& st, ResolveCodeobj resolve) :

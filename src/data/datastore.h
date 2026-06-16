@@ -92,6 +92,7 @@ public:
 
     int64_t realtime_frequency = 0;
     std::map<int, std::vector<realtime_record_t>> realtime_by_se;
+    bool realtime_alignment_applied = false;
 
     std::unique_ptr<ShaderDataManager> shaderdata;
 
