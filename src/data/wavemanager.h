@@ -67,7 +67,7 @@ struct TokenGroup
 
 struct WaveInstance : public TokenGroup
 {
-    WaveInstance(const std::string& path);
+    WaveInstance(const std::string& path, int64_t time_offset = 0);
     WaveInstance(const wave_record_t& rec, const std::vector<CodeData>& code_data);
     virtual ~WaveInstance();
 
@@ -91,7 +91,7 @@ struct WaveInstance : public TokenGroup
     static int64_t GetMainClock(int code_line, int iteration);
 
     static int64_t BaseClock() { return Token::bIsNaviWave ? 1 : 4; };
-    static std::shared_ptr<WaveInstance> Get(const std::string& path);
+    static std::shared_ptr<WaveInstance> Get(const std::string& path, int64_t time_offset = 0);
     static std::shared_ptr<WaveInstance> GetFromRecord(
         const std::string& id, const wave_record_t& rec, const std::vector<CodeData>& code_data
     );

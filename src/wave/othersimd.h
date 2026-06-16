@@ -33,7 +33,7 @@ OtherSimdFiles ParseOtherSimdFilenames(const nlohmann::json& filenames, const st
 
 // Read an other-SIMD JSON file and return records overlapping the current clock window.
 std::vector<OtherSimdInstruction> ReadOtherSimdInstructions(
-    const std::string& filepath, int64_t clock_start, int64_t clock_end
+    const std::string& filepath, int64_t clock_start, int64_t clock_end, int64_t time_offset = 0
 );
 
 class OtherSimdData

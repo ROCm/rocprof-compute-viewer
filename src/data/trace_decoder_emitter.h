@@ -90,12 +90,6 @@ private:
 
     void buildDispatches();
 
-    /// Compute per-SE shader-clock offsets from REALTIME records and apply
-    /// them to every time field in DataStore + ShaderDataManager pending
-    /// records. Each .att starts its shader counter from zero, so without
-    /// this SEs in the same dispatch are not on a common timeline.
-    /// No-op when fewer than two SEs have realtime records or only one SE
-    /// is present. Default frequency 100 MHz when REALTIME freq is missing.
     void alignSEClocks();
 
     /// Find the active code object at a given (se,cu,simd,slot,time) by

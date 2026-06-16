@@ -268,7 +268,7 @@ void QWaveView::leaveEvent(QEvent* event)
 
 void QWaveView::mousePressEvent(QMouseEvent* event)
 {
-    QWARNING(QCodelist::singleton && MainWindow::window, "Invalid codelist", return);
+    QWARNING(QCodelist::singleton && MainWindow::window, "Invalid codelist", return );
 
     if (tool && event->button() & Qt::RightButton)
     {
@@ -400,8 +400,7 @@ void QWaveSlots::wheelEvent(QWheelEvent* event)
     // others follow. Forwarding to more than one would apply the delta twice.
     if (horizontalScrollDominates(event))
     {
-        if (!view->parents.empty())
-            QApplication::sendEvent(view->parents.front()->scrollbar, event);
+        if (!view->parents.empty()) QApplication::sendEvent(view->parents.front()->scrollbar, event);
         event->accept();
         return;
     }
@@ -769,7 +768,7 @@ void QUtilization::ClearOtherSimd()
 
 void QUtilization::AddTokens(int simd, const TokenMap& tokens)
 {
-    QWARNING(simd < 4, "Invalid simd " << simd, return);
+    QWARNING(simd < 4, "Invalid simd " << simd, return );
 
     // Use base here as some decoder versions don't consider stalls for MSG
     // We dont want to show full cycles to avoid clutter in the timeline display

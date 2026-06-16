@@ -205,6 +205,7 @@ void JsonRecordEmitter::run()
     emitRealtime();
     emitShaderData();
     emitOtherSimd();
+    store.applyRealtimeAlignment();
     resolveMarkersFromCodeJson();
     dispatcher.signalComplete();
 }

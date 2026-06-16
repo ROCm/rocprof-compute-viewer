@@ -16,5 +16,5 @@ std::shared_ptr<WaveInstance> DataStore::getWave(const WaveEntry& entry)
         if (it != wave_records.end()) return WaveInstance::GetFromRecord(entry.id, it->second, code);
     }
 
-    return WaveInstance::Get(ui_dir + entry.id);
+    return WaveInstance::Get(ui_dir + entry.id, entry.time_offset);
 }
