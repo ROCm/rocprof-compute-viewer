@@ -1,5 +1,10 @@
 set(SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../src)
 set(DATA_DIR ${SRC_DIR}/data)
+set(UTIL_DIR ${SRC_DIR}/util)
+
+set(CMAKE_AUTOMOC ON)
+
+find_package(Qt6 REQUIRED COMPONENTS Core Network)
 
 add_executable(input_detector_test
     input_detector_test.cpp
@@ -8,3 +13,15 @@ add_executable(input_detector_test
 target_include_directories(input_detector_test PRIVATE ${SRC_DIR})
 target_link_libraries(input_detector_test GTest::gtest_main)
 add_test(NAME input_detector_test COMMAND input_detector_test)
+
+add_executable(datastore_test
+    datastore_test.cpp
+    ${DATA_DIR}/datastore.cpp
+    ${DATA_DIR}/dispatch_resolver.cpp
+    ${DATA_DIR}/shaderdata.cpp
+    ${DATA_DIR}/marker_walker.cpp
+    ${UTIL_DIR}/jsonrequest.cpp)
+
+target_include_directories(datastore_test PRIVATE ${SRC_DIR})
+target_link_libraries(datastore_test GTest::gtest_main Qt6::Core Qt6::Network)
+add_test(NAME datastore_test COMMAND datastore_test)

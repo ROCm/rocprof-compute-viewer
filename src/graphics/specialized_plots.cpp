@@ -185,52 +185,51 @@ void addDispatchSeries(PlotGraph& plot, std::vector<occupancy_data> occupancy, i
 }
 } // namespace
 
-void TraceCounterPlotView::LoadCounterData(const std::string& dirpath, int shader_engine)
+void TraceCounterPlotView::LoadCounterData(const DataStore& store)
 {
+    rootnodes.clear();
+    rclock.clear();
+    rclock_frequency = store.realtime_frequency > 0 ? static_cast<double>(store.realtime_frequency) : 1E8;
+
+    for (const auto& [se, banks] : store.counters_by_se)
     {
-        JsonRequest file(dirpath + "se" + std::to_string(shader_engine) + "_perfcounter.json", false);
-        if (!file.bValid) return;
+        while (rootnodes.size() < banks.size()) rootnodes.emplace_back(std::make_unique<GPUCounterNode>());
 
-        std::array<std::vector<CounterData>, 2> data{};
-        data[0].reserve(file.data["data"].size());
-        data[1].reserve(file.data["data"].size());
+        for (size_t b = 0; b < banks.size(); b++)
+        {
+            if (banks[b].empty()) continue;
 
-        for (auto& event : file.data["data"])
-            data.at(int8_t(event[6]) & 1)
-                .push_back(CounterData({
-                    int64_t(event[0]),
-                    int8_t(event[5]),
-                    int8_t(shader_engine),
-                    {float(event[1]), float(event[2]), float(event[3]), float(event[4])}
-            }));
+            std::vector<CounterData> data;
+            data.reserve(banks[b].size());
+            for (const auto& rec : banks[b])
+            {
+                CounterData counter{};
+                counter.time = rec.time;
+                counter.cu = rec.cu;
+                counter.se = static_cast<int8_t>(se);
+                counter.events = rec.values;
+                data.push_back(counter);
+            }
 
-        while (rootnodes.size() < data.size()) rootnodes.emplace_back(std::make_unique<GPUCounterNode>());
-        for (int b = 0; b < data.size(); b++)
-            if (data[b].size()) rootnodes[b]->Insert(shader_engine, data[b]);
+            std::sort(
+                data.begin(),
+                data.end(),
+                [](const CounterData& a, const CounterData& b)
+                {
+                    if (a.time != b.time) return a.time < b.time;
+                    return a.cu < b.cu;
+                }
+            );
+            rootnodes[b]->Insert(se, data);
+        }
     }
 
-    if (rclock.empty())
+    for (const auto& [se, points] : store.realtime_by_se)
     {
-        try
-        {
-            JsonRequest file(dirpath + "realtime.json", false);
-            if (!file.bValid) return;
-
-            int64_t rfreq = int64_t(file.data["metadata"]["frequency"]);
-            if (rfreq != 0) rclock_frequency = static_cast<double>(rfreq);
-
-            for (auto& [SE, points] : file.data.items())
-            {
-                if (std::string(SE).find("SE") != 0) continue;
-
-                int se_number = stoi(std::string(SE).substr(2));
-                for (auto& p : points) rclock[se_number].push_back({int64_t(p[0]), int64_t(p[1])});
-            }
-        }
-        catch (std::exception& e)
-        {
-            QWARNING(false, e.what(), abort());
-        }
+        auto& out = rclock[se];
+        out.reserve(points.size());
+        for (const auto& rec : points) out.push_back({rec.shader_clock, static_cast<int64_t>(rec.realtime_clock)});
+        std::sort(out.begin(), out.end());
     }
 }
 
@@ -270,7 +269,9 @@ std::vector<double> CounterPlotView::GetPeakRates()
 DerivedCounter::Tensor CounterPlotView::GetAvgRates()
 {
     size_t num_se = 0;
-    for (auto& node : rootnodes) num_se = std::max(num_se, node->Nodes().size());
+    for (auto& node : rootnodes)
+        for (auto& se_node : node->Nodes())
+            if (se_node) num_se = std::max<size_t>(num_se, static_cast<size_t>(se_node->se) + 1);
 
     DerivedCounter::Tensor result(DerivedCounter::Shape(1, num_se, NUM_CU, counter_names.size()), 0);
 
@@ -467,11 +468,13 @@ TimeGrid computeTimeGrid(const std::vector<std::unique_ptr<GPUCounterNode>>& roo
             g.global_min_time = std::min(g.global_min_time, node_min);
             g.global_max_time = std::max(g.global_max_time, node_max);
         }
-        g.max_num_ses = std::max(g.max_num_ses, node->Nodes().size());
         for (auto& se : node->Nodes())
             if (se)
+            {
+                g.max_num_ses = std::max<size_t>(g.max_num_ses, static_cast<size_t>(se->se) + 1);
                 for (auto& cu : se->cu_nodes)
                     if (cu && !cu->data.empty()) g.max_num_cus = std::max<size_t>(g.max_num_cus, 1 + cu->cu);
+            }
     }
 
     if (g.global_min_time == INT64_MAX || delta <= 0) return g;
