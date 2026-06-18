@@ -1,4 +1,4 @@
-# DerivedCounterEditor Tests GoogleTest is fetched by the parent tests/CMakeLists.txt
+# DerivedCounterEditor Tests. GoogleTest is provided by the parent tests/CMakeLists.txt.
 
 # Find Qt6 components needed for widget testing
 find_package(Qt6 REQUIRED COMPONENTS Widgets Test)

@@ -66,17 +66,100 @@ endif()
 # Output all test binaries to build/bin/
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 
-# Fetch GoogleTest (shared across all test modules)
-include(FetchContent)
-FetchContent_Declare(
-    googletest
-    GIT_REPOSITORY https://github.com/google/googletest.git
-    GIT_TAG v1.14.0)
-# For Windows: Prevent overriding the parent project's compiler/linker settings
+# Use a local/installed GoogleTest when one is available, and fall back to
+# FetchContent for builds that do not provide one.
 set(gtest_force_shared_crt
     ON
     CACHE BOOL "" FORCE)
-FetchContent_MakeAvailable(googletest)
+set(RCV_GOOGLETEST_SOURCE_DIR
+    ""
+    CACHE PATH "Path to a local GoogleTest source checkout")
+
+function(rcv_add_gtest_target_alias alias target)
+    if(TARGET ${target} AND NOT TARGET ${alias})
+        add_library(${alias} INTERFACE IMPORTED)
+        set_property(TARGET ${alias} PROPERTY INTERFACE_LINK_LIBRARIES ${target})
+    endif()
+endfunction()
+
+function(rcv_normalize_gtest_targets)
+    rcv_add_gtest_target_alias(GTest::gtest GTest::GTest)
+    rcv_add_gtest_target_alias(GTest::gtest_main GTest::Main)
+    rcv_add_gtest_target_alias(GTest::gtest gtest)
+    rcv_add_gtest_target_alias(GTest::gtest_main gtest_main)
+endfunction()
+
+function(rcv_gtest_targets_found out_var)
+    if(TARGET GTest::gtest AND TARGET GTest::gtest_main)
+        set(${out_var}
+            TRUE
+            PARENT_SCOPE)
+    else()
+        set(${out_var}
+            FALSE
+            PARENT_SCOPE)
+    endif()
+endfunction()
+
+find_package(GTest CONFIG QUIET)
+rcv_normalize_gtest_targets()
+rcv_gtest_targets_found(_rcv_gtest_found)
+if(NOT _rcv_gtest_found)
+    find_package(GTest MODULE QUIET)
+    rcv_normalize_gtest_targets()
+    rcv_gtest_targets_found(_rcv_gtest_found)
+endif()
+
+if(NOT _rcv_gtest_found)
+    set(_rcv_gtest_source_candidates)
+    if(RCV_GOOGLETEST_SOURCE_DIR)
+        list(APPEND _rcv_gtest_source_candidates "${RCV_GOOGLETEST_SOURCE_DIR}")
+    endif()
+    foreach(_rcv_gtest_env_var IN ITEMS GOOGLETEST_ROOT GTEST_ROOT)
+        if(DEFINED ENV{${_rcv_gtest_env_var}} AND NOT "$ENV{${_rcv_gtest_env_var}}" STREQUAL "")
+            list(APPEND _rcv_gtest_source_candidates "$ENV{${_rcv_gtest_env_var}}"
+                 "$ENV{${_rcv_gtest_env_var}}/googletest")
+        endif()
+    endforeach()
+    list(
+        APPEND
+        _rcv_gtest_source_candidates
+        "${CMAKE_CURRENT_SOURCE_DIR}/../external/googletest"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../external/gtest"
+        "/usr/src/googletest"
+        "/usr/src/gtest")
+
+    foreach(_rcv_gtest_source_dir IN LISTS _rcv_gtest_source_candidates)
+        get_filename_component(_rcv_gtest_source_dir "${_rcv_gtest_source_dir}" ABSOLUTE)
+        if(NOT EXISTS "${_rcv_gtest_source_dir}/CMakeLists.txt")
+            continue()
+        endif()
+        if(NOT EXISTS "${_rcv_gtest_source_dir}/googletest/include/gtest/gtest.h"
+           AND NOT EXISTS "${_rcv_gtest_source_dir}/include/gtest/gtest.h")
+            continue()
+        endif()
+
+        message(STATUS "Using local GoogleTest source: ${_rcv_gtest_source_dir}")
+        add_subdirectory("${_rcv_gtest_source_dir}" "${CMAKE_BINARY_DIR}/googletest-local" EXCLUDE_FROM_ALL)
+        rcv_normalize_gtest_targets()
+        rcv_gtest_targets_found(_rcv_gtest_found)
+        if(_rcv_gtest_found)
+            break()
+        endif()
+    endforeach()
+endif()
+
+if(_rcv_gtest_found)
+    message(STATUS "Using local/installed GoogleTest")
+else()
+    message(STATUS "GoogleTest not found locally; fetching v1.14.0")
+    include(FetchContent)
+    FetchContent_Declare(
+        googletest
+        GIT_REPOSITORY https://github.com/google/googletest.git
+        GIT_TAG v1.14.0)
+    FetchContent_MakeAvailable(googletest)
+endif()
 
 # Enable testing
 enable_testing()

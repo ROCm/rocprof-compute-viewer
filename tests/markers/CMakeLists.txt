@@ -1,4 +1,4 @@
-# Marker stack-walker tests. GoogleTest is fetched by the parent
+# Marker stack-walker tests. GoogleTest is provided by the parent
 # tests/CMakeLists.txt.
 
 set(SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../src)

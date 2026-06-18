@@ -1,4 +1,4 @@
-# Derived Counter Tests GoogleTest is fetched by the parent tests/CMakeLists.txt
+# Derived Counter Tests. GoogleTest is provided by the parent tests/CMakeLists.txt.
 
 # Path to the src directory
 set(SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../src)
