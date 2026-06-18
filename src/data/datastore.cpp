@@ -25,6 +25,7 @@
 #include <iostream>
 #include <limits>
 #include <mutex>
+#include <set>
 #include <shared_mutex>
 #include <utility>
 #include "data/shaderdata.h"
@@ -173,6 +174,36 @@ std::map<int, int64_t> realtimeAlignmentOffsets(const DataStore& store)
 
     return offset;
 }
+
+template <typename RecordMap> void collectNonEmptySEs(std::set<int>& ses, const RecordMap& records_by_se)
+{
+    for (const auto& [se, records] : records_by_se)
+        if (!records.empty()) ses.insert(se);
+}
+
+std::set<int> alignmentRequiredSEs(const DataStore& store)
+{
+    std::set<int> ses;
+
+    for (const auto& [se, simds] : store.wave_hierarchy)
+        if (!simds.empty()) ses.insert(se);
+
+    collectNonEmptySEs(ses, store.occupancy_by_se);
+    collectNonEmptySEs(ses, store.trace_events_by_se);
+    collectNonEmptySEs(ses, store.dispatch_records_by_se);
+    collectNonEmptySEs(ses, store.other_simd_by_se);
+
+    for (const auto& [se, banks] : store.counters_by_se)
+        if (std::any_of(banks.begin(), banks.end(), [](const auto& bank) { return !bank.empty(); })) ses.insert(se);
+
+    for (const auto& [se, entries] : store.other_simd_files)
+        if (!entries.empty()) ses.insert(se);
+
+    if (store.shaderdata)
+        for (int se : store.shaderdata->SEs()) ses.insert(se);
+
+    return ses;
+}
 } // namespace
 
 bool DataStore::applyRealtimeAlignment()
@@ -180,7 +211,7 @@ bool DataStore::applyRealtimeAlignment()
     QWARNING(!realtime_alignment_applied, "REALTIME alignment already applied", return false)
     const auto offsets = realtimeAlignmentOffsets(*this);
     if (offsets.empty()) return false;
-    for (const auto& [se, _] : wave_hierarchy)
+    for (int se : alignmentRequiredSEs(*this))
         QWARNING(offsets.count(se), "REALTIME alignment skipped; missing realtime samples for SE" << se, return false)
     applyTimeOffsets(offsets);
     realtime_alignment_applied = true;
@@ -228,6 +259,14 @@ void DataStore::applyTimeOffsets(const std::map<int, int64_t>& offsets)
         {
             for (auto& bank : banks)
                 for (auto& r : bank) r.time += off;
+        }
+    );
+    applyOffsetsBySE(
+        offsets,
+        realtime_by_se,
+        [](auto& recs, int64_t off)
+        {
+            for (auto& r : recs) r.shader_clock += off;
         }
     );
     applyOffsetsBySE(

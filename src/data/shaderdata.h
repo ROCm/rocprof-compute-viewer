@@ -25,6 +25,7 @@
 #include <cstdint>
 #include <functional>
 #include <map>
+#include <set>
 #include <string>
 #include <tuple>
 #include <vector>
@@ -94,6 +95,9 @@ public:
 
     /// Check if any shaderdata was loaded.
     bool HasData() const { return m_has_data; }
+
+    /// Shader engines that have pending or finalized shaderdata records.
+    std::set<int> SEs() const;
 
     // ─── Markers (SQTT instrumentation) ─────────────────────────────────────
 

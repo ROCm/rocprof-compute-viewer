@@ -107,7 +107,7 @@ public:
     TraceCounterPlotView(class QWidget* parent);
     virtual ~TraceCounterPlotView() = default;
 
-    void LoadCounterData(const std::string& dirpath, int SE);
+    void LoadCounterData(const DataStore& store);
 
     virtual std::string getBuiltin() const override;
     virtual bool isBuiltin(const std::string& name) const override;

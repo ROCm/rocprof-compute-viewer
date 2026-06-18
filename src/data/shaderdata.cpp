@@ -204,6 +204,16 @@ void ShaderDataManager::ApplyTimeOffsets(const std::map<int, int64_t>& offsets)
     ClearMarkers();
 }
 
+std::set<int> ShaderDataManager::SEs() const
+{
+    std::set<int> ses;
+    for (const auto& [key, records] : m_pending)
+        if (!records.empty()) ses.insert(std::get<0>(key));
+    for (const auto& [key, records] : m_records_by_location)
+        if (records && !records->empty()) ses.insert(std::get<0>(key));
+    return ses;
+}
+
 MarkerSpanVec ShaderDataManager::GetMarkers(int se, int cu, int simd, int slot) const
 {
     auto it = m_markers_by_location.find(std::make_tuple(se, cu, simd, slot));

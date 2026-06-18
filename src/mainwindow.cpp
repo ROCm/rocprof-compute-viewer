@@ -1320,22 +1320,14 @@ void MainWindow::CreateCountersPlot()
     for (auto& name : perfcounter_names)
         if (name.size() > 5 && name.find("SQ_") == 0) name = name.substr(3);
 
-    bool load_perf_counters = !perfcounter_names.empty();
+    bool load_perf_counters = data_store && !perfcounter_names.empty() && !data_store->counters_by_se.empty();
 
     auto* traceplot = new TraceCounterPlotView(this);
     this->counters_plot = traceplot;
 
     if (load_perf_counters)
     {
-        int max_se = 0;
-        if (auto* dispatch_data = dynamic_cast<DispatchPlotView*>(this->dispatch_plot))
-        {
-            const auto& list = dispatch_data->seList();
-            auto it = std::max_element(list.begin(), list.end());
-            if (it != list.end()) max_se = 1 + *it;
-        }
-
-        for (int se_num = 0; se_num < max_se; se_num++) traceplot->LoadCounterData(GetUIDir(), se_num);
+        traceplot->LoadCounterData(*data_store);
     }
 
     if (this->counters_plot_layout) delete this->counters_plot_layout;
