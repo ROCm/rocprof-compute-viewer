@@ -151,6 +151,8 @@ LatencyBreakdown proportionalLatency(ASMCodeline* asmLine, int64_t latency, Late
     if (total > 0)
     {
         const int64_t hidden = asmLine->hotspot.sqtt.hiddenTotal(HorizontalHotspot::show_idle_time);
+        // TODO: Marker flamegraphs only have per-ASM-line hidden latency here, so nonhidden marker widths are
+        // approximate when a line appears under multiple marker scopes or hidden work crosses marker boundaries.
         out.hidden = std::clamp<int64_t>((hidden * latency + total / 2) / total, 0, latency);
     }
 

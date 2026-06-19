@@ -27,8 +27,6 @@
 #include <map>
 #include <vector>
 
-#include "wave/token.h"
-
 class DataStore;
 
 namespace HiddenLatencyAnalysis

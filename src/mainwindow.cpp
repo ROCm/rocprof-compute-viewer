@@ -736,6 +736,14 @@ bool MainWindow::runHiddenLatencyAnalysis(bool show_dialogs)
 
     if (!HiddenLatencyAnalysis::analyze(*data_store))
     {
+        if (flameGraph) flameGraph->setHiddenLatencyAvailable(false);
+        if (source_filetab)
+        {
+            source_filetab->refreshHiddenLatencyFromAsm();
+            source_filetab->refreshLatencyDisplay();
+        }
+        if (code_contents) code_contents->refreshLatencyAnnotations();
+        if (flameGraph) flameGraph->rebuild();
         if (show_dialogs) QMessageBox::warning(this, "Hidden Latency", "Hidden latency analysis failed.");
         return false;
     }

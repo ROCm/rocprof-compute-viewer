@@ -130,6 +130,7 @@ void walkMarkerStream(
         {
             if (stack.empty())
             {
+                // TODO: Decide whether orphan exits should always warn even when marker metadata is unavailable.
                 if (!resolve_id(0, rec.time).metadata_available) continue;
                 out_diags->push_back(
                     {MarkerDiagnostic::Severity::Warning, "orphan exit marker at " + locTag(hwid, rec.time)}

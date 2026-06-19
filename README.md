@@ -29,6 +29,7 @@ The tool interprets the rocprofv3 thread trace output, which are directories nam
 * Memory ops to waitcnt dependency.
 * Occupancy visualization
 * Flamegraph view (per-target-CU/SIMD source/ISA stack rollup, plus a global marker flamegraph when SQTT instrumentation is present)
+* Hidden latency analysis for gfx10+/Navi thread traces, with total and nonhidden latency views.
 * SQTT instrumentation marker visualization — LLVM pass (`.sqtt_funcmap` ELF section).
 
 There are two input formats:
@@ -108,6 +109,7 @@ If debug symbols are present, rocprofv3 snapshots the related source files, whic
 * Left click on a token highlights (in green) the ISA line corresponding to that instruction.
 * Hover or Click on an ISA line to highlight the corresponding source line. The opposite way is also possible.
   * Clicking on a source line permanently highlights the ISA lines until the user clicks on the same or another line.
+* Hidden latency analysis runs automatically for gfx10+/Navi thread traces and can also be run from Analyze -> Hidden Latency. After it runs, the instruction latency dropdown can show Total latency or Nonhidden Latency, and source hotspots can optionally include or exclude hidden latency.
 
 ### Occupancy and Dispatches plots tab
 * Keys:
@@ -253,7 +255,9 @@ The Flamegraph View (which replaces the previous Explorer View) rolls up latency
 - Frames are sized by accumulated latency cycles; wider frames cost more.
 - The stack is built per target CU/SIMD over the source and ISA, so you can drill from a source line down to the individual instructions.
 - Hover a frame to see its latency; click to zoom into that frame.
+- After hidden latency analysis runs, the flamegraph can be weighted by Total latency or Nonhidden Latency. Tooltips show the total, nonhidden and hidden cycle breakdown.
 - When the trace contains SQTT instrumentation markers, a separate global marker flamegraph is also available, rolling up time spent inside instrumented regions.
+- Marker flamegraphs have a limitation with hidden latency: nonhidden marker widths distribute hidden latency from per-ISA-line totals. If the same instruction line appears under multiple marker scopes, or hidden work crosses marker boundaries, marker-level nonhidden widths are approximate. Total-latency marker flamegraphs are not affected by this limitation.
 
 ## Troubleshooting:
 
