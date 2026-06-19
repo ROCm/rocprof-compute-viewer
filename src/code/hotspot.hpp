@@ -120,8 +120,8 @@ public:
     static bool is_sqtt_enabled;
     static bool show_idle_time;
 
-    /// Walk ASMCodeline::line_vec and publish three Annotation::Categories
-    /// ("inst_latency", "stall_reasons", "latency_stall") reflecting the
+    /// Walk ASMCodeline::line_vec and publish latency Annotation::Categories
+    /// ("inst_latency", "nonhidden_latency", "stall_reasons", "latency_stall") reflecting the
     /// current hotspot data. Call once after Populate fills the hotspots.
     static void PublishCategories(int64_t max_sqtt_latency, int64_t max_pcs_latency);
 

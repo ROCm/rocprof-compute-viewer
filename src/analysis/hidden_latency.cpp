@@ -48,14 +48,6 @@ struct Util
     bool operator<(const Util& other) const { return clock < other.clock; }
 };
 
-int VALU = -1;
-int WMMA = -1;
-int VMEM = -1;
-int FLAT = -1;
-int LDS = -1;
-int SALU = -1;
-int SMEM = -1;
-
 std::string upper(std::string str)
 {
     std::transform(str.begin(), str.end(), str.begin(), [](unsigned char c) { return std::toupper(c); });
@@ -90,15 +82,13 @@ int64_t compute_intersection(const std::vector<Util>& vec, const Util& interval)
 {
     if (interval.cycles <= 0) return 0;
 
-    // Find first element of util vec such that it intersects with interval
-    auto upper = std::lower_bound(vec.begin(), vec.end(), interval);
-
-    if (upper == vec.end()) return 0;
-
     int64_t interval_end = interval.clock + interval.cycles;
     int64_t intersection = 0;
 
     auto get_begin = [](const Util& util) { return util.clock - util.cycles; };
+
+    // Find first element of util vec such that it intersects with interval
+    auto upper = std::lower_bound(vec.begin(), vec.end(), interval);
 
     while (upper != vec.end() && get_begin(*upper) <= interval_end)
     {
