@@ -21,7 +21,7 @@
 // SOFTWARE.
 
 #include "../../src/json/include/nlohmann/json.hpp"
-#include "latency.hpp"
+#include "memory_latency.hpp"
 
 #include <fstream>
 #include <iostream>

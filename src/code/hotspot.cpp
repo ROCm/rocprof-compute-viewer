@@ -50,14 +50,7 @@ QColor transparentNoneColor()
     return color;
 }
 
-QColor hiddenIdleColor()
-{
-    QColor color = transparentNoneColor().darker(135);
-    color.setAlphaF(0.75);
-    return color;
-}
-
-QColor hiddenStallColor() { return Config::StallColor().lighter(145); }
+QColor hiddenColor() { return QColor(0, 0, 255); }
 
 int64_t clampHiddenValue(int64_t value, int64_t upper)
 {
@@ -66,28 +59,30 @@ int64_t clampHiddenValue(int64_t value, int64_t upper)
 
 struct LatencySplit
 {
-    int64_t visibleIdle = 0;
     int64_t hiddenIdle = 0;
-    int64_t visibleStall = 0;
     int64_t hiddenStall = 0;
-    int64_t issue = 0;
+    int64_t hiddenIssue = 0;
+    int64_t visibleIdle = 0;
+    int64_t visibleStall = 0;
+    int64_t visibleIssue = 0;
+
+    int64_t hidden() const { return hiddenIdle + hiddenStall + hiddenIssue; }
 };
 
 LatencySplit splitLatency(const Latency& latency, bool includeIdle)
 {
     const int64_t active = std::max<int64_t>(0, latency.latency);
     const int64_t stall = std::clamp<int64_t>(latency.stalled, 0, active);
+    const int64_t issue = active - stall;
     const int64_t idle = includeIdle ? std::max<int64_t>(0, latency.idle) : 0;
 
-    const int64_t hiddenAnyStall = clampHiddenValue(latency.hidden_any_stall, stall);
-    const int64_t hiddenAnyIdle = clampHiddenValue(includeIdle ? latency.hidden_any_idle : 0, idle);
-
     LatencySplit split;
-    split.visibleIdle = idle - hiddenAnyIdle;
-    split.hiddenIdle = hiddenAnyIdle;
-    split.visibleStall = stall - hiddenAnyStall;
-    split.hiddenStall = hiddenAnyStall;
-    split.issue = active - stall;
+    split.hiddenIdle = clampHiddenValue(includeIdle ? latency.hidden.idle : 0, idle);
+    split.hiddenStall = clampHiddenValue(latency.hidden.stall, stall);
+    split.hiddenIssue = clampHiddenValue(latency.hidden.issue, issue);
+    split.visibleIdle = idle - split.hiddenIdle;
+    split.visibleStall = stall - split.hiddenStall;
+    split.visibleIssue = issue - split.hiddenIssue;
     return split;
 }
 
@@ -157,11 +152,10 @@ void HorizontalHotspot::paint(
     {
         const LatencySplit split = splitLatency(latency, show_idle_time);
 
+        if (split.hidden() > 0) Draw(split.hidden() * NORM, hiddenColor(), _posy, _height);
         if (split.visibleIdle > 0) Draw(split.visibleIdle * NORM, transparentNoneColor(), _posy, _height);
-        if (split.hiddenIdle > 0) Draw(split.hiddenIdle * NORM, hiddenIdleColor(), _posy, _height);
         if (split.visibleStall > 0) Draw(split.visibleStall * NORM, Config::StallColor(), _posy, _height);
-        if (split.hiddenStall > 0) Draw(split.hiddenStall * NORM, hiddenStallColor(), _posy, _height);
-        if (split.issue > 0) Draw(split.issue * NORM, Config::IssueColor(), _posy, _height);
+        if (split.visibleIssue > 0) Draw(split.visibleIssue * NORM, Config::IssueColor(), _posy, _height);
     };
 
     auto drawType = [&](const std::array<int64_t, 16>& array, int _posy, int _height)
@@ -234,49 +228,36 @@ std::string HorizontalHotspot::getTooltip() const
 
     if (totalCycles > 0)
     {
-        int64_t issue = latency.latency - latency.stalled;
-        const int64_t stall = std::max<int64_t>(latency.stalled, 0);
-        const int64_t idle = show_idle_time ? std::max<int64_t>(latency.idle, 0) : 0;
-        const int64_t stallAndIdle = stall + idle;
-        const int64_t hiddenAnyStall = clampHiddenValue(latency.hidden_any_stall, stall);
-        const int64_t hiddenAnyIdle = clampHiddenValue(show_idle_time ? latency.hidden_any_idle : 0, idle);
-        const int64_t hiddenAny = hiddenAnyStall + hiddenAnyIdle;
-        int64_t hiddenValu = clampHiddenValue(latency.hiddenValu(show_idle_time), hiddenAny);
-        int64_t hiddenOther = hiddenAny - hiddenValu;
+        const LatencySplit split = splitLatency(latency, show_idle_time);
         double total = static_cast<double>(totalCycles) / 100.0;
-        double stallIdleTotal = std::max<double>(static_cast<double>(stallAndIdle) / 100.0, 1.0);
 
         // Get colors as hex strings for HTML
         QColor stallColor = Config::StallColor();
         QColor issueColor = Config::IssueColor();
         QColor idleColor = Config::TokenColors().at(0).qcolor;
+        QColor hidden = hiddenColor();
 
         // Use Unicode square character (■) with color styling - Qt rich text supports this
         ss << "<table cellspacing='2'>";
+        if (split.hidden() > 0)
+            ss << "<tr><td><font color='" << hidden.name().toStdString() << "'>&#9632;</font></td>"
+               << "<td>Hidden:</td><td align='right'>" << std::fixed << std::setprecision(0) << split.hidden() / total
+               << "%</td></tr>";
         ss << "<tr><td><font color='" << stallColor.name().toStdString() << "'>&#9632;</font></td>"
-           << "<td>Stall:</td><td align='right'>" << std::fixed << std::setprecision(0) << latency.stalled / total
+           << "<td>Stall:</td><td align='right'>" << std::fixed << std::setprecision(0) << split.visibleStall / total
            << "%</td></tr>";
         ss << "<tr><td><font color='" << issueColor.name().toStdString() << "'>&#9632;</font></td>"
-           << "<td>Issue:</td><td align='right'>" << std::fixed << std::setprecision(0) << issue / total
+           << "<td>Issue:</td><td align='right'>" << std::fixed << std::setprecision(0) << split.visibleIssue / total
            << "%</td></tr>";
-        if (show_idle_time && latency.idle > 0)
+        if (show_idle_time && split.visibleIdle > 0)
             ss << "<tr><td><font color='" << idleColor.name().toStdString() << "'>&#9632;</font></td>"
-               << "<td>Idle:</td><td align='right'>" << std::fixed << std::setprecision(0) << latency.idle / total
+               << "<td>Idle:</td><td align='right'>" << std::fixed << std::setprecision(0) << split.visibleIdle / total
                << "%</td></tr>";
-        if (hiddenAny > 0 && stallAndIdle > 0)
+        if (split.hidden() > 0)
         {
-            ss << "<tr><td><font color='" << hiddenStallColor().name().toStdString() << "'>&#9632;</font></td>"
-               << "<td>Hidden stall:</td><td align='right'>" << hiddenAnyStall << " (" << std::fixed
-               << std::setprecision(0) << hiddenAnyStall / stallIdleTotal << "% stall+idle)</td></tr>";
-            if (show_idle_time && hiddenAnyIdle > 0)
-                ss << "<tr><td><font color='" << hiddenIdleColor().name().toStdString() << "'>&#9632;</font></td>"
-                   << "<td>Hidden idle:</td><td align='right'>" << hiddenAnyIdle << " (" << std::fixed
-                   << std::setprecision(0) << hiddenAnyIdle / stallIdleTotal << "% stall+idle)</td></tr>";
-            ss << "<tr><td></td><td>Hidden by VALU:</td><td align='right'>" << hiddenValu << " (" << std::fixed
-               << std::setprecision(0) << hiddenValu / stallIdleTotal << "% stall+idle)</td></tr>";
-            if (hiddenOther > 0)
-                ss << "<tr><td></td><td>Hidden by other:</td><td align='right'>" << hiddenOther << " (" << std::fixed
-                   << std::setprecision(0) << hiddenOther / stallIdleTotal << "% stall+idle)</td></tr>";
+            ss << "<tr><td></td><td>Hidden idle:</td><td align='right'>" << split.hiddenIdle << "</td></tr>";
+            ss << "<tr><td></td><td>Hidden stall:</td><td align='right'>" << split.hiddenStall << "</td></tr>";
+            ss << "<tr><td></td><td>Hidden issue:</td><td align='right'>" << split.hiddenIssue << "</td></tr>";
         }
         ss << "<tr><td></td><td>Total:</td><td align='right'>" << totalCycles << "</td></tr>";
         ss << "</table>";
@@ -300,11 +281,10 @@ bool pushStallIssue(const Latency& lat, std::vector<Annotation::Component>& out)
     };
 
     const LatencySplit split = splitLatency(lat, HorizontalHotspot::show_idle_time);
+    push(split.hidden(), hiddenColor());
     push(split.visibleIdle, transparentNoneColor());
-    push(split.hiddenIdle, hiddenIdleColor());
     push(split.visibleStall, Config::StallColor());
-    push(split.hiddenStall, hiddenStallColor());
-    push(split.issue, Config::IssueColor());
+    push(split.visibleIssue, Config::IssueColor());
     return true;
 }
 

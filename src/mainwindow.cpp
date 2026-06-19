@@ -703,9 +703,11 @@ void MainWindow::OpenHiddenLatencyAnalysis()
         return;
     }
 
-    std::atomic<int> progress{0};
-    auto summary = HiddenLatencyAnalysis::analyze(*data_store, &progress);
-    HiddenLatencyAnalysis::finalize(summary);
+    if (!HiddenLatencyAnalysis::analyze(*data_store))
+    {
+        QMessageBox::warning(this, "Hidden Latency", "Hidden latency analysis failed.");
+        return;
+    }
 
     if (source_filetab)
     {
@@ -715,11 +717,7 @@ void MainWindow::OpenHiddenLatencyAnalysis()
     if (code_contents) { code_contents->refreshLatencyAnnotations(); }
     if (flameGraph) flameGraph->rebuild();
 
-    QMessageBox::information(
-        this,
-        "Hidden Latency",
-        QString("Hidden latency analysis is currently stubbed out.\n\nProcessed %1 wave(s).").arg(summary.waves)
-    );
+    QMessageBox::information(this, "Hidden Latency", QString("Hidden latency analysis complete."));
 }
 
 void MainWindow::SetJsonsFolder()

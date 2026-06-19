@@ -23,7 +23,7 @@
 # THE SOFTWARE.
 
 """
-Command-line version of latency.py with option to save results for comparison with C++.
+Command-line version of memory_latency.py with option to save results for comparison with C++.
 """
 import numpy as np
 import json

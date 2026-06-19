@@ -317,10 +317,7 @@ void SourceFileTab::refreshHiddenLatencyFromAsm()
                         {
                             Latency hidden;
                             const Latency& src = asm_line->hotspot.sqtt;
-                            hidden.hidden_valu_stall = src.hidden_valu_stall;
-                            hidden.hidden_valu_idle = src.hidden_valu_idle;
-                            hidden.hidden_any_stall = src.hidden_any_stall;
-                            hidden.hidden_any_idle = src.hidden_any_idle;
+                            hidden.hidden = src.hidden;
 
                             line->hotspot.sqtt += hidden;
                             file.second->latency.sqtt += hidden;

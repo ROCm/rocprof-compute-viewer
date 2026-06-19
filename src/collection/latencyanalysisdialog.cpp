@@ -23,7 +23,7 @@
 #include "latencyanalysisdialog.h"
 
 #include "../analysis/annotation.h"
-#include "../analysis/latency.hpp"
+#include "../analysis/memory_latency.hpp"
 #include "../code/asmcode.h"
 #include "../code/qcodelist.h"
 #include "../config/config.hpp"
