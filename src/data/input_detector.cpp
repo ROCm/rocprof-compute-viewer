@@ -25,6 +25,7 @@
 #include <algorithm>
 #include <filesystem>
 #include <string>
+#include <system_error>
 
 #include "util/diagnostic_log.h"
 
@@ -36,7 +37,12 @@ AttFileInfo parseAttFilename(const std::string& path)
 {
     AttFileInfo info;
     info.path = path;
-    info.file_size = fs::is_regular_file(path) ? fs::file_size(path) : 0;
+    std::error_code ec;
+    if (fs::is_regular_file(path, ec))
+    {
+        auto size = fs::file_size(path, ec);
+        if (!ec) info.file_size = size;
+    }
 
     std::string stem = fs::path(path).stem().string();
 

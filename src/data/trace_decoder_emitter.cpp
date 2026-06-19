@@ -826,12 +826,22 @@ void TraceDecoderEmitter::parseATTFiles()
     }
 
     // Parse all SEs with bounded parallelism
-    std::vector<std::thread> threads;
+    std::vector<std::jthread> threads;
     std::counting_semaphore<12> semaphore(12);
 
     for (auto& se_file : se_files)
     {
-        auto file_size = fs::file_size(se_file.path);
+        std::error_code ec;
+        const auto raw_file_size = fs::file_size(se_file.path, ec);
+        if (ec)
+        {
+            std::cerr << "Warning: Cannot stat ATT file: " << se_file.path << ": " << ec.message() << std::endl;
+            std::lock_guard<std::mutex> lock(parse_errors_mutex);
+            parse_errors.push_back("SE" + std::to_string(se_file.se) + " (" + se_file.path + "): " + ec.message());
+            continue;
+        }
+        const auto file_size =
+            static_cast<size_t>(std::min<uintmax_t>(raw_file_size, std::numeric_limits<size_t>::max()));
 
         // Wait if adding this file would exceed the memory budget
         while (inflight_bytes.load() + file_size > MEMORY_BUDGET && inflight_bytes.load() > 0)
@@ -887,8 +897,6 @@ void TraceDecoderEmitter::parseATTFiles()
             }
         );
     }
-
-    for (auto& t : threads) t.join();
 }
 
 rocprofiler_thread_trace_decoder_status_t TraceDecoderEmitter::traceCallback(

@@ -485,18 +485,27 @@ void MainWindow::SetMainWave(int se, int simd, int sl, int wid)
 {
     constexpr int64_t WAVE_END_ROOM = 20000;
 
-    force_gather = current_wave_coord_se != se || WaveInstance::main_wave == nullptr;
-
-    current_wave_coord_se = se;
-    current_wave_coord_sm = simd;
-    current_wave_coord_sl = sl;
-
     QWARNING(data_store, "No data store", return );
-    auto& entry = data_store->wave_hierarchy[se][simd][sl][wid];
+    auto se_it = data_store->wave_hierarchy.find(se);
+    QWARNING(se_it != data_store->wave_hierarchy.end(), "Invalid SE: " << se, return );
+    auto simd_it = se_it->second.find(simd);
+    QWARNING(simd_it != se_it->second.end(), "Invalid SIMD: " << simd, return );
+    auto slot_it = simd_it->second.find(sl);
+    QWARNING(slot_it != simd_it->second.end(), "Invalid wave slot: " << sl, return );
+    auto wid_it = slot_it->second.find(wid);
+    QWARNING(wid_it != slot_it->second.end(), "Invalid WID: " << wid, return );
+
+    const bool no_main_wave = WaveInstance::main_wave == nullptr;
+    const auto& entry = wid_it->second;
     auto main_wave = data_store->getWave(entry);
     WaveInstance::main_wave = main_wave;
 
     QWARNING(main_wave && code_contents && code_contents->connector, "invalid code_contents", return );
+
+    force_gather = current_wave_coord_se != se || no_main_wave;
+    current_wave_coord_se = se;
+    current_wave_coord_sm = simd;
+    current_wave_coord_sl = sl;
 
     // Compute waitcnt on demand for the selected wave (decoder path)
     main_wave->buildWaitcnt(data_store->gfxip);
@@ -514,9 +523,10 @@ void MainWindow::SetMainWave(int se, int simd, int sl, int wid)
     ui->wview_range_min->setText(std::to_string(main_wave->wave_begin).c_str());
     ui->wview_range_max->setText(std::to_string(main_wave->wave_end + WAVE_END_ROOM).c_str());
 
-    // Decoder path: wave data is already in memory, so expand the clock window
-    // to show all waves in this SE (if within the instruction budget).
-    if (!data_store->wave_records.empty())
+    // Hidden-latency traces already require all waves, so use the full selected SE
+    // for Compute Unit, Utilization and Hotspot too.
+    const bool load_all_waves = shouldAutoAnalyzeHiddenLatency();
+    if (load_all_waves || !data_store->wave_records.empty())
     {
         int64_t se_min = INT64_MAX, se_max = INT64_MIN;
         size_t total_instructions = 0;
@@ -525,15 +535,19 @@ void MainWindow::SetMainWave(int se, int simd, int sl, int wid)
             [&](const DataStore::WaveCoordinate& coord, const WaveEntry& entry)
             {
                 if (coord.hwid.se != se) return;
-                auto rec_it = data_store->wave_records.find(entry.id);
-                if (rec_it == data_store->wave_records.end()) return;
-                total_instructions += rec_it->second.instructions.size();
+                if (!data_store->wave_records.empty())
+                {
+                    auto rec_it = data_store->wave_records.find(entry.id);
+                    if (rec_it == data_store->wave_records.end() && !load_all_waves) return;
+                    if (rec_it != data_store->wave_records.end())
+                        total_instructions += rec_it->second.instructions.size();
+                }
                 se_min = std::min(se_min, entry.begin);
                 se_max = std::max(se_max, entry.end);
             }
         );
 
-        if (total_instructions <= GATHER_INSTRUCTION_BUDGET && se_min < se_max)
+        if ((load_all_waves || total_instructions <= GATHER_INSTRUCTION_BUDGET) && se_min < se_max)
         {
             ui->wview_range_min->setText(std::to_string(se_min).c_str());
             ui->wview_range_max->setText(std::to_string(se_max + WAVE_END_ROOM).c_str());

@@ -18,6 +18,7 @@ For pre-built binaries, see [releases](https://github.com/ROCm/rocprof-compute-v
 - [Troubleshooting](#troubleshooting)
 - [Building from Source](#building-from-source)
 - [Viewing traces from the rocprofiler-sdk API](#viewing-traces-from-the-rocprofiler-sdk-api)
+- [Hidden Latency](#hidden-latency)
 
 ## Summary
 
@@ -29,7 +30,7 @@ The tool interprets the rocprofv3 thread trace output, which are directories nam
 * Memory ops to waitcnt dependency.
 * Occupancy visualization
 * Flamegraph view (per-target-CU/SIMD source/ISA stack rollup, plus a global marker flamegraph when SQTT instrumentation is present)
-* Hidden latency analysis for gfx10+/Navi thread traces, with total and nonhidden latency views.
+* Hidden latency analysis.
 * SQTT instrumentation marker visualization — LLVM pass (`.sqtt_funcmap` ELF section).
 
 There are two input formats:
@@ -109,7 +110,7 @@ If debug symbols are present, rocprofv3 snapshots the related source files, whic
 * Left click on a token highlights (in green) the ISA line corresponding to that instruction.
 * Hover or Click on an ISA line to highlight the corresponding source line. The opposite way is also possible.
   * Clicking on a source line permanently highlights the ISA lines until the user clicks on the same or another line.
-* Hidden latency analysis runs automatically for gfx10+/Navi thread traces and can also be run from Analyze -> Hidden Latency. After it runs, the instruction latency dropdown can show Total latency or Nonhidden Latency, and source hotspots can optionally include or exclude hidden latency.
+* Hidden latency analysis runs automatically for gfx10+ thread traces and can also be run from Analyze -> Hidden Latency. After it runs, the instruction latency dropdown can show Total latency or Nonhidden Latency, and source hotspots can optionally include or exclude hidden latency.
 
 ### Occupancy and Dispatches plots tab
 * Keys:
@@ -257,7 +258,7 @@ The Flamegraph View (which replaces the previous Explorer View) rolls up latency
 - Hover a frame to see its latency; click to zoom into that frame.
 - After hidden latency analysis runs, the flamegraph can be weighted by Total latency or Nonhidden Latency. Tooltips show the total, nonhidden and hidden cycle breakdown.
 - When the trace contains SQTT instrumentation markers, a separate global marker flamegraph is also available, rolling up time spent inside instrumented regions.
-- Marker flamegraphs have a limitation with hidden latency: nonhidden marker widths distribute hidden latency from per-ISA-line totals. If the same instruction line appears under multiple marker scopes, or hidden work crosses marker boundaries, marker-level nonhidden widths are approximate. Total-latency marker flamegraphs are not affected by this limitation.
+- Marker flamegraphs can also use Total latency or Nonhidden Latency; see [Hidden Latency](#hidden-latency) for the marker limitation.
 
 ## Troubleshooting:
 
@@ -457,3 +458,15 @@ Notes:
 * Each code object is tagged with the **code object id** the trace references, parsed from the trailing number in the filename (e.g. `..._code_object_id_1.out` → `1`, `codeobj_42.out` → `42`). Only `.hsaco` files may use id `0`; a `.out` without a parseable id, or an id that collides with another input, is skipped with a warning.
 * Build the code objects with debug info (`-g`) for source correlation; without it you still get ISA but no source mapping.
 * Requires `llvm-objdump` (from a ROCm/LLVM install or on `PATH`) and the `pyelftools` Python package (`pip install pyelftools`).
+
+## Hidden Latency
+
+Hidden latency runs automatically for gfx10+ thread traces. It can also be run manually from menu Analyze -> Hidden Latency.
+
+Hidden latency estimates cycles hidden by other busy pipes. A wave's idle or stalled cycles are hidden when another pipe is busy; issuing/executing cycles are hidden only by a higher-priority busy pipe.
+
+Current pipe priority is: WMMA > VALU > VMEM/LDS/FLAT > SMEM/SALU > Others. Others include IMMED, MSG, branches, and similar token types; they never hide latency. This priority order is a first approximation.
+
+Total latency includes hidden latency. Nonhidden Latency subtracts it. After analysis runs, the Instructions view, source hotspots, and Flamegraph view can display or weight by total or nonhidden latency.
+
+Marker flamegraphs have one limitation: nonhidden marker widths distribute hidden latency from per-ISA-line totals. If the same instruction line appears under multiple marker scopes, or hidden work crosses marker boundaries, marker-level nonhidden widths are approximate. Total-latency marker flamegraphs are unaffected.
