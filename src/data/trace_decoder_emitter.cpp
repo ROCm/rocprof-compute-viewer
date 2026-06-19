@@ -826,7 +826,7 @@ void TraceDecoderEmitter::parseATTFiles()
     }
 
     // Parse all SEs with bounded parallelism
-    std::vector<std::jthread> threads;
+    std::vector<std::thread> threads;
     std::counting_semaphore<12> semaphore(12);
 
     for (auto& se_file : se_files)
@@ -897,6 +897,9 @@ void TraceDecoderEmitter::parseATTFiles()
             }
         );
     }
+
+    for (auto& thread : threads)
+        if (thread.joinable()) thread.join();
 }
 
 rocprofiler_thread_trace_decoder_status_t TraceDecoderEmitter::traceCallback(
