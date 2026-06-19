@@ -89,6 +89,7 @@ LatencySplit splitLatency(const Latency& latency, bool includeIdle)
 bool HorizontalHotspot::is_pcs_enabled = false;
 bool HorizontalHotspot::is_sqtt_enabled = true;
 bool HorizontalHotspot::show_idle_time = true;
+bool HorizontalHotspot::source_include_hidden_latency = true;
 int HorizontalHotspot::HISTOGRAM_WIDTH = 100;
 
 void HorizontalHotspot::SetHistogramWidth(int value) { HISTOGRAM_WIDTH = std::max(0, value); }
@@ -150,7 +151,8 @@ void HorizontalHotspot::paint(
     {
         const LatencySplit split = splitLatency(latency, show_idle_time);
 
-        if (split.hidden() > 0) Draw(split.hidden() * NORM, Config::HiddenLatencyColor(), _posy, _height);
+        if (source_include_hidden_latency && split.hidden() > 0)
+            Draw(split.hidden() * NORM, Config::HiddenLatencyColor(), _posy, _height);
         if (split.visibleIdle > 0) Draw(split.visibleIdle * NORM, transparentNoneColor(), _posy, _height);
         if (split.visibleStall > 0) Draw(split.visibleStall * NORM, Config::StallColor(), _posy, _height);
         if (split.visibleIssue > 0) Draw(split.visibleIssue * NORM, Config::IssueColor(), _posy, _height);
@@ -159,14 +161,21 @@ void HorizontalHotspot::paint(
     auto drawType = [&](const std::array<int64_t, 16>& array, int _posy, int _height)
     {
         const auto& colors = is_pcs_enabled ? Config::StallReasonColors() : Config::TokenColors();
+        const LatencySplit split = splitLatency(sqtt, show_idle_time);
+        const int64_t visibleIdle =
+            !is_pcs_enabled && !source_include_hidden_latency ? split.visibleIdle : std::max<int64_t>(0, sqtt.idle);
+        const double activeScale =
+            !is_pcs_enabled && !source_include_hidden_latency && sqtt.latency > 0
+                ? static_cast<double>(split.visibleStall + split.visibleIssue) / static_cast<double>(sqtt.latency)
+                : 1.0;
 
-        if (!is_pcs_enabled && show_idle_time && sqtt.idle > 0)
-            Draw(sqtt.idle * NORM, transparentNoneColor(), _posy, _height);
+        if (!is_pcs_enabled && show_idle_time && visibleIdle > 0)
+            Draw(visibleIdle * NORM, transparentNoneColor(), _posy, _height);
 
         float barWidth = 0;
         for (int c = 0; c < array.size() && c < colors.size(); c++)
         {
-            barWidth += array[c] * NORM;
+            barWidth += static_cast<float>(array[c] * activeScale * NORM);
             if (barWidth < 0.1f) continue;
             const QColor color = !is_pcs_enabled && c == 0 ? transparentNoneColor() : colors.at(c).qcolor;
             Draw(barWidth, color, _posy, _height);
@@ -348,7 +357,7 @@ void HorizontalHotspot::PublishCategories(int64_t max_sqtt_latency, int64_t max_
     if (normTotal <= 0.0) return;
 
     auto inst = makeCat("inst_latency", "Total latency", 1, normTotal);
-    auto nonhidden = makeCat("nonhidden_latency", "Nonhidden Latency", 1, normTotal);
+    auto nonhidden = makeCat("nonhidden_latency", "Nonhidden Latency", 1, 0.0);
     auto reason = makeCat("stall_reasons", usePcs ? "Stall Reasons" : "Stall Categories", 1, normTotal);
     auto both = makeCat("latency_stall", "Latency + Stall", 2, normTotal);
 

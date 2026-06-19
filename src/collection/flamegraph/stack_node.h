@@ -45,14 +45,18 @@ struct StackNode
     std::string fullLocation; ///< Full path location for tooltip
     std::string filename;
     int lineNumber = -1;
-    int64_t latency = 0;
+    int64_t latency = 0;       ///< Latency used for frame width in the active mode.
+    int64_t totalLatency = 0;  ///< Total latency before hidden-latency exclusion.
+    int64_t hiddenLatency = 0; ///< Hidden portion of totalLatency.
     std::map<std::string, std::shared_ptr<StackNode>> children;
 
     /// Assembly instructions directly at this call-stack leaf
     struct AsmEntry
     {
         std::string label;
-        int64_t latency = 0;
+        int64_t latency = 0;       ///< Latency used for frame width in the active mode.
+        int64_t totalLatency = 0;  ///< Total latency before hidden-latency exclusion.
+        int64_t hiddenLatency = 0; ///< Hidden portion of totalLatency.
         int asmIndex = -1;
         int tokenType = 0; ///< Index into Config::TokenColors()
     };
@@ -75,14 +79,16 @@ struct StackNode
 /// by the widget for painting and hit-testing.
 struct Frame
 {
-    std::string label;    ///< Display label shown inside the frame bar
-    std::string location; ///< Full path location (e.g. "/path/file.cpp:42")
-    std::string content;  ///< Source/ASM content text
-    int64_t latency = 0;  ///< Total latency (SQTT + PCS) of this frame
-    double x = 0;         ///< Left position in [0,1] normalized coordinates (relative to total)
-    double w = 0;         ///< Width in [0,1] normalized coordinates
-    int row = 0;          ///< Row index (0 = bottom = files)
-    QColor color;         ///< Fill color
+    std::string label;         ///< Display label shown inside the frame bar
+    std::string location;      ///< Full path location (e.g. "/path/file.cpp:42")
+    std::string content;       ///< Source/ASM content text
+    int64_t latency = 0;       ///< Latency used for frame width in the active mode.
+    int64_t totalLatency = 0;  ///< Total latency before hidden-latency exclusion.
+    int64_t hiddenLatency = 0; ///< Hidden portion of totalLatency.
+    double x = 0;              ///< Left position in [0,1] normalized coordinates (relative to total)
+    double w = 0;              ///< Width in [0,1] normalized coordinates
+    int row = 0;               ///< Row index (0 = bottom = files)
+    QColor color;              ///< Fill color
 
     // For click navigation
     std::string filename; ///< Source filename (for file and source frames)

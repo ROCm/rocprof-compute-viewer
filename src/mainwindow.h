@@ -232,6 +232,7 @@ private:
     void saveLevelOfDetailSetting(int state);
     void saveDisplayLineNumberSetting(int state);
     void saveSourceHotspotSizeSetting();
+    void saveSourceIncludeHiddenLatencySetting(int state);
     void saveFontSizeSetting();
     void saveDarkThemeSetting(int state);
     void saveDisplayScalingSetting(int state);
@@ -240,6 +241,10 @@ private:
 
     // Instruction column visibility
     void saveColumnVisibilitySetting(int element, bool visible);
+
+    bool shouldAutoAnalyzeHiddenLatency() const;
+    bool runHiddenLatencyAnalysis(bool show_dialogs);
+    void refreshHiddenLatencyViews();
 
     static std::optional<int> parseLineEditInt(const QLineEdit* edit);
     static std::optional<int64_t> parseLineEditInt64(const QLineEdit* edit);

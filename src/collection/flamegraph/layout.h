@@ -37,7 +37,9 @@ struct LayoutResult
     std::vector<Frame> frames;
     std::vector<std::vector<int>> framesByRow; ///< frame indices sorted by Frame::x per row
     int numRows = 0;
-    int64_t totalLatency = 0;
+    int64_t totalLatency = 0;        ///< Sum of active-mode frame-width latency.
+    int64_t allTotalLatency = 0;     ///< Sum of total latency before hidden-latency exclusion.
+    int64_t allNonhiddenLatency = 0; ///< Sum of total latency after hidden-latency exclusion.
 };
 
 /// Convert a forest of StackNodes into flat Frames laid out in normalized

@@ -73,8 +73,10 @@ void DataStore::clear()
     gfxv.clear();
     has_thread_trace = true;
     has_pc_sampling = false;
+    hidden_latency_analyzed = false;
     counter_names.clear();
     wave_hierarchy.clear();
+    hidden_latency_by_line.clear();
     code.clear();
     source_snapshots.clear();
     source_tree_json.clear();

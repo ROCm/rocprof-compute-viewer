@@ -32,6 +32,7 @@
 #include <vector>
 #include "analysis/annotation.h"
 #include "config/appconfig.h"
+#include "data/datastore.h"
 #include "data/wavemanager.h"
 #include "graphics/canvas.h"
 #include "labelminimap.h"
@@ -56,6 +57,12 @@ static const std::array<std::pair<const char*, Canvas::DrawType>, 2> kBuiltinRow
 // Sentinel value stashed in Qt::UserRole for built-in rows; annotation rows
 // store their Category id as a QString.
 static constexpr int kBuiltinUserRole = 0; // value isn't read; we check QVariant type
+
+static bool hiddenLatencyAnalysisAvailable()
+{
+    auto* mw = MainWindow::window;
+    return mw && mw->data_store && mw->data_store->hidden_latency_analyzed;
+}
 
 class DrawTypeSelector : public QComboBox
 {
@@ -102,12 +109,19 @@ void DrawTypeSelector::rebuildAnnotationRows()
 
     while (count() > static_cast<int>(kBuiltinRows.size())) removeItem(count() - 1);
 
+    const bool hiddenLatencyAvailable = hiddenLatencyAnalysisAvailable();
+    const int enabled = static_cast<int>(Qt::ItemIsSelectable | Qt::ItemIsEnabled);
+    const int disabled = static_cast<int>(Qt::NoItemFlags);
     int selectRow = -1;
     for (const Annotation::Category* cat : Annotation::Registry::instance().categories())
     {
         addItem(QString::fromStdString(cat->display_name));
-        setItemData(count() - 1, QString::fromStdString(cat->id), Qt::UserRole);
-        if (cat->id == Canvas::active_annotation_id) selectRow = count() - 1;
+        const int row = count() - 1;
+        const bool rowEnabled = cat->id != "nonhidden_latency" || hiddenLatencyAvailable;
+        setItemData(row, QString::fromStdString(cat->id), Qt::UserRole);
+        model()->setData(model()->index(row, 0), rowEnabled ? enabled : disabled, Qt::UserRole - 1);
+
+        if (rowEnabled && cat->id == Canvas::active_annotation_id) selectRow = row;
     }
 
     if (selectRow >= 0)

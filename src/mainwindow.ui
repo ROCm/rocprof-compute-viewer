@@ -710,6 +710,16 @@
                     </widget>
                    </item>
                    <item>
+                    <widget class="QCheckBox" name="source_include_hidden_latency_box">
+                     <property name="text">
+                      <string>Include hidden latency</string>
+                     </property>
+                     <property name="checked">
+                      <bool>true</bool>
+                     </property>
+                    </widget>
+                   </item>
+                   <item>
                     <layout class="QHBoxLayout" name="horizontalLayout_12">
                      <item>
                       <widget class="QLabel" name="label_14">

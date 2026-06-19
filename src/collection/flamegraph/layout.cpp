@@ -165,6 +165,8 @@ int flattenNode(
         f.location = child->fullLocation;
         f.content = child->content;
         f.latency = child->latency;
+        f.totalLatency = child->totalLatency > 0 ? child->totalLatency : child->latency;
+        f.hiddenLatency = child->hiddenLatency;
         f.x = xPos;
         f.w = w;
         f.row = depth;
@@ -201,6 +203,8 @@ int flattenNode(
                 af.label = asm_e.label;
                 af.content = asm_e.label;
                 af.latency = asm_e.latency;
+                af.totalLatency = asm_e.totalLatency > 0 ? asm_e.totalLatency : asm_e.latency;
+                af.hiddenLatency = asm_e.hiddenLatency;
                 af.x = asmX;
                 af.w = asmW;
                 af.row = depth + 1;
@@ -225,8 +229,15 @@ LayoutResult layoutFromRoots(Roots& roots)
 {
     LayoutResult out;
 
-    for (auto& [name, node] : roots) out.totalLatency += node->latency;
+    for (auto& [name, node] : roots)
+    {
+        out.totalLatency += node->latency;
+        const int64_t total = node->totalLatency > 0 ? node->totalLatency : node->latency;
+        out.allTotalLatency += total;
+        out.allNonhiddenLatency += total - std::clamp<int64_t>(node->hiddenLatency, 0, total);
+    }
     if (out.totalLatency <= 0) return out;
+    if (out.allTotalLatency <= 0) out.allTotalLatency = out.totalLatency;
 
     int maxRowUsed = 0;
     double xPos = 0.0;
@@ -239,6 +250,8 @@ LayoutResult layoutFromRoots(Roots& roots)
         f.label = node->label;
         f.location = name;
         f.latency = node->latency;
+        f.totalLatency = node->totalLatency > 0 ? node->totalLatency : node->latency;
+        f.hiddenLatency = node->hiddenLatency;
         f.x = xPos;
         f.w = w;
         f.row = 0;

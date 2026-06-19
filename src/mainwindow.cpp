@@ -33,6 +33,7 @@
 #include <QSpinBox>
 #include <QTextStream>
 #include <algorithm>
+#include <cctype>
 #include <cstddef>
 #include <filesystem>
 #include <fstream>
@@ -474,7 +475,10 @@ void MainWindow::UpdateWaveViewRange()
 
     if (source_filetab) source_filetab->resetLatency();
     if (WaveInstance::main_wave && code_contents) code_contents->Populate(WaveInstance::main_wave->code);
-    if (flameGraph) flameGraph->rebuild();
+    if (data_store && data_store->hidden_latency_analyzed)
+        refreshHiddenLatencyViews();
+    else if (flameGraph)
+        flameGraph->rebuild();
 }
 
 void MainWindow::SetMainWave(int se, int simd, int sl, int wid)
@@ -695,29 +699,53 @@ void MainWindow::OpenDerivedCounterEditor()
     }
 }
 
-void MainWindow::OpenHiddenLatencyAnalysis()
+void MainWindow::OpenHiddenLatencyAnalysis() { runHiddenLatencyAnalysis(true); }
+
+void MainWindow::refreshHiddenLatencyViews()
 {
-    if (!data_store)
-    {
-        QMessageBox::warning(this, "Hidden Latency", "Load a trace before running hidden latency analysis.");
-        return;
-    }
+    if (!data_store || !data_store->hidden_latency_analyzed) return;
 
-    if (!HiddenLatencyAnalysis::analyze(*data_store))
-    {
-        QMessageBox::warning(this, "Hidden Latency", "Hidden latency analysis failed.");
-        return;
-    }
-
+    HiddenLatencyAnalysis::applyToAsm(*data_store);
     if (source_filetab)
     {
         source_filetab->refreshHiddenLatencyFromAsm();
         source_filetab->refreshLatencyDisplay();
     }
-    if (code_contents) { code_contents->refreshLatencyAnnotations(); }
+    if (code_contents) code_contents->refreshLatencyAnnotations();
     if (flameGraph) flameGraph->rebuild();
+}
 
-    QMessageBox::information(this, "Hidden Latency", QString("Hidden latency analysis complete."));
+bool MainWindow::shouldAutoAnalyzeHiddenLatency() const
+{
+    if (!data_store || !data_store->has_thread_trace) return false;
+    if (data_store->gfxip >= 10) return true;
+
+    std::string gfxv = data_store->gfxv;
+    std::transform(gfxv.begin(), gfxv.end(), gfxv.begin(), [](unsigned char c) { return std::tolower(c); });
+    return gfxv.find("navi") != std::string::npos;
+}
+
+bool MainWindow::runHiddenLatencyAnalysis(bool show_dialogs)
+{
+    if (!data_store)
+    {
+        if (show_dialogs)
+            QMessageBox::warning(this, "Hidden Latency", "Load a trace before running hidden latency analysis.");
+        return false;
+    }
+
+    if (!HiddenLatencyAnalysis::analyze(*data_store))
+    {
+        if (show_dialogs) QMessageBox::warning(this, "Hidden Latency", "Hidden latency analysis failed.");
+        return false;
+    }
+
+    if (flameGraph) flameGraph->setHiddenLatencyAvailable(true, true);
+    refreshHiddenLatencyViews();
+    if (code_contents) code_contents->selectAnnotation("inst_latency");
+
+    if (show_dialogs) QMessageBox::information(this, "Hidden Latency", QString("Hidden latency analysis complete."));
+    return true;
 }
 
 void MainWindow::SetJsonsFolder()
@@ -1148,6 +1176,8 @@ MainWindow::LoadResult MainWindow::LoadInputImpl(InputInfo input_info, const std
     if (this->seSelector) delete this->seSelector;
     this->seSelector = nullptr;
     this->seSelector = new SESelector(*data_store);
+
+    if (shouldAutoAnalyzeHiddenLatency()) runHiddenLatencyAnalysis(false);
 
     if (history_table) history_table->setRowCount(0);
 
@@ -2073,6 +2103,7 @@ void MainWindow::loadConfigSettings()
     // Source Options
     ui->display_line_number->setChecked(config.getDisplayLineNumber());
     ui->source_hotspot_size_edit->setText(QString::number(config.getSourceHotspotSize()));
+    ui->source_include_hidden_latency_box->setChecked(config.getSourceIncludeHiddenLatency());
 
     // Display Options
     ui->fontedit->setText(QString::number(config.getFontSize()));
@@ -2098,6 +2129,7 @@ void MainWindow::loadConfigSettings()
     _scaling_var = config.getDisplayScaling() ? 1 : 0;
     SourceLine::bDisplayLineNumber = config.getDisplayLineNumber();
     HorizontalHotspot::SetHistogramWidth(config.getSourceHotspotSize());
+    HorizontalHotspot::source_include_hidden_latency = config.getSourceIncludeHiddenLatency();
     HorizontalHotspot::show_idle_time = config.getShowIdleTime();
     QUtilization::bSeparateLDSPipe = config.getSeparateLDSPipe();
 }
@@ -2110,6 +2142,12 @@ void MainWindow::setupConfigConnections()
     // Source Options
     connect(ui->display_line_number, &QCheckBox::stateChanged, this, &MainWindow::saveDisplayLineNumberSetting);
     connect(ui->source_hotspot_size_edit, &QLineEdit::editingFinished, this, &MainWindow::saveSourceHotspotSizeSetting);
+    connect(
+        ui->source_include_hidden_latency_box,
+        &QCheckBox::stateChanged,
+        this,
+        &MainWindow::saveSourceIncludeHiddenLatencySetting
+    );
 
     // Display Options
     connect(ui->fontedit, &QLineEdit::editingFinished, this, &MainWindow::saveFontSizeSetting);
@@ -2148,6 +2186,15 @@ void MainWindow::saveSourceHotspotSizeSetting()
     bool ok;
     int size = ui->source_hotspot_size_edit->text().toInt(&ok);
     if (ok) AppConfig::getInstance().setSourceHotspotSize(size);
+}
+
+void MainWindow::saveSourceIncludeHiddenLatencySetting(int state)
+{
+    const bool enabled = state != 0;
+    AppConfig::getInstance().setSourceIncludeHiddenLatency(enabled);
+    HorizontalHotspot::source_include_hidden_latency = enabled;
+
+    if (source_filetab) source_filetab->refreshLatencyDisplay();
 }
 
 void MainWindow::saveFontSizeSetting()

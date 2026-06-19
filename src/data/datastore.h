@@ -31,6 +31,7 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
+#include "analysis/hidden_latency.h"
 #include "code/codeload.hpp"
 #include "data/dispatch_resolver.h"
 #include "data/hwid.h"
@@ -76,9 +77,11 @@ public:
     std::string gfxv;
     bool has_thread_trace = true;
     bool has_pc_sampling = false;
+    bool hidden_latency_analyzed = false;
     std::vector<std::string> counter_names;
 
     SEWaveMap wave_hierarchy;
+    std::map<int, HiddenLatencyAnalysis::HiddenLatency> hidden_latency_by_line;
 
     std::shared_ptr<WaveInstance> getWave(const WaveEntry& entry);
 

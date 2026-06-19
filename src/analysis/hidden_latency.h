@@ -52,5 +52,6 @@ struct HiddenLatency
 };
 
 bool analyze(DataStore& store);
+void applyToAsm(const DataStore& store);
 
 } // namespace HiddenLatencyAnalysis

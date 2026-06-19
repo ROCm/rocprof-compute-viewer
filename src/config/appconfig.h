@@ -40,6 +40,8 @@ public:
     void setDisplayLineNumber(bool enabled);
     int getSourceHotspotSize() const;
     void setSourceHotspotSize(int size);
+    bool getSourceIncludeHiddenLatency() const;
+    void setSourceIncludeHiddenLatency(bool enabled);
 
     // Display Options
     int getFontSize() const;

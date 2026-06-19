@@ -53,6 +53,8 @@ public:
     explicit FlameGraphWidget(QWidget* parent = nullptr);
     virtual ~FlameGraphWidget() = default;
 
+    void setHiddenLatencyAvailable(bool available, bool selectNonhidden = false);
+
     /// Pick a builder, run layout, and refresh the widget.
     virtual void rebuild();
 
@@ -115,7 +117,8 @@ protected:
     int m_marginRight = 4;
 
     const flamegraph::Frame* m_hoveredFrame = nullptr;
-    int64_t m_totalLatency = 0;
+    int64_t m_allTotalLatency = 0;
+    int64_t m_allNonhiddenLatency = 0;
 
     // Zoom/pan state
     double m_viewLeft = 0.0;  ///< Left edge of visible region in [0,1] space
@@ -125,4 +128,5 @@ protected:
 
     QScrollBar* m_hScrollBar = nullptr;
     QComboBox* m_latencyModeBox = nullptr;
+    bool m_hiddenLatencyAvailable = false;
 };

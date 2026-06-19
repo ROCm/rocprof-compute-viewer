@@ -213,9 +213,12 @@ bool analyzeScoped(DataStore& store, int SE, int SIMD)
                 wmma.push_back({clock, cycles});
                 valu.push_back({clock, 3 * cycles / 4});
             }
-            else if (token.type == VALU) valu.push_back({clock, cycles});
-            else if (token.type == LDS || token.type == VMEM || token.type == FLAT) vmem.push_back({clock, cycles});
-            else if (token.type == SALU || token.type == SMEM) scal.push_back({clock, cycles});
+            else if (token.type == VALU)
+                valu.push_back({clock, cycles});
+            else if (token.type == LDS || token.type == VMEM || token.type == FLAT)
+                vmem.push_back({clock, cycles});
+            else if (token.type == SALU || token.type == SMEM)
+                scal.push_back({clock, cycles});
         }
     };
 
@@ -288,10 +291,7 @@ bool analyzeScoped(DataStore& store, int SE, int SIMD)
                 scal_hidden.issue = 0;
                 hidden = (vector_hidden.total() > scal_hidden.total()) ? vector_hidden : scal_hidden;
             }
-            else
-            {
-                hidden = compute_interval(all_union, last_time, token);
-            }
+            else { hidden = compute_interval(all_union, last_time, token); }
 
             line_to_hidden[token.code_line] += hidden;
             last_time = token.clock + token.cycles;
@@ -308,29 +308,48 @@ bool analyzeScoped(DataStore& store, int SE, int SIMD)
         }
     );
 
-    for (const auto& [line_number, hidden] : line_to_hidden)
-    {
-        auto it = ASMCodeline::line_map.find(line_number);
-        QWARNING(it != ASMCodeline::line_map.end() && it->second, "Could not find line: " << line_number, continue);
-
-        auto& latency = it->second->hotspot.sqtt;
-        latency.hidden += hidden;
-    }
+    for (const auto& [line_number, hidden] : line_to_hidden) store.hidden_latency_by_line[line_number] += hidden;
 
     return true;
 }
 
-} // namespace
-
-bool analyze(DataStore& store)
+void clearAsmHidden()
 {
     for (auto& line : ASMCodeline::line_vec)
         if (line) line->hotspot.sqtt.clearHidden();
+}
+
+} // namespace
+
+void applyToAsm(const DataStore& store)
+{
+    clearAsmHidden();
+
+    for (const auto& [line_number, hidden] : store.hidden_latency_by_line)
+    {
+        auto it = ASMCodeline::line_map.find(line_number);
+        QWARNING(it != ASMCodeline::line_map.end() && it->second, "Could not find line: " << line_number, continue);
+
+        it->second->hotspot.sqtt.hidden += hidden;
+    }
+}
+
+bool analyze(DataStore& store)
+{
+    clearAsmHidden();
+    store.hidden_latency_by_line.clear();
+    store.hidden_latency_analyzed = false;
 
     for (const auto& [se, simd_map] : store.wave_hierarchy)
         for (const auto& [simd, _] : simd_map)
-            if (!analyzeScoped(store, se, simd)) return false;
+            if (!analyzeScoped(store, se, simd))
+            {
+                store.hidden_latency_by_line.clear();
+                return false;
+            }
 
+    store.hidden_latency_analyzed = true;
+    applyToAsm(store);
     return true;
 }
 

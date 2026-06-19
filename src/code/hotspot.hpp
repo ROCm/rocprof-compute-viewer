@@ -56,6 +56,10 @@ struct Latency
         return hiddenIdle + hiddenStall + hiddenIssue;
     }
     int64_t nonHidden(bool include_idle = true) const { return total(include_idle) - hiddenTotal(include_idle); }
+    int64_t displayTotal(bool include_idle = true, bool include_hidden = true) const
+    {
+        return include_hidden ? total(include_idle) : nonHidden(include_idle);
+    }
     void clearHidden() { hidden = {}; }
 
     Latency& operator+=(const Latency& other)
@@ -119,6 +123,7 @@ public:
     static bool is_pcs_enabled;
     static bool is_sqtt_enabled;
     static bool show_idle_time;
+    static bool source_include_hidden_latency;
 
     /// Walk ASMCodeline::line_vec and publish latency Annotation::Categories
     /// ("inst_latency", "nonhidden_latency", "stall_reasons", "latency_stall") reflecting the

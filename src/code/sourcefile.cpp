@@ -142,12 +142,18 @@ void SourceLine::add_latency(int type, Latency sqtt, Latency pcs)
 
     // Match normalization to the current display mode so idle segments fit
     // when enabled and active-only latency fills the scale when disabled.
-    parent->max_sqtt_latency =
-        std::max(parent->max_sqtt_latency, hotspot.sqtt.total(HorizontalHotspot::show_idle_time));
+    parent->max_sqtt_latency = std::max(
+        parent->max_sqtt_latency,
+        hotspot.sqtt.displayTotal(HorizontalHotspot::show_idle_time, HorizontalHotspot::source_include_hidden_latency)
+    );
     parent->max_pcs_latency = std::max(parent->max_pcs_latency, hotspot.pcs.total());
     // TODO: Reset this when reloading code
-    SourceFile::global_max_sqtt_latency =
-        std::max(SourceFile::global_max_sqtt_latency, parent->latency.sqtt.total(HorizontalHotspot::show_idle_time));
+    SourceFile::global_max_sqtt_latency = std::max(
+        SourceFile::global_max_sqtt_latency,
+        parent->latency.sqtt.displayTotal(
+            HorizontalHotspot::show_idle_time, HorizontalHotspot::source_include_hidden_latency
+        )
+    );
     SourceFile::global_max_pcs_latency = std::max(SourceFile::global_max_pcs_latency, parent->latency.pcs.total());
 }
 
@@ -339,13 +345,20 @@ void SourceFileTab::refreshLatencyDisplay()
             for (auto& line : source->lines)
                 if (line)
                 {
-                    source->max_sqtt_latency =
-                        std::max(source->max_sqtt_latency, line->hotspot.sqtt.total(HorizontalHotspot::show_idle_time));
+                    source->max_sqtt_latency = std::max(
+                        source->max_sqtt_latency,
+                        line->hotspot.sqtt.displayTotal(
+                            HorizontalHotspot::show_idle_time, HorizontalHotspot::source_include_hidden_latency
+                        )
+                    );
                     source->max_pcs_latency = std::max(source->max_pcs_latency, line->hotspot.pcs.total());
                 }
 
             SourceFile::global_max_sqtt_latency = std::max(
-                SourceFile::global_max_sqtt_latency, source->latency.sqtt.total(HorizontalHotspot::show_idle_time)
+                SourceFile::global_max_sqtt_latency,
+                source->latency.sqtt.displayTotal(
+                    HorizontalHotspot::show_idle_time, HorizontalHotspot::source_include_hidden_latency
+                )
             );
             SourceFile::global_max_pcs_latency =
                 std::max(SourceFile::global_max_pcs_latency, source->latency.pcs.total());

@@ -49,6 +49,16 @@ int AppConfig::getSourceHotspotSize() const { return settings.value("SourceOptio
 
 void AppConfig::setSourceHotspotSize(int size) { settings.setValue("SourceOptions/HotspotSize", size); }
 
+bool AppConfig::getSourceIncludeHiddenLatency() const
+{
+    return settings.value("SourceOptions/IncludeHiddenLatency", true).toBool();
+}
+
+void AppConfig::setSourceIncludeHiddenLatency(bool enabled)
+{
+    settings.setValue("SourceOptions/IncludeHiddenLatency", enabled);
+}
+
 // Display Options
 int AppConfig::getFontSize() const { return settings.value("DisplayOptions/FontSize", 9).toInt(); }
 
