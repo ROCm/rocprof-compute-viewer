@@ -1045,8 +1045,6 @@ void TraceDecoderEmitter::handleWave(ParseContext& ctx, const rocprofiler_thread
     rec.workgroup_id = wave->workgroup_id;
     rec.cluster_id = waveClusterId(*wave);
     rec.has_dispatcher_info = true;
-    rec.has_workgroup_id = true;
-    rec.has_cluster_id = rec.cluster_id != 0;
 
     // Synthetic ID for cache key: "se<N>_simd<S>_cu<C>_w<W>_<begin>"
     rec.id = "se" + std::to_string(ctx.se) + "_simd" + std::to_string(wave->simd) + "_cu" + std::to_string(wave->cu) +

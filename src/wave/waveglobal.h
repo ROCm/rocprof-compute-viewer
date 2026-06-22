@@ -43,15 +43,11 @@ struct WaveTraceData
     bool has_dispatcher_info = false;
     int me = -1;
     int pipe = -1;
-    bool has_workgroup_id = false;
     int workgroup_id = -1;
-    bool has_cluster_id = false;
     int cluster_id = 0;
-    bool has_occupancy_flags = false;
     uint32_t occupancy_flags = 0;
-    bool has_register_usage = false;
-    int sgprs = -1;
-    int vgprs = -1;
+    int sgprs = 0;
+    int vgprs = 0;
 };
 
 using TraceEventRecordVec = std::shared_ptr<const std::vector<trace_event_record_t>>;
