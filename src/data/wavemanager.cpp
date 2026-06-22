@@ -346,6 +346,22 @@ WaveInstance::WaveInstance(const std::string& _path, int64_t time_offset) : path
 
     populateExecMetadata(wave_id, isIdleInfo);
 
+    bool has_me = false;
+    bool has_pipe = false;
+    if (data["wave"].contains("dispatcher"))
+    {
+        int dispatcher = int(data["wave"]["dispatcher"]);
+        wave_info.push_back({"me", (dispatcher >> 4) & 0x7, 0});
+        wave_info.push_back({"pipe", dispatcher & 0xF, 0});
+        has_me = true;
+        has_pipe = true;
+    }
+    if (data["wave"].contains("me_id") && !has_me) wave_info.push_back({"me", int(data["wave"]["me_id"]), 0});
+    if (data["wave"].contains("pipe_id") && !has_pipe) wave_info.push_back({"pipe", int(data["wave"]["pipe_id"]), 0});
+    if (data["wave"].contains("workgroup_id"))
+        wave_info.push_back({"workgroup_id", int(data["wave"]["workgroup_id"]), 0});
+    if (data["wave"].contains("cluster_id")) wave_info.push_back({"cluster_id", int(data["wave"]["cluster_id"]), 0});
+
     {
         int64_t _clock = wave_begin;
         for (auto& time : data["wave"]["timeline"])
@@ -447,6 +463,7 @@ WaveInstance::WaveInstance(const wave_record_t& rec, const std::vector<CodeData>
         if (rec.pipe >= 0) wave_info.push_back({"pipe", rec.pipe, 0});
     }
     if (rec.has_workgroup_id) wave_info.push_back({"workgroup_id", rec.workgroup_id, 0});
+    if (rec.has_cluster_id) wave_info.push_back({"cluster_id", rec.cluster_id, 0});
     if (rec.has_occupancy_flags) wave_info.push_back({"flags", rec.occupancy_flags, 0});
 
     SetMipN();

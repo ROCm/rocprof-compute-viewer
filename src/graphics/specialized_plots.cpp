@@ -56,12 +56,14 @@ bool parseSEKey(const std::string& key, int& se)
 {
     try
     {
-        se = std::stoi(key);
+        size_t parsed = 0;
+        int parsed_se = std::stoi(key, &parsed);
+        if (parsed != key.size() || parsed_se < 0) return false;
+        se = parsed_se;
         return true;
     }
     catch (...)
     {
-        RCV_LOG();
         return false;
     }
 }
@@ -71,7 +73,7 @@ template <typename JsonT> OccupancyBySE occupancyBySEFromJson(const JsonT& root,
     OccupancyBySE by_se;
     for (auto& [se_key, array] : root.items())
     {
-        if (array.size() == 0) continue;
+        if (!array.is_array() || array.empty()) continue;
 
         int se = -1;
         if (!parseSEKey(se_key, se)) continue;
@@ -725,7 +727,12 @@ void DispatchPlotView::LoadOccupancyData(const std::string& filename)
     QWARNING(!file.fail() && !file.bad(), "Error opening file " << filename, return );
 
     std::unordered_map<int, std::string> kernel_names;
-    for (auto& [id, name] : file.data["dispatches"].items()) kernel_names[stoi(id)] = name;
+    if (file.data.contains("dispatches") && file.data["dispatches"].is_object())
+        for (auto& [id, name] : file.data["dispatches"].items())
+        {
+            int kid = -1;
+            if (parseSEKey(id, kid) && name.is_string()) kernel_names[kid] = name;
+        }
 
     int num_dispatch_ids = kernel_names.size();
 

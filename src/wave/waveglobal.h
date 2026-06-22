@@ -45,6 +45,8 @@ struct WaveTraceData
     int pipe = -1;
     bool has_workgroup_id = false;
     int workgroup_id = -1;
+    bool has_cluster_id = false;
+    int cluster_id = 0;
     bool has_occupancy_flags = false;
     uint32_t occupancy_flags = 0;
     bool has_register_usage = false;

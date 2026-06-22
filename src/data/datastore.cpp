@@ -83,6 +83,7 @@ void DataStore::clear()
     occupancy_by_se.clear();
     trace_events_by_se.clear();
     dispatch_records_by_se.clear();
+    occupancy_has_dispatcher_info = false;
     dispatch_resolver.Clear();
     counters_by_se.clear();
     realtime_frequency = 0;

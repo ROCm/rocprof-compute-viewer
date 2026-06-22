@@ -325,6 +325,22 @@ inline int packTraceID(int se, int cu, int simd, int slot) { return slot + 32 * 
 
 inline int classicCu(int sa, int cu) { return (cu & 0x7F) | ((sa & 0x1) << 7); }
 
+bool parseNonNegativeIntKey(const std::string& key, int& value)
+{
+    try
+    {
+        size_t parsed = 0;
+        int parsed_value = std::stoi(key, &parsed);
+        if (parsed != key.size() || parsed_value < 0) return false;
+        value = parsed_value;
+        return true;
+    }
+    catch (...)
+    {
+        return false;
+    }
+}
+
 inline HWID hwidFromGlobalView(const QOutsideWaveView& view)
 {
     return {view.se, classicCu(view.sa, view.cu), view.simd, view.slot};
@@ -356,6 +372,14 @@ std::string clippedTooltipText(const std::string& text, size_t max_chars = 256)
     return text.substr(0, max_chars) + "...";
 }
 
+template <typename OccupancyRecord> int occupancyClusterId(const OccupancyRecord& rec)
+{
+    if constexpr (requires { rec.cluster_id; })
+        return static_cast<int>(rec.cluster_id);
+    else
+        return 0;
+}
+
 /// Append one occupancy sample to the per-traceID trace under construction,
 /// updating begin/end time bookkeeping. Shared by both constructor paths.
 void accumulateOccupancySample(
@@ -383,6 +407,8 @@ void accumulateOccupancySample(
             wtd.pipe = extra->pipe;
             wtd.has_workgroup_id = extra->has_workgroup_id;
             wtd.workgroup_id = extra->workgroup_id;
+            wtd.has_cluster_id = extra->has_cluster_id;
+            wtd.cluster_id = extra->cluster_id;
             wtd.has_occupancy_flags = extra->has_occupancy_flags;
             wtd.occupancy_flags = extra->occupancy_flags;
             wtd.has_register_usage = extra->has_register_usage;
@@ -450,7 +476,12 @@ QGlobalView::QGlobalView(const std::string& filename)
         QWARNING(false, "Legacy version not supported!", return );
     }
 
-    for (auto& [id, name] : file.data["dispatches"].items()) kernel_names[stoi(id)] = name;
+    if (file.data.contains("dispatches") && file.data["dispatches"].is_object())
+        for (auto& [id, name] : file.data["dispatches"].items())
+        {
+            int kid = -1;
+            if (parseNonNegativeIntKey(id, kid) && name.is_string()) kernel_names[kid] = name;
+        }
 
     QVBox* layout = new QVBox();
     maxtime = 0;
@@ -461,18 +492,9 @@ QGlobalView::QGlobalView(const std::string& filename)
 
     for (auto& [SE, array] : file.data.items())
     {
-        if (array.size() == 0) continue;
+        if (!array.is_array() || array.empty()) continue;
         int se = 0;
-        try
-        {
-            se = std::stoi(SE);
-            if (std::to_string(se) != SE) continue;
-        }
-        catch (...)
-        {
-            RCV_LOG();
-            continue;
-        }
+        if (!parseNonNegativeIntKey(SE, se)) continue;
 
         std::map<int, std::vector<WaveTraceData>> traces{};
         for (auto& v : array)
@@ -542,8 +564,8 @@ QGlobalView::QGlobalView(DataStore& store)
         if (records.empty()) continue;
 
         std::map<int, std::vector<WaveTraceData>> traces{};
-        const bool has_decoder_extras =
-            !store.wave_records.empty() || !store.trace_events_by_se.empty() || !store.dispatch_records_by_se.empty();
+        const bool has_decoder_extras = store.occupancy_has_dispatcher_info || !store.wave_records.empty() ||
+                                        !store.trace_events_by_se.empty() || !store.dispatch_records_by_se.empty();
 
         for (const auto& rec : records)
         {
@@ -561,6 +583,8 @@ QGlobalView::QGlobalView(DataStore& store)
             extra.workgroup_id = rec.workgroup_id;
             extra.has_dispatcher_info = has_decoder_extras && rec.start;
             extra.has_workgroup_id = has_decoder_extras && rec.start && rec.is_ext;
+            extra.cluster_id = occupancyClusterId(rec);
+            extra.has_cluster_id = has_decoder_extras && rec.start && extra.cluster_id != 0;
             auto dispatch_it = dispatches_by_se.find(se);
             if (rec.start && dispatch_it != dispatches_by_se.end())
                 for (auto it = dispatch_it->second->rbegin(); it != dispatch_it->second->rend(); ++it)
@@ -1175,6 +1199,7 @@ void QOutsideWaveView::mouseMoveEvent(QMouseEvent* event)
         if (wave.pipe >= 0) tooltip << "Pipe: " << wave.pipe;
     }
     if (wave.has_workgroup_id) tooltip << "\nWorkgroup ID: " << wave.workgroup_id;
+    if (wave.has_cluster_id) tooltip << "\nCluster ID: " << wave.cluster_id;
     if (wave.has_register_usage) tooltip << "\nSGPRs: " << wave.sgprs << "  VGPRs: " << wave.vgprs;
     if (wave.has_occupancy_flags)
         tooltip << "\nFlags: 0x" << std::hex << std::uppercase << wave.occupancy_flags << std::dec << std::nouppercase;
