@@ -98,6 +98,7 @@ public:
     std::map<int, std::vector<occupancy_record_t>> occupancy_by_se;
     std::map<int, std::vector<trace_event_record_t>> trace_events_by_se;
     std::map<int, std::vector<dispatch_record_t>> dispatch_records_by_se;
+    bool occupancy_has_dispatcher_info = false;
     DispatchResolver dispatch_resolver;
 
     std::map<int, std::array<std::vector<counter_record_t>, 2>> counters_by_se;

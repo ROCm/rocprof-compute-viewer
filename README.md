@@ -64,7 +64,7 @@ For rocprofv3 to generate thread trace data correctly, the following components 
 
 * ROCprof Trace Decoder — used in two independent places:
   * **By rocprofv3**, to turn captured thread trace into its JSON/UI output. Bundled with rocprofv3 since **ROCm 7.13**, so nothing extra is needed. On **ROCm < 7.13**, install it from [source](https://github.com/ROCm/rocm-systems/tree/develop/projects/rocprof-trace-decoder).
-  * **By RCV (optional)**, to open raw `.att`/`.out` directly without rocprofv3 — this is a separate, RCV-side link to the decoder. Requires V2 API (SOVERSION 0.2, built with `VERSION_MINOR=2`); the default disassembly backend is `amd_comgr`. See [Trace-decoder support](#trace-decoder-support).
+  * **By RCV**, to open raw `.att`/`.out` directly without rocprofv3 — this is a separate, RCV-side link to the decoder. CMake fetches it by default unless disabled. Requires V2 API (SOVERSION 0.2, built with `VERSION_MINOR=2`); the default disassembly backend is `amd_comgr`. See [Trace-decoder support](#trace-decoder-support).
 
 ## Using the ROCprof Compute Viewer
 
@@ -341,7 +341,7 @@ make -j
 
 Trace-decoder support lets RCV open directories of raw `.att` / `.out` files (as extracted from rocprofiler-sdk thread-trace output) directly, without needing rocprofv3 to convert them to JSON first. This is RCV's own link to the decoder and is independent of the decoder that rocprofv3 uses internally (bundled since ROCm 7.13).
 
-It is **disabled by default** so a plain `cmake -B build` produces a JSON-only viewer with no extra dependencies. Opt in by either fetching the decoder automatically or pointing at a pre-built one.
+By default, CMake fetches and builds the decoder automatically when `TRACE_DECODER_ROOT` is not provided. To build a JSON-only viewer without fetching the decoder, pass `-DRCV_FETCH_TRACE_DECODER=OFF`. To use a pre-built decoder instead, pass `-DTRACE_DECODER_ROOT=...`.
 
 ##### Disassembly backend (optional)
 
@@ -366,7 +366,7 @@ On Windows, install a full LLVM dev package (e.g. via the official installer or 
 
 | Variable | Default | Effect |
 |---|---|---|
-| `RCV_FETCH_TRACE_DECODER` | `OFF` | When `ON`, fetch and build the trace decoder automatically at configure time. |
+| `RCV_FETCH_TRACE_DECODER` | `ON` | Fetch and build the trace decoder automatically at configure time when `TRACE_DECODER_ROOT` is not set. Set `OFF` for a JSON-only build. |
 | `RCV_FETCH_TRACE_DECODER_WITH_DISASSEMBLY` | `ON` | Build the fetched decoder with the amd_comgr disassembly backend. Set `OFF` to skip built-in disassembly (no ROCm needed). |
 | `TRACE_DECODER_ROOT` | *(unset)* | Use a **pre-built** decoder tree (build dir or install prefix) instead of fetching. Takes precedence over `RCV_FETCH_TRACE_DECODER`. |
 | `RCV_TRACE_DECODER_REPO` | rocm-systems upstream | Git URL to fetch from. |
@@ -376,16 +376,16 @@ On Windows, install a full LLVM dev package (e.g. via the official installer or 
 ##### Common configurations
 
 ```bash
-# Default — JSON-only, no decoder, no LLVM required.
+# Default — fetch and build the decoder automatically.
 cmake -B build
 cmake --build build -j
 
-# Fetch and build the decoder automatically.
-cmake -B build -DRCV_FETCH_TRACE_DECODER=ON
+# JSON-only build; do not fetch the decoder.
+cmake -B build -DRCV_FETCH_TRACE_DECODER=OFF
 cmake --build build -j
 
 # Fetch a specific decoder branch (e.g. the latest from develop).
-cmake -B build -DRCV_FETCH_TRACE_DECODER=ON -DRCV_TRACE_DECODER_TAG=develop
+cmake -B build -DRCV_TRACE_DECODER_TAG=develop
 cmake --build build -j
 
 # Use a pre-built decoder you maintain yourself.
@@ -397,7 +397,7 @@ The configure step prints one of:
 
 ```
 -- Trace-decoder enabled: .../source
--- Trace-decoder disabled (set RCV_FETCH_TRACE_DECODER=ON or TRACE_DECODER_ROOT to enable)
+-- Trace-decoder disabled
 ```
 
 ### Windows WSL

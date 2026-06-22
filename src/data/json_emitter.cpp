@@ -40,6 +40,99 @@
 
 namespace
 {
+bool parseNonNegativeIntKey(const std::string& key, int& value)
+{
+    try
+    {
+        size_t parsed = 0;
+        int parsed_value = std::stoi(key, &parsed);
+        if (parsed != key.size() || parsed_value < 0) return false;
+        value = parsed_value;
+        return true;
+    }
+    catch (...)
+    {
+        return false;
+    }
+}
+
+template <typename OccupancyRecord> void setOccupancyClusterId(OccupancyRecord& rec, uint32_t cluster_id)
+{
+    if constexpr (requires { rec.cluster_id = cluster_id; }) rec.cluster_id = cluster_id;
+}
+
+trace_event_record_t traceEventFromJson(const nlohmann::json& event_json)
+{
+    trace_event_record_t rec{};
+    rec.size = sizeof(trace_event_record_t);
+    rec.time = event_json.value("time", int64_t{0});
+    rec.type = static_cast<decltype(rec.type)>(event_json.value("type", 0));
+    rec.me_id = static_cast<uint8_t>(event_json.value("me_id", 0));
+    rec.pipe_id = static_cast<uint8_t>(event_json.value("pipe_id", 0));
+    rec.flags = static_cast<uint16_t>(event_json.value("flags", 0));
+    rec.payload.raw = event_json.value("payload", uint64_t{0});
+    rec.byte_offset = event_json.value("byte_offset", uint64_t{0});
+    return rec;
+}
+
+dispatch_record_t dispatchFromJson(const nlohmann::json& dispatch_json)
+{
+    dispatch_record_t rec{};
+    rec.size = sizeof(dispatch_record_t);
+    rec.time = dispatch_json.value("time", int64_t{0});
+    rec.me_id = static_cast<uint8_t>(dispatch_json.value("me_id", 0));
+    rec.pipe_id = static_cast<uint8_t>(dispatch_json.value("pipe_id", 0));
+    rec.user_sgprs = static_cast<uint16_t>(dispatch_json.value("user_sgprs", 0));
+    rec.flags = dispatch_json.value("flags", 0);
+    rec.vgprs = dispatch_json.value("vgprs", uint32_t{0});
+    rec.sgprs = dispatch_json.value("sgprs", uint32_t{0});
+    rec.lds_size = dispatch_json.value("lds_size", uint32_t{0});
+    rec.thread_dim_x = dispatch_json.value("thread_dim_x", uint32_t{0});
+    rec.thread_dim_y = dispatch_json.value("thread_dim_y", uint32_t{0});
+    rec.thread_dim_z = dispatch_json.value("thread_dim_z", uint32_t{0});
+    rec.dispatch_pkt_addr = dispatch_json.value("dispatch_pkt_addr", uint64_t{0});
+    rec.byte_offset = dispatch_json.value("byte_offset", uint64_t{0});
+
+    auto entry_it = dispatch_json.find("entry_point");
+    if (entry_it != dispatch_json.end() && entry_it->is_object())
+    {
+        rec.entry_point.address = entry_it->value("address", uint64_t{0});
+        rec.entry_point.code_object_id = entry_it->value("code_object_id", uint64_t{0});
+    }
+
+    return rec;
+}
+
+void emitTimelineEvents(const nlohmann::json& root, RecordDispatcher& dispatcher, DataStore& store)
+{
+    auto events_it = root.find("events");
+    if (events_it == root.end() || !events_it->is_object()) return;
+
+    for (const auto& [se_name, timeline] : events_it->items())
+    {
+        int se = -1;
+        if (!parseNonNegativeIntKey(se_name, se) || !timeline.is_array()) continue;
+
+        for (const auto& record_json : timeline)
+        {
+            if (!record_json.is_object()) continue;
+            const std::string kind = record_json.value("kind", std::string{});
+            if (kind == "event") { dispatcher.dispatchTraceEvent(se, traceEventFromJson(record_json)); }
+            else if (kind == "dispatch")
+            {
+                const int kernel_id = record_json.value("kernel_id", -1);
+                if (kernel_id >= 0)
+                {
+                    store.dispatch_resolver.RegisterJsonKernel(
+                        kernel_id, record_json.value("kernel_name", std::string{})
+                    );
+                }
+                dispatcher.dispatchDispatch(se, dispatchFromJson(record_json));
+            }
+        }
+    }
+}
+
 struct JsonMarkerWaveEntry
 {
     int64_t begin = 0;
@@ -291,41 +384,53 @@ void JsonRecordEmitter::emitOccupancy()
         if (!file.bValid) return;
 
         // Dispatch names
-        if (file.data.contains("dispatches"))
+        if (file.data.contains("dispatches") && file.data["dispatches"].is_object())
         {
             for (auto& [id, name] : file.data["dispatches"].items())
-                store.dispatch_resolver.RegisterJsonKernel(std::stoi(id), std::string(name));
+            {
+                int kid = -1;
+                if (!parseNonNegativeIntKey(id, kid)) continue;
+                store.dispatch_resolver.RegisterJsonKernel(kid, name.is_string() ? name.get<std::string>() : "");
+            }
         }
 
         for (auto& [se_name, array] : file.data.items())
         {
-            if (array.size() == 0) continue;
+            if (!array.is_array() || array.empty()) continue;
 
             int se = -1;
-            try
-            {
-                se = std::stoi(se_name);
-            }
-            catch (...)
-            {
-                continue;
-            }
+            if (!parseNonNegativeIntKey(se_name, se)) continue;
 
             for (auto& v : array)
             {
+                if (!v.is_array() || v.size() < 6) continue;
+
                 occupancy_record_t rec{};
-                rec.time = int64_t(v[0]);
-                rec.cu = uint8_t(v[1]);
-                rec.simd = uint8_t(v[2]);
-                rec.wave_id = uint8_t(v[3]);
-                rec.start = int8_t(v[4]);
-                int kid = int(v[5]);
+                rec.time = v[0].get<int64_t>();
+                rec.cu = static_cast<uint8_t>(v[1].get<uint32_t>());
+                rec.simd = static_cast<uint8_t>(v[2].get<uint32_t>());
+                rec.wave_id = static_cast<uint8_t>(v[3].get<uint32_t>());
+                rec.start = v[4].get<uint32_t>() ? 1 : 0;
+                int kid = v[5].get<int>();
+
+                if (v.size() >= 11)
+                {
+                    rec.me_id = v[6].get<uint32_t>();
+                    rec.pipe_id = v[7].get<uint32_t>();
+                    rec.is_ext = v[8].get<uint32_t>() ? 1 : 0;
+                    rec.workgroup_id = v[9].get<uint32_t>();
+                    setOccupancyClusterId(rec, v[10].get<uint32_t>());
+                    store.occupancy_has_dispatcher_info = true;
+                }
+
                 store.dispatch_resolver.RegisterJsonKernel(kid, "");
                 rec.pc.address = uint64_t(kid);
                 rec.pc.code_object_id = DispatchResolver::JsonKernelCodeObjectId;
                 dispatcher.dispatchOccupancy(se, rec);
             }
         }
+
+        emitTimelineEvents(file.data, dispatcher, store);
     }
     catch (std::exception& e)
     {

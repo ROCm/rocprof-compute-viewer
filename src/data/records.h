@@ -82,7 +82,8 @@ struct occupancy_record_t
     uint32_t pipe_id      : 4;
     uint32_t is_ext       : 1;
     uint32_t workgroup_id : 7;
-    uint32_t _rsvd        : 16;
+    uint32_t cluster_id   : 5;
+    uint32_t _rsvd        : 11;
 };
 
 struct wave_state_record_t
@@ -152,7 +153,8 @@ enum
     ROCPROF_TRACE_DECODER_EVENT_TT_FLUSH,
     ROCPROF_TRACE_DECODER_EVENT_DIDT_STALL_BEGIN,
     ROCPROF_TRACE_DECODER_EVENT_DIDT_STALL_END,
-    ROCPROF_TRACE_DECODER_EVENT_CLUSTER_BARRIER_DONE,
+    ROCPROF_TRACE_DECODER_EVENT_CLUSTER_BARRIER,
+    ROCPROF_TRACE_DECODER_EVENT_CLUSTER_BARRIER_DONE = ROCPROF_TRACE_DECODER_EVENT_CLUSTER_BARRIER,
     ROCPROF_TRACE_DECODER_EVENT_RESERVED,
     ROCPROF_TRACE_DECODER_EVENT_GC_RINSE,
     ROCPROF_TRACE_DECODER_EVENT_SPM_SAMPLE,
@@ -179,6 +181,7 @@ struct dispatch_record_t
     uint32_t thread_dim_y = 0;
     uint32_t thread_dim_z = 0;
     uint64_t dispatch_pkt_addr = 0;
+    uint64_t byte_offset = 0;
 };
 #endif
 
@@ -199,6 +202,7 @@ inline std::string TraceDecoderEventName(int type)
         case ROCPROF_TRACE_DECODER_EVENT_TT_FLUSH: return "Thread Trace Flush";
         case ROCPROF_TRACE_DECODER_EVENT_DIDT_STALL_BEGIN: return "DIDT Stall Begin";
         case ROCPROF_TRACE_DECODER_EVENT_DIDT_STALL_END: return "DIDT Stall End";
+        case 14: return "Cluster Barrier";
         case ROCPROF_TRACE_DECODER_EVENT_GC_RINSE: return "GC Rinse";
         case ROCPROF_TRACE_DECODER_EVENT_SPM_SAMPLE: return "SPM sample taken";
         default: return "Trace Event " + std::to_string(type);
@@ -232,9 +236,8 @@ struct wave_record_t
     bool has_dispatcher_info = false;
     int me = -1;
     int pipe = -1;
-    bool has_workgroup_id = false;
     int workgroup_id = -1;
-    bool has_occupancy_flags = false;
+    int cluster_id = 0;
     uint32_t occupancy_flags = 0;
     struct waitcnt_entry_t
     {

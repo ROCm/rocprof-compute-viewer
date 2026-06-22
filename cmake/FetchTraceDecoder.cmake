@@ -4,7 +4,7 @@
 
 include_guard(GLOBAL)
 
-option(RCV_FETCH_TRACE_DECODER "Fetch and build rocprof-trace-decoder when TRACE_DECODER_ROOT is not set" OFF)
+option(RCV_FETCH_TRACE_DECODER "Fetch and build rocprof-trace-decoder when TRACE_DECODER_ROOT is not set" ON)
 option(RCV_FETCH_TRACE_DECODER_WITH_DISASSEMBLY
        "When fetching rocprof-trace-decoder, build with a disassembly backend (amd_comgr)" ON)
 set(RCV_TRACE_DECODER_REPO "https://github.com/ROCm/rocm-systems.git"
@@ -50,7 +50,7 @@ endfunction()
 function(rcv_fetch_trace_decoder)
     set(RCV_HAS_TRACE_DECODER OFF PARENT_SCOPE)
 
-    if(DEFINED TRACE_DECODER_ROOT)
+    if(DEFINED TRACE_DECODER_ROOT AND NOT "${TRACE_DECODER_ROOT}" STREQUAL "")
         get_filename_component(_trace_decoder_root "${TRACE_DECODER_ROOT}" ABSOLUTE)
         if(DEFINED rocprof-trace-decoder_DIR)
             get_filename_component(_trace_decoder_cached_dir "${rocprof-trace-decoder_DIR}" ABSOLUTE)
