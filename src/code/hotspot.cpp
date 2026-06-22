@@ -25,11 +25,14 @@
 #include <QPainterPath>
 #include <QScrollArea>
 #include <QScrollBar>
+#include <algorithm>
 #include <fstream>
 #include <iomanip>
+#include <memory>
 #include <sstream>
 #include <string>
 #include <vector>
+#include "../analysis/annotation.h"
 #include "../config/config.hpp"
 #include "asmcode.h"
 #include "mainwindow.h"
@@ -37,8 +40,56 @@
 #include "sourcefile.h"
 #include "util/custom_layouts.h"
 
+namespace
+{
+
+QColor transparentNoneColor()
+{
+    QColor color = Config::TokenColors().at(0).qcolor;
+    color.setAlphaF(0.5);
+    return color;
+}
+
+int64_t clampHiddenValue(int64_t value, int64_t upper)
+{
+    return std::clamp<int64_t>(value, 0, std::max<int64_t>(0, upper));
+}
+
+struct LatencySplit
+{
+    int64_t hiddenIdle = 0;
+    int64_t hiddenStall = 0;
+    int64_t hiddenIssue = 0;
+    int64_t visibleIdle = 0;
+    int64_t visibleStall = 0;
+    int64_t visibleIssue = 0;
+
+    int64_t hidden() const { return hiddenIdle + hiddenStall + hiddenIssue; }
+};
+
+LatencySplit splitLatency(const Latency& latency, bool includeIdle)
+{
+    const int64_t active = std::max<int64_t>(0, latency.latency);
+    const int64_t stall = std::clamp<int64_t>(latency.stalled, 0, active);
+    const int64_t issue = active - stall;
+    const int64_t idle = includeIdle ? std::max<int64_t>(0, latency.idle) : 0;
+
+    LatencySplit split;
+    split.hiddenIdle = clampHiddenValue(includeIdle ? latency.hidden.idle : 0, idle);
+    split.hiddenStall = clampHiddenValue(latency.hidden.stall, stall);
+    split.hiddenIssue = clampHiddenValue(latency.hidden.issue, issue);
+    split.visibleIdle = idle - split.hiddenIdle;
+    split.visibleStall = stall - split.hiddenStall;
+    split.visibleIssue = issue - split.hiddenIssue;
+    return split;
+}
+
+} // namespace
+
 bool HorizontalHotspot::is_pcs_enabled = false;
 bool HorizontalHotspot::is_sqtt_enabled = true;
+bool HorizontalHotspot::show_idle_time = true;
+bool HorizontalHotspot::source_include_hidden_latency = true;
 int HorizontalHotspot::HISTOGRAM_WIDTH = 100;
 
 void HorizontalHotspot::SetHistogramWidth(int value) { HISTOGRAM_WIDTH = std::max(0, value); }
@@ -98,23 +149,36 @@ void HorizontalHotspot::paint(
 
     auto drawStall = [&](const Latency& latency, int _posy, int _height)
     {
-        float stallwidth = latency.stalled * NORM;
-        float issuewidth = latency.latency * NORM - stallwidth;
+        const LatencySplit split = splitLatency(latency, show_idle_time);
 
-        Draw(stallwidth, Config::StallColor(), _posy, _height);
-        Draw(issuewidth, Config::IssueColor(), _posy, _height);
+        if (source_include_hidden_latency && split.hidden() > 0)
+            Draw(split.hidden() * NORM, Config::HiddenLatencyColor(), _posy, _height);
+        if (split.visibleIdle > 0) Draw(split.visibleIdle * NORM, transparentNoneColor(), _posy, _height);
+        if (split.visibleStall > 0) Draw(split.visibleStall * NORM, Config::StallColor(), _posy, _height);
+        if (split.visibleIssue > 0) Draw(split.visibleIssue * NORM, Config::IssueColor(), _posy, _height);
     };
 
     auto drawType = [&](const std::array<int64_t, 16>& array, int _posy, int _height)
     {
         const auto& colors = is_pcs_enabled ? Config::StallReasonColors() : Config::TokenColors();
+        const LatencySplit split = splitLatency(sqtt, show_idle_time);
+        const int64_t visibleIdle =
+            !is_pcs_enabled && !source_include_hidden_latency ? split.visibleIdle : std::max<int64_t>(0, sqtt.idle);
+        const double activeScale =
+            !is_pcs_enabled && !source_include_hidden_latency && sqtt.latency > 0
+                ? static_cast<double>(split.visibleStall + split.visibleIssue) / static_cast<double>(sqtt.latency)
+                : 1.0;
+
+        if (!is_pcs_enabled && show_idle_time && visibleIdle > 0)
+            Draw(visibleIdle * NORM, transparentNoneColor(), _posy, _height);
 
         float barWidth = 0;
         for (int c = 0; c < array.size() && c < colors.size(); c++)
         {
-            barWidth += array[c] * NORM;
+            barWidth += static_cast<float>(array[c] * activeScale * NORM);
             if (barWidth < 0.1f) continue;
-            Draw(barWidth, colors.at(c).qcolor, _posy, _height);
+            const QColor color = !is_pcs_enabled && c == 0 ? transparentNoneColor() : colors.at(c).qcolor;
+            Draw(barWidth, color, _posy, _height);
             barWidth = 0;
         }
     };
@@ -167,28 +231,189 @@ std::string HorizontalHotspot::getTooltip() const
 
     const Latency& latency = is_pcs_enabled ? pcs : sqtt;
 
-    if (latency.latency > 0)
+    const int64_t totalCycles = latency.total(show_idle_time);
+
+    if (totalCycles > 0)
     {
-        int64_t issue = latency.latency - latency.stalled;
-        double total = static_cast<double>(latency.latency) / 100.0;
+        const LatencySplit split = splitLatency(latency, show_idle_time);
+        double total = static_cast<double>(totalCycles) / 100.0;
 
         // Get colors as hex strings for HTML
         QColor stallColor = Config::StallColor();
         QColor issueColor = Config::IssueColor();
+        QColor idleColor = Config::TokenColors().at(0).qcolor;
+        QColor hidden = Config::HiddenLatencyColor();
 
         // Use Unicode square character (■) with color styling - Qt rich text supports this
         ss << "<table cellspacing='2'>";
+        if (split.hidden() > 0)
+            ss << "<tr><td><font color='" << hidden.name().toStdString() << "'>&#9632;</font></td>"
+               << "<td>Hidden:</td><td align='right'>" << std::fixed << std::setprecision(0) << split.hidden() / total
+               << "%</td></tr>";
         ss << "<tr><td><font color='" << stallColor.name().toStdString() << "'>&#9632;</font></td>"
-           << "<td>Stall:</td><td align='right'>" << std::fixed << std::setprecision(0) << latency.stalled / total
+           << "<td>Stall:</td><td align='right'>" << std::fixed << std::setprecision(0) << split.visibleStall / total
            << "%</td></tr>";
         ss << "<tr><td><font color='" << issueColor.name().toStdString() << "'>&#9632;</font></td>"
-           << "<td>Issue:</td><td align='right'>" << std::fixed << std::setprecision(0) << issue / total
+           << "<td>Issue:</td><td align='right'>" << std::fixed << std::setprecision(0) << split.visibleIssue / total
            << "%</td></tr>";
-        ss << "<tr><td></td><td>Total:</td><td align='right'>" << latency.latency << "</td></tr>";
+        if (show_idle_time && split.visibleIdle > 0)
+            ss << "<tr><td><font color='" << idleColor.name().toStdString() << "'>&#9632;</font></td>"
+               << "<td>Idle:</td><td align='right'>" << std::fixed << std::setprecision(0) << split.visibleIdle / total
+               << "%</td></tr>";
+        if (split.hidden() > 0)
+        {
+            ss << "<tr><td></td><td>Hidden idle:</td><td align='right'>" << split.hiddenIdle << "</td></tr>";
+            ss << "<tr><td></td><td>Hidden stall:</td><td align='right'>" << split.hiddenStall << "</td></tr>";
+            ss << "<tr><td></td><td>Hidden issue:</td><td align='right'>" << split.hiddenIssue << "</td></tr>";
+        }
+        ss << "<tr><td></td><td>Total:</td><td align='right'>" << totalCycles << "</td></tr>";
         ss << "</table>";
     }
 
     return ss.str();
+}
+
+namespace
+{
+
+// Append (Idle+)Stall+Issue segments onto `out`. Idle (the gaps between tokens)
+// is drawn first in the NONE color (TokenColors[0]). Returns true if non-empty.
+bool pushStallIssue(const Latency& lat, std::vector<Annotation::Component>& out, bool includeHidden)
+{
+    if (lat.total(HorizontalHotspot::show_idle_time) <= 0) return false;
+
+    bool any = false;
+    auto push = [&](int64_t value, const QColor& color)
+    {
+        if (value <= 0) return;
+        out.push_back({static_cast<double>(value), color});
+        any = true;
+    };
+
+    const LatencySplit split = splitLatency(lat, HorizontalHotspot::show_idle_time);
+    if (includeHidden) push(split.hidden(), Config::HiddenLatencyColor());
+    push(split.visibleIdle, transparentNoneColor());
+    push(split.visibleStall, Config::StallColor());
+    push(split.visibleIssue, Config::IssueColor());
+    return any;
+}
+
+// Append per-reason breakdown segments. Returns true if non-empty.
+bool pushReasons(const std::array<int64_t, 16>& data, const Latency& lat, std::vector<Annotation::Component>& out)
+{
+    const auto& colors = HorizontalHotspot::is_pcs_enabled ? Config::StallReasonColors() : Config::TokenColors();
+    bool any = false;
+    if (!HorizontalHotspot::is_pcs_enabled && HorizontalHotspot::show_idle_time && lat.idle > 0)
+    {
+        out.push_back({static_cast<double>(lat.idle), transparentNoneColor()});
+        any = true;
+    }
+    for (size_t i = 0; i < data.size() && i < colors.size(); ++i)
+    {
+        if (data[i] <= 0) continue;
+        const QColor color = !HorizontalHotspot::is_pcs_enabled && i == 0 ? transparentNoneColor() : colors[i].qcolor;
+        out.push_back({static_cast<double>(data[i]), color});
+        any = true;
+    }
+    return any;
+}
+
+std::unique_ptr<Annotation::Category> makeCat(const char* id, std::string name, int row_count, double normTotal)
+{
+    auto c = std::make_unique<Annotation::Category>();
+    c->id = id;
+    c->display_name = std::move(name);
+    c->row_count = row_count;
+    // Shared scale: keeps row 0 (Stall+Issue) and row 1 (per-reason breakdown)
+    // visually comparable in latency_stall, and lines normalized across all
+    // three categories for single-row views.
+    c->forced_max[0] = normTotal;
+    c->forced_max[1] = normTotal;
+    return c;
+}
+
+} // namespace
+
+void HorizontalHotspot::PublishCategories(int64_t max_sqtt_latency, int64_t max_pcs_latency)
+{
+    Annotation::Registry& reg = Annotation::Registry::instance();
+
+    // Idempotent re-publish: drop stale categories first. The dropdown must be
+    // refreshed even on the early-return paths so removed rows disappear.
+    for (const char* id : {"inst_latency", "nonhidden_latency", "stall_reasons", "latency_stall"}) reg.clear(id);
+
+    struct RefreshGuard
+    {
+        ~RefreshGuard()
+        {
+            if (QCodelist::singleton) QCodelist::singleton->refreshAnnotations();
+        }
+    } guard;
+
+    if (!is_sqtt_enabled && !is_pcs_enabled) return;
+
+    const bool usePcs = is_pcs_enabled;
+    const double normTotal = static_cast<double>(usePcs ? max_pcs_latency : max_sqtt_latency);
+    if (normTotal <= 0.0) return;
+
+    auto inst = makeCat("inst_latency", "Total latency", 1, normTotal);
+    auto nonhidden = makeCat("nonhidden_latency", "Nonhidden Latency", 1, 0.0);
+    auto reason = makeCat("stall_reasons", usePcs ? "Stall Reasons" : "Stall Categories", 1, normTotal);
+    auto both = makeCat("latency_stall", "Latency + Stall", 2, normTotal);
+
+    for (const auto& line : ASMCodeline::line_vec)
+    {
+        if (!line) continue;
+        const HorizontalHotspot& h = line->hotspot;
+        const int idx = line->line_index;
+        const Latency& lat = usePcs ? h.pcs : h.sqtt;
+        const auto& breakdown = usePcs ? h.stall_reason : h.typed_latency;
+
+        // Pre-build the per-line tooltips once so we don't need to keep a
+        // snapshot of the hotspot around just for hover formatting.
+        const QString tipInst = QString::fromStdString(h.getTooltip());
+        const QString tipStall = QString::fromStdString(h.getStallTip());
+
+        {
+            Annotation::LineData ld;
+            if (pushStallIssue(lat, ld.rows[0], true))
+            {
+                ld.tooltip = tipInst;
+                inst->per_line[idx] = std::move(ld);
+            }
+        }
+        {
+            Annotation::LineData ld;
+            if (pushStallIssue(lat, ld.rows[0], false))
+            {
+                ld.tooltip = tipInst;
+                nonhidden->per_line[idx] = std::move(ld);
+            }
+        }
+        {
+            Annotation::LineData ld;
+            if (pushReasons(breakdown, lat, ld.rows[0]))
+            {
+                ld.tooltip = tipStall;
+                reason->per_line[idx] = std::move(ld);
+            }
+        }
+        {
+            Annotation::LineData ld;
+            const bool si = pushStallIssue(lat, ld.rows[0], true);
+            const bool br = pushReasons(breakdown, lat, ld.rows[1]);
+            if (si || br)
+            {
+                ld.tooltip = tipInst + tipStall;
+                both->per_line[idx] = std::move(ld);
+            }
+        }
+    }
+
+    if (!inst->per_line.empty()) reg.publish(std::move(inst));
+    if (!nonhidden->per_line.empty()) reg.publish(std::move(nonhidden));
+    if (!reason->per_line.empty()) reg.publish(std::move(reason));
+    if (!both->per_line.empty()) reg.publish(std::move(both));
 }
 
 std::string HorizontalHotspot::getStallTip() const
@@ -201,6 +426,8 @@ std::string HorizontalHotspot::getStallTip() const
 
     int64_t total = 0;
     for (size_t i = 0; i < data.size() && i < colors.size(); i++) total += data[i];
+    const bool includeIdle = !is_pcs_enabled && show_idle_time && sqtt.idle > 0;
+    if (includeIdle) total += sqtt.idle;
 
     if (total > 0)
     {
@@ -208,6 +435,11 @@ std::string HorizontalHotspot::getStallTip() const
 
         ss << "<br><b>Stall Reasons: " << total << "</b>";
         ss << "<table cellspacing='2'>";
+        if (includeIdle)
+            ss << "<tr><td><font color='" << Config::TokenColors().at(0).qcolor.name().toStdString()
+               << "'>&#9632;</font></td>"
+               << "<td>Idle:</td><td align='right'>" << std::fixed << std::setprecision(0) << sqtt.idle / totalNorm
+               << "%</td></tr>";
         for (size_t i = 0; i < data.size() && i < colors.size(); i++)
         {
             if (data[i] == 0) continue;

@@ -22,10 +22,13 @@
 
 #include "flamegraphwidget.h"
 
+#include <QAbstractItemModel>
+#include <QComboBox>
 #include <QFontMetrics>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QScrollBar>
+#include <QSignalBlocker>
 #include <QToolTip>
 #include <algorithm>
 #include <cmath>
@@ -34,6 +37,7 @@
 #include "code/asmcode.h"
 #include "code/sourcefile.h"
 #include "config/config.hpp"
+#include "data/datastore.h"
 #include "data/shaderdata.h"
 #include "data/wavemanager.h"
 #include "flamegraph/layout.h"
@@ -50,7 +54,15 @@ QString formatLatency(int64_t cycles)
     return QString("%1 cycles").arg(cycles);
 }
 
-QString formatFrameTooltip(const flamegraph::Frame& f, int64_t totalLatency)
+QString formatPct(double pct) { return QString("%1%").arg(pct, 0, 'f', 1); }
+
+bool hiddenLatencyAnalysisAvailable()
+{
+    auto* mw = MainWindow::window;
+    return mw && mw->data_store && mw->data_store->hidden_latency_analyzed;
+}
+
+QString formatFrameTooltip(const flamegraph::Frame& f, int64_t allTotalLatency, int64_t allNonhiddenLatency)
 {
     QString prefix;
     if (f.asmIndex >= 0)
@@ -58,13 +70,23 @@ QString formatFrameTooltip(const flamegraph::Frame& f, int64_t totalLatency)
         auto it = ASMCodeline::line_map.find(f.asmIndex);
         if (it != ASMCodeline::line_map.end())
             if (auto* a = dynamic_cast<ASMLine*>(it->second->elements.at(ASMCodeline::Element::EASM).get()))
-                prefix = QString("%1 / 0x%2 - ").arg(a->codeobj).arg(a->addr, 0, 16);
+                prefix = QString("%1 / 0x%2").arg(a->codeobj).arg(a->addr, 0, 16);
     }
 
-    double pct = totalLatency > 0 ? 100.0 * f.latency / totalLatency : 0;
-    QString tip = prefix + formatLatency(f.latency) + QString(" (%1%)").arg(pct, 0, 'f', 1);
+    const int64_t total = f.totalLatency > 0 ? f.totalLatency : f.latency;
+    const int64_t nonhidden = total - std::clamp<int64_t>(f.hiddenLatency, 0, total);
+    const double totalOfAll = allTotalLatency > 0 ? 100.0 * total / allTotalLatency : 0.0;
+    const double nonhiddenOfAll = allNonhiddenLatency > 0 ? 100.0 * nonhidden / allNonhiddenLatency : 0.0;
+    const double nonhiddenOfTotal = total > 0 ? 100.0 * nonhidden / total : 0.0;
+
+    QString tip;
+    if (!prefix.isEmpty()) tip += prefix;
     if (!f.location.empty()) tip += "\n" + QString::fromStdString(f.location);
     if (!f.content.empty()) tip += "\n" + QString::fromStdString(f.content);
+
+    tip += QString("\n\nLatency: %1 (%2 of all)").arg(formatLatency(total), formatPct(totalOfAll));
+    tip += QString("\nNonhidden: %1 (%2 of all)").arg(formatLatency(nonhidden), formatPct(nonhiddenOfAll));
+    tip += QString("\nHidden: %1").arg(formatPct(100 - nonhiddenOfTotal));
     return tip;
 }
 
@@ -83,6 +105,35 @@ FlameGraphWidget::FlameGraphWidget(QWidget* parent) : QWidget(parent)
     m_hScrollBar = new QScrollBar(Qt::Horizontal, this);
     m_hScrollBar->setRange(0, 0);
     connect(m_hScrollBar, &QScrollBar::valueChanged, this, &FlameGraphWidget::onScrollBarChanged);
+
+    m_latencyModeBox = new QComboBox(this);
+    m_latencyModeBox->addItem("Weighted by: Total latency");
+    m_latencyModeBox->addItem("Weighted by: Nonhidden Latency");
+    const bool hiddenLatencyAvailable = hiddenLatencyAnalysisAvailable();
+    setHiddenLatencyAvailable(hiddenLatencyAvailable, hiddenLatencyAvailable);
+    connect(m_latencyModeBox, qOverload<int>(&QComboBox::currentIndexChanged), this, [this](int) { rebuild(); });
+    setLatencyModeControlVisible(true);
+}
+
+void FlameGraphWidget::setHiddenLatencyAvailable(bool available, bool selectNonhidden)
+{
+    m_hiddenLatencyAvailable = available;
+    if (!m_latencyModeBox) return;
+
+    const int nonhiddenIndex = 1;
+    if (auto* model = m_latencyModeBox->model())
+    {
+        const int flags =
+            available ? static_cast<int>(Qt::ItemIsSelectable | Qt::ItemIsEnabled) : static_cast<int>(Qt::NoItemFlags);
+        model->setData(model->index(nonhiddenIndex, 0), flags, Qt::UserRole - 1);
+    }
+
+    const int desiredIndex = available && selectNonhidden ? nonhiddenIndex : 0;
+    if ((selectNonhidden || !available) && m_latencyModeBox->currentIndex() != desiredIndex)
+    {
+        QSignalBlocker blocker(m_latencyModeBox);
+        m_latencyModeBox->setCurrentIndex(desiredIndex);
+    }
 }
 
 void FlameGraphWidget::resetFrameState()
@@ -90,7 +141,8 @@ void FlameGraphWidget::resetFrameState()
     m_frames.clear();
     m_framesByRow.clear();
     m_numRows = 0;
-    m_totalLatency = 0;
+    m_allTotalLatency = 0;
+    m_allNonhiddenLatency = 0;
     m_hoveredFrame = nullptr;
     m_viewLeft = 0.0;
     m_viewWidth = 1.0;
@@ -102,7 +154,8 @@ void FlameGraphWidget::applyLayout(flamegraph::LayoutResult result)
     m_frames = std::move(result.frames);
     m_framesByRow = std::move(result.framesByRow);
     m_numRows = result.numRows;
-    m_totalLatency = result.totalLatency;
+    m_allTotalLatency = result.allTotalLatency;
+    m_allNonhiddenLatency = result.allNonhiddenLatency;
 
     if (m_hScrollBar) m_cachedScrollBarHeight = m_hScrollBar->sizeHint().height();
 
@@ -112,7 +165,36 @@ void FlameGraphWidget::applyLayout(flamegraph::LayoutResult result)
     update();
 }
 
-flamegraph::Roots FlameGraphWidget::pickBuilder()
+void FlameGraphWidget::setLatencyModeControlVisible(bool visible)
+{
+    if (m_latencyModeBox) m_latencyModeBox->setVisible(visible);
+    const int controlHeight = m_latencyModeBox ? m_latencyModeBox->sizeHint().height() : 0;
+    m_marginTop = visible ? controlHeight + 8 : 4;
+    updateLatencyModeControlGeometry();
+    updateGeometry();
+}
+
+flamegraph::LatencyMetric FlameGraphWidget::latencyMetric() const
+{
+    return m_hiddenLatencyAvailable && m_latencyModeBox && m_latencyModeBox->currentIndex() == 1
+             ? flamegraph::LatencyMetric::NonHidden
+             : flamegraph::LatencyMetric::Total;
+}
+
+void FlameGraphWidget::updateLatencyModeControlGeometry()
+{
+    if (!m_latencyModeBox || !m_latencyModeBox->isVisible()) return;
+
+    const int maxWidth = std::max(width() - m_marginLeft - m_marginRight, 0);
+    const QSize boxHint = m_latencyModeBox->sizeHint();
+    const int boxWidth = std::min(boxHint.width(), maxWidth);
+
+    const int x = m_marginLeft;
+    const int y = 4;
+    m_latencyModeBox->setGeometry(x, y, boxWidth, boxHint.height());
+}
+
+flamegraph::Roots FlameGraphWidget::pickBuilder() const
 {
     auto* mw = MainWindow::window;
     if (!mw || !mw->source_filetab) return {};
@@ -124,7 +206,7 @@ flamegraph::Roots FlameGraphWidget::pickBuilder()
     if (has_markers && has_target)
     {
         auto roots = flamegraph::buildIntegratedRoots(
-            mw->current_wave_coord_se, WaveInstance::main_wave->cu, mw->current_wave_coord_sm
+            {mw->current_wave_coord_se, WaveInstance::main_wave->cu, mw->current_wave_coord_sm, -1}, latencyMetric()
         );
         if (roots.empty())
         {
@@ -137,12 +219,13 @@ flamegraph::Roots FlameGraphWidget::pickBuilder()
         return roots;
     }
 
-    if (!mw->source_filetab->files.empty()) return flamegraph::buildSourceRoots();
+    if (!mw->source_filetab->files.empty()) return flamegraph::buildSourceRoots(latencyMetric());
     return {};
 }
 
 void FlameGraphWidget::rebuild()
 {
+    setHiddenLatencyAvailable(hiddenLatencyAnalysisAvailable());
     resetFrameState();
 
     flamegraph::Roots roots = pickBuilder();
@@ -323,7 +406,11 @@ void FlameGraphWidget::mouseMoveEvent(QMouseEvent* event)
         update();
 
         if (hovered)
-            QToolTip::showText(event->globalPosition().toPoint(), formatFrameTooltip(*hovered, m_totalLatency), this);
+            QToolTip::showText(
+                event->globalPosition().toPoint(),
+                formatFrameTooltip(*hovered, m_allTotalLatency, m_allNonhiddenLatency),
+                this
+            );
         else
             QToolTip::hideText();
     }
@@ -380,6 +467,7 @@ void FlameGraphWidget::resizeEvent(QResizeEvent* event)
     int scrollBarHeight = m_hScrollBar->sizeHint().height();
     m_cachedScrollBarHeight = scrollBarHeight;
     m_hScrollBar->setGeometry(0, height() - scrollBarHeight, width(), scrollBarHeight);
+    updateLatencyModeControlGeometry();
 
     update();
 }

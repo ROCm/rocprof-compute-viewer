@@ -92,11 +92,11 @@ private:
 
     void alignSEClocks();
 
-    /// Find the active code object at a given (se,cu,simd,slot,time) by
+    /// Find the active code object at a given (HWID,time) by
     /// locating the wave instance occupying that slot and binary-searching its
     /// instruction list. Returns 0 if no instruction bracket can be found.
     /// Used by ShaderDataManager::ResolveMarkers to scope per-record funcmap lookups.
-    uint64_t activeCodeobjAt(int se, int cu, int simd, int slot, int64_t time) const;
+    uint64_t activeCodeobjAt(HWID hwid, int64_t time) const;
 
     static rocprofiler_thread_trace_decoder_status_t isaCallback(
         char* instruction,

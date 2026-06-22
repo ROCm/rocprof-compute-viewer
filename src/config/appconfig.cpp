@@ -49,6 +49,16 @@ int AppConfig::getSourceHotspotSize() const { return settings.value("SourceOptio
 
 void AppConfig::setSourceHotspotSize(int size) { settings.setValue("SourceOptions/HotspotSize", size); }
 
+bool AppConfig::getSourceIncludeHiddenLatency() const
+{
+    return settings.value("SourceOptions/IncludeHiddenLatency", true).toBool();
+}
+
+void AppConfig::setSourceIncludeHiddenLatency(bool enabled)
+{
+    settings.setValue("SourceOptions/IncludeHiddenLatency", enabled);
+}
+
 // Display Options
 int AppConfig::getFontSize() const { return settings.value("DisplayOptions/FontSize", 9).toInt(); }
 
@@ -65,6 +75,10 @@ void AppConfig::setDisplayScaling(bool enabled) { settings.setValue("DisplayOpti
 bool AppConfig::getSeparateLDSPipe() const { return settings.value("DisplayOptions/SeparateLDSPipe", false).toBool(); }
 
 void AppConfig::setSeparateLDSPipe(bool enabled) { settings.setValue("DisplayOptions/SeparateLDSPipe", enabled); }
+
+bool AppConfig::getShowIdleTime() const { return settings.value("DisplayOptions/ShowIdleTime", true).toBool(); }
+
+void AppConfig::setShowIdleTime(bool enabled) { settings.setValue("DisplayOptions/ShowIdleTime", enabled); }
 
 // Instruction Column Visibility
 bool AppConfig::getColumnVisible(int element, bool bDefault) const

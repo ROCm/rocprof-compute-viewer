@@ -26,6 +26,7 @@
 #include <functional>
 #include <string>
 #include <vector>
+#include "data/hwid.h"
 #include "data/marker_types.h"
 
 /// Pure data-driven SQTT instrumentation marker stack walker. Decoupled from
@@ -62,10 +63,7 @@ struct MarkerInputRecord
 /// and emit span + diagnostic vectors. `out_spans` is appended (NOT cleared).
 void walkMarkerStream(
     const std::vector<MarkerInputRecord>& records,
-    int se,
-    int cu,
-    int simd,
-    int slot,
+    HWID hwid,
     const MarkerResolveFn& resolver,
     std::vector<MarkerSpan>* out_spans,
     std::vector<MarkerDiagnostic>* out_diags

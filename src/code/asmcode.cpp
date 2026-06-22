@@ -75,7 +75,7 @@ line_index(line_vec.size()), line_number(_line_number)
     elements.at(Element::EADDRESS) = std::make_unique<TextLineElement>(ss.str());
     elements.at(Element::ESOURCEREF) = std::make_unique<TextLineElement>(cppline);
 
-    hotspot.add_latency(line.type, {line.latency_sum, line.stall_sum}, {line.pcsamples, line.pcstalls});
+    hotspot.add_latency(line.type, {line.latency_sum, line.stall_sum, line.idle_sum}, {line.pcsamples, line.pcstalls});
 
     for (size_t i = 0; i < line.stallreasons.size(); i++) hotspot.stall_reason.at(i) = line.stallreasons.at(i);
 }
@@ -222,7 +222,9 @@ TextLineElement(line.inst), line_number(_line_number), codeobj(line.codeobj_id),
                 auto shared = SourceLine::all_lines.at(std::string(substr));
                 if (!shared) continue;
                 line_ref.push_back(shared);
-                shared->add_latency(line.type, {line.latency_sum, line.stall_sum}, {line.pcsamples, line.pcstalls});
+                shared->add_latency(
+                    line.type, {line.latency_sum, line.stall_sum, line.idle_sum}, {line.pcsamples, line.pcstalls}
+                );
             }
             catch (std::exception&)
             {

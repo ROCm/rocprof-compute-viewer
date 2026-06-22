@@ -33,6 +33,7 @@
 #include <QSpinBox>
 #include <QTextStream>
 #include <algorithm>
+#include <cctype>
 #include <cstddef>
 #include <filesystem>
 #include <fstream>
@@ -42,6 +43,8 @@
 #include <utility>
 #include <vector>
 #include "./ui_mainwindow.h"
+#include "analysis/annotation.h"
+#include "analysis/hidden_latency.h"
 #include "button/historyentry.h"
 #include "button/jsonselector.h"
 #include "code/labelminimap.h"
@@ -294,6 +297,7 @@ MainWindow::MainWindow(std::string uidir) : QMainWindow(nullptr), ui(new Ui::Mai
     connect(ui->actionRocpd, &QAction::triggered, this, &MainWindow::OpenRocpd);
     connect(ui->actionHotOptions, &QAction::triggered, this, &MainWindow::OpenOptionsDialog);
     connect(ui->actionDerived_counters, &QAction::triggered, this, &MainWindow::OpenDerivedCounterEditor);
+    connect(ui->actionHiddenLatency, &QAction::triggered, this, &MainWindow::OpenHiddenLatencyAnalysis);
     connect(
         ui->actionMemoryLatency,
         &QAction::triggered,
@@ -471,25 +475,37 @@ void MainWindow::UpdateWaveViewRange()
 
     if (source_filetab) source_filetab->resetLatency();
     if (WaveInstance::main_wave && code_contents) code_contents->Populate(WaveInstance::main_wave->code);
-    if (flameGraph) flameGraph->rebuild();
+    if (data_store && data_store->hidden_latency_analyzed)
+        refreshHiddenLatencyViews();
+    else if (flameGraph)
+        flameGraph->rebuild();
 }
 
 void MainWindow::SetMainWave(int se, int simd, int sl, int wid)
 {
     constexpr int64_t WAVE_END_ROOM = 20000;
 
-    force_gather = current_wave_coord_se != se || WaveInstance::main_wave == nullptr;
-
-    current_wave_coord_se = se;
-    current_wave_coord_sm = simd;
-    current_wave_coord_sl = sl;
-
     QWARNING(data_store, "No data store", return );
-    auto& entry = data_store->wave_hierarchy[se][simd][sl][wid];
+    auto se_it = data_store->wave_hierarchy.find(se);
+    QWARNING(se_it != data_store->wave_hierarchy.end(), "Invalid SE: " << se, return );
+    auto simd_it = se_it->second.find(simd);
+    QWARNING(simd_it != se_it->second.end(), "Invalid SIMD: " << simd, return );
+    auto slot_it = simd_it->second.find(sl);
+    QWARNING(slot_it != simd_it->second.end(), "Invalid wave slot: " << sl, return );
+    auto wid_it = slot_it->second.find(wid);
+    QWARNING(wid_it != slot_it->second.end(), "Invalid WID: " << wid, return );
+
+    const bool no_main_wave = WaveInstance::main_wave == nullptr;
+    const auto& entry = wid_it->second;
     auto main_wave = data_store->getWave(entry);
     WaveInstance::main_wave = main_wave;
 
     QWARNING(main_wave && code_contents && code_contents->connector, "invalid code_contents", return );
+
+    force_gather = current_wave_coord_se != se || no_main_wave;
+    current_wave_coord_se = se;
+    current_wave_coord_sm = simd;
+    current_wave_coord_sl = sl;
 
     // Compute waitcnt on demand for the selected wave (decoder path)
     main_wave->buildWaitcnt(data_store->gfxip);
@@ -507,27 +523,31 @@ void MainWindow::SetMainWave(int se, int simd, int sl, int wid)
     ui->wview_range_min->setText(std::to_string(main_wave->wave_begin).c_str());
     ui->wview_range_max->setText(std::to_string(main_wave->wave_end + WAVE_END_ROOM).c_str());
 
-    // Decoder path: wave data is already in memory, so expand the clock window
-    // to show all waves in this SE (if within the instruction budget).
-    if (!data_store->wave_records.empty())
+    // Hidden-latency traces already require all waves, so use the full selected SE
+    // for Compute Unit, Utilization and Hotspot too.
+    const bool load_all_waves = shouldAutoAnalyzeHiddenLatency();
+    if (load_all_waves || !data_store->wave_records.empty())
     {
         int64_t se_min = INT64_MAX, se_max = INT64_MIN;
         size_t total_instructions = 0;
 
-        auto se_it = data_store->wave_hierarchy.find(se);
-        if (se_it != data_store->wave_hierarchy.end())
-            for (auto& [_, simd_data] : se_it->second)
-                for (auto& [__, slot_data] : simd_data)
-                    for (auto& [___, entry] : slot_data)
-                    {
-                        auto rec_it = data_store->wave_records.find(entry.id);
-                        if (rec_it == data_store->wave_records.end()) continue;
+        data_store->forEachWave(
+            [&](const DataStore::WaveCoordinate& coord, const WaveEntry& entry)
+            {
+                if (coord.hwid.se != se) return;
+                if (!data_store->wave_records.empty())
+                {
+                    auto rec_it = data_store->wave_records.find(entry.id);
+                    if (rec_it == data_store->wave_records.end() && !load_all_waves) return;
+                    if (rec_it != data_store->wave_records.end())
                         total_instructions += rec_it->second.instructions.size();
-                        se_min = std::min(se_min, entry.begin);
-                        se_max = std::max(se_max, entry.end);
-                    }
+                }
+                se_min = std::min(se_min, entry.begin);
+                se_max = std::max(se_max, entry.end);
+            }
+        );
 
-        if (total_instructions <= GATHER_INSTRUCTION_BUDGET && se_min < se_max)
+        if ((load_all_waves || total_instructions <= GATHER_INSTRUCTION_BUDGET) && se_min < se_max)
         {
             ui->wview_range_min->setText(std::to_string(se_min).c_str());
             ui->wview_range_max->setText(std::to_string(se_max + WAVE_END_ROOM).c_str());
@@ -691,6 +711,63 @@ void MainWindow::OpenDerivedCounterEditor()
         counters_plot->UpdateDerivedCounters(newDefinitions.toStdString(), false);
         UpdateCountersPlotSelection();
     }
+}
+
+void MainWindow::OpenHiddenLatencyAnalysis() { runHiddenLatencyAnalysis(true); }
+
+void MainWindow::refreshHiddenLatencyViews()
+{
+    if (!data_store || !data_store->hidden_latency_analyzed) return;
+
+    HiddenLatencyAnalysis::applyToAsm(*data_store);
+    if (source_filetab)
+    {
+        source_filetab->refreshHiddenLatencyFromAsm();
+        source_filetab->refreshLatencyDisplay();
+    }
+    if (code_contents) code_contents->refreshLatencyAnnotations();
+    if (flameGraph) flameGraph->rebuild();
+}
+
+bool MainWindow::shouldAutoAnalyzeHiddenLatency() const
+{
+    if (!data_store || !data_store->has_thread_trace) return false;
+    if (data_store->gfxip >= 10) return true;
+
+    std::string gfxv = data_store->gfxv;
+    std::transform(gfxv.begin(), gfxv.end(), gfxv.begin(), [](unsigned char c) { return std::tolower(c); });
+    return gfxv.find("navi") != std::string::npos;
+}
+
+bool MainWindow::runHiddenLatencyAnalysis(bool show_dialogs)
+{
+    if (!data_store)
+    {
+        if (show_dialogs)
+            QMessageBox::warning(this, "Hidden Latency", "Load a trace before running hidden latency analysis.");
+        return false;
+    }
+
+    if (!HiddenLatencyAnalysis::analyze(*data_store))
+    {
+        if (flameGraph) flameGraph->setHiddenLatencyAvailable(false);
+        if (source_filetab)
+        {
+            source_filetab->refreshHiddenLatencyFromAsm();
+            source_filetab->refreshLatencyDisplay();
+        }
+        if (code_contents) code_contents->refreshLatencyAnnotations();
+        if (flameGraph) flameGraph->rebuild();
+        if (show_dialogs) QMessageBox::warning(this, "Hidden Latency", "Hidden latency analysis failed.");
+        return false;
+    }
+
+    if (flameGraph) flameGraph->setHiddenLatencyAvailable(true, true);
+    refreshHiddenLatencyViews();
+    if (code_contents) code_contents->selectAnnotation("inst_latency");
+
+    if (show_dialogs) QMessageBox::information(this, "Hidden Latency", QString("Hidden latency analysis complete."));
+    return true;
 }
 
 void MainWindow::SetJsonsFolder()
@@ -940,12 +1017,14 @@ MainWindow::LoadResult MainWindow::LoadInputImpl(InputInfo input_info, const std
         OccupancyHandler occ_handler(*data_store);
         CounterHandler ctr_handler(*data_store);
         ShaderDataHandler shaderdata_handler(*data_store);
+        OtherSimdHandler other_simd_handler(*data_store);
         RealtimeHandler rt_handler(*data_store);
         MetadataHandler meta_handler(*data_store);
         dispatcher.addHandler(&wave_handler);
         dispatcher.addHandler(&occ_handler);
         dispatcher.addHandler(&ctr_handler);
         dispatcher.addHandler(&shaderdata_handler);
+        dispatcher.addHandler(&other_simd_handler);
         dispatcher.addHandler(&rt_handler);
         dispatcher.addHandler(&meta_handler);
 
@@ -1098,7 +1177,9 @@ MainWindow::LoadResult MainWindow::LoadInputImpl(InputInfo input_info, const std
     current_loaded_clk_end = -1;
 
     ASMCodeline::Clear();
-    Canvas::max_memory_latency = 0.0;
+    Annotation::Registry::instance().clearAll();
+    Canvas::active_annotation_id.clear();
+    if (code_contents) code_contents->refreshAnnotations();
     LoadSourceFiles();
     cuwaves_content->Clear();
     utilization_content->Clear();
@@ -1117,6 +1198,8 @@ MainWindow::LoadResult MainWindow::LoadInputImpl(InputInfo input_info, const std
     if (this->seSelector) delete this->seSelector;
     this->seSelector = nullptr;
     this->seSelector = new SESelector(*data_store);
+
+    if (shouldAutoAnalyzeHiddenLatency()) runHiddenLatencyAnalysis(false);
 
     if (history_table) history_table->setRowCount(0);
 
@@ -1325,10 +1408,7 @@ void MainWindow::CreateCountersPlot()
     auto* traceplot = new TraceCounterPlotView(this);
     this->counters_plot = traceplot;
 
-    if (load_perf_counters)
-    {
-        traceplot->LoadCounterData(*data_store);
-    }
+    if (load_perf_counters) traceplot->LoadCounterData(*data_store);
 
     if (this->counters_plot_layout) delete this->counters_plot_layout;
 
@@ -1461,7 +1541,7 @@ void MainWindow::CreateOccupancyPlot(bool bDispatch)
 #endif
     }
 
-    if (data_store && !data_store->occupancy_by_se.empty())
+    if (data_store)
     {
         if (bDispatch)
             dynamic_cast<DispatchPlotView*>(plot)->LoadOccupancyData(*data_store);
@@ -1647,7 +1727,7 @@ void MainWindow::CreateGlobalView()
     mainLayout->setContentsMargins(0, 0, 0, 0);
     mainLayout->setSpacing(0);
 
-    if (data_store && !data_store->occupancy_by_se.empty())
+    if (data_store)
         global_view_widget = new QGlobalView(*data_store);
     else
         global_view_widget = new QGlobalView(GetUIDir() + "occupancy.json");
@@ -1835,20 +1915,16 @@ void MainWindow::GatherWaves()
         std::array<std::future<void>, 16> threads;
         size_t count = 0;
 
-        for (auto& [simd_id, simd_data] : se_data)
-        {
-            for (auto& [slot_id, slot_data] : simd_data)
+        data_store->forEachWave(
+            [&](const DataStore::WaveCoordinate& coord, const WaveEntry& entry)
             {
-                for (auto& [wid, entry] : slot_data)
-                {
-                    if (entry.end < current_loaded_clk_start || entry.begin > current_loaded_clk_end) continue;
+                if (coord.hwid.se != current_wave_coord_se) return;
+                if (entry.end < current_loaded_clk_start || entry.begin > current_loaded_clk_end) return;
 
-                    threads.at(count % threads.size()) =
-                        std::async(std::launch::async, preload_wave, hotspot_view, entry);
-                    count++;
-                }
+                threads.at(count % threads.size()) = std::async(std::launch::async, preload_wave, hotspot_view, entry);
+                count++;
             }
-        }
+        );
     }
 
     int gathered_cu = WaveInstance::main_wave ? WaveInstance::main_wave->cu : -1;
@@ -1887,7 +1963,7 @@ void MainWindow::GatherWaves()
         {
             for (int sd_slot = 0; sd_slot < 32; sd_slot++)
             {
-                auto records = shaderdata_manager->GetRecords(current_wave_coord_se, gathered_cu, sd_simd, sd_slot);
+                auto records = shaderdata_manager->GetRecords({current_wave_coord_se, gathered_cu, sd_simd, sd_slot});
                 if (records && !records->empty()) shaderdata_slots.emplace(sd_simd, sd_slot);
             }
         }
@@ -1902,14 +1978,15 @@ void MainWindow::GatherWaves()
         if (slot_it == shaderdata_slots.end()) return;
         shaderdata_slots.erase(slot_it);
 
-        auto sd_records = shaderdata_manager->GetRecords(current_wave_coord_se, gathered_cu, sd_simd, sd_slot);
+        const HWID hwid{current_wave_coord_se, gathered_cu, sd_simd, sd_slot};
+        auto sd_records = shaderdata_manager->GetRecords(hwid);
         if (!sd_records || sd_records->empty()) return;
 
         auto* sd_view = new QShaderDataView(cuwaves_h_scrollarea, std::move(sd_records));
         int sd_height = vertical_size / 2;
         if (shaderdata_manager->HasMarkers())
         {
-            auto markers = shaderdata_manager->GetMarkers(current_wave_coord_se, gathered_cu, sd_simd, sd_slot);
+            auto markers = shaderdata_manager->GetMarkers(hwid);
             if (markers && !markers->empty())
             {
                 sd_view->SetMarkers(std::move(markers));
@@ -2048,12 +2125,14 @@ void MainWindow::loadConfigSettings()
     // Source Options
     ui->display_line_number->setChecked(config.getDisplayLineNumber());
     ui->source_hotspot_size_edit->setText(QString::number(config.getSourceHotspotSize()));
+    ui->source_include_hidden_latency_box->setChecked(config.getSourceIncludeHiddenLatency());
 
     // Display Options
     ui->fontedit->setText(QString::number(config.getFontSize()));
     ui->dark_theme_box->setChecked(config.getDarkTheme());
     ui->scale_edit->setChecked(config.getDisplayScaling());
     ui->separate_lds_pipe_box->setChecked(config.getSeparateLDSPipe());
+    ui->show_idle_time_box->setChecked(config.getShowIdleTime());
 
     // Instruction Column Visibility
     ui->col_hitcount_box->setChecked(config.getColumnVisible(ASMCodeline::Element::EHIT));
@@ -2072,6 +2151,8 @@ void MainWindow::loadConfigSettings()
     _scaling_var = config.getDisplayScaling() ? 1 : 0;
     SourceLine::bDisplayLineNumber = config.getDisplayLineNumber();
     HorizontalHotspot::SetHistogramWidth(config.getSourceHotspotSize());
+    HorizontalHotspot::source_include_hidden_latency = config.getSourceIncludeHiddenLatency();
+    HorizontalHotspot::show_idle_time = config.getShowIdleTime();
     QUtilization::bSeparateLDSPipe = config.getSeparateLDSPipe();
 }
 
@@ -2083,12 +2164,19 @@ void MainWindow::setupConfigConnections()
     // Source Options
     connect(ui->display_line_number, &QCheckBox::stateChanged, this, &MainWindow::saveDisplayLineNumberSetting);
     connect(ui->source_hotspot_size_edit, &QLineEdit::editingFinished, this, &MainWindow::saveSourceHotspotSizeSetting);
+    connect(
+        ui->source_include_hidden_latency_box,
+        &QCheckBox::stateChanged,
+        this,
+        &MainWindow::saveSourceIncludeHiddenLatencySetting
+    );
 
     // Display Options
     connect(ui->fontedit, &QLineEdit::editingFinished, this, &MainWindow::saveFontSizeSetting);
     connect(ui->dark_theme_box, &QCheckBox::stateChanged, this, &MainWindow::saveDarkThemeSetting);
     connect(ui->scale_edit, &QCheckBox::stateChanged, this, &MainWindow::saveDisplayScalingSetting);
     connect(ui->separate_lds_pipe_box, &QCheckBox::stateChanged, this, &MainWindow::saveSeparateLDSPipeSetting);
+    connect(ui->show_idle_time_box, &QCheckBox::stateChanged, this, &MainWindow::saveShowIdleTimeSetting);
 
     // Instruction Column Visibility - using lambdas to pass element enum
     auto connectColumnCheckbox = [this](QCheckBox* checkbox, ASMCodeline::Element elem)
@@ -2122,6 +2210,15 @@ void MainWindow::saveSourceHotspotSizeSetting()
     if (ok) AppConfig::getInstance().setSourceHotspotSize(size);
 }
 
+void MainWindow::saveSourceIncludeHiddenLatencySetting(int state)
+{
+    const bool enabled = state != 0;
+    AppConfig::getInstance().setSourceIncludeHiddenLatency(enabled);
+    HorizontalHotspot::source_include_hidden_latency = enabled;
+
+    if (source_filetab) source_filetab->refreshLatencyDisplay();
+}
+
 void MainWindow::saveFontSizeSetting()
 {
     bool ok;
@@ -2138,6 +2235,17 @@ void MainWindow::saveSeparateLDSPipeSetting(int state)
     AppConfig::getInstance().setSeparateLDSPipe(state != 0);
     QUtilization::bSeparateLDSPipe = (state != 0);
     QMessageBox::information(this, "Restart Required", "Please restart the viewer for this change to take effect.");
+}
+
+void MainWindow::saveShowIdleTimeSetting(int state)
+{
+    const bool enabled = state != 0;
+    AppConfig::getInstance().setShowIdleTime(enabled);
+    HorizontalHotspot::show_idle_time = enabled;
+
+    if (code_contents) code_contents->refreshLatencyAnnotations();
+    if (source_filetab) source_filetab->refreshLatencyDisplay();
+    if (flameGraph) flameGraph->rebuild();
 }
 
 void MainWindow::saveColumnVisibilitySetting(int element, bool visible)

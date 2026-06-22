@@ -31,8 +31,10 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
+#include "analysis/hidden_latency.h"
 #include "code/codeload.hpp"
 #include "data/dispatch_resolver.h"
+#include "data/hwid.h"
 #include "data/records.h"
 #include "json/include/nlohmann/json.hpp"
 #include "wave/othersimd_types.h"
@@ -56,20 +58,30 @@ using SEWaveMap = std::map<int, SimdMap>;
 class DataStore
 {
 public:
+    struct WaveCoordinate
+    {
+        HWID hwid{};
+        int instance = 0;
+    };
+    using WaveVisitor = std::function<void(const WaveCoordinate& coord, const WaveEntry& entry)>;
+
     DataStore() = default;
 
     void clear();
     void loadSourceSnapshots(const nlohmann::json& snapshots_json, const std::string& snapshot_base_dir);
     bool applyRealtimeAlignment();
     void applyTimeOffsets(const std::map<int, int64_t>& offsets);
+    void forEachWave(const WaveVisitor& visitor) const;
 
     int gfxip = 0;
     std::string gfxv;
     bool has_thread_trace = true;
     bool has_pc_sampling = false;
+    bool hidden_latency_analyzed = false;
     std::vector<std::string> counter_names;
 
     SEWaveMap wave_hierarchy;
+    std::map<int, HiddenLatencyAnalysis::HiddenLatency> hidden_latency_by_line;
 
     std::shared_ptr<WaveInstance> getWave(const WaveEntry& entry);
 
@@ -114,7 +126,8 @@ public:
 
     ActiveCodeobjIndex(const DataStore& store, ResolveCodeobj resolve_codeobj);
 
-    uint64_t resolve(int se, int cu, int simd, int slot, int64_t time);
+    uint64_t resolve(HWID hwid, int64_t time);
+    uint64_t resolve(int se, int cu, int simd, int slot, int64_t time) { return resolve({se, cu, simd, slot}, time); }
     void clear();
 
 private:
@@ -125,9 +138,9 @@ private:
         uint64_t codeobj_id = 0;
     };
 
-    static uint64_t keyFor(int se, int cu, int simd, int slot);
-    std::vector<Interval> buildBucket(int se, int cu, int simd, int slot) const;
-    const std::vector<Interval>& bucketFor(int se, int cu, int simd, int slot);
+    static uint64_t keyFor(HWID hwid);
+    std::vector<Interval> buildBucket(HWID hwid) const;
+    const std::vector<Interval>& bucketFor(HWID hwid);
 
     const DataStore& store;
     ResolveCodeobj resolve_codeobj;

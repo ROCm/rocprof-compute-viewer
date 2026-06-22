@@ -131,7 +131,7 @@ public:
 struct WaveState
 {
     int64_t clock = 0;
-    int64_t duration = 0;
+    int duration = 0;
     int state = 0;
 
     void DrawState(class QPainter& painter, int64_t viewstart, int64_t viewend);

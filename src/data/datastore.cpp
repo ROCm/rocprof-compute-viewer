@@ -73,8 +73,10 @@ void DataStore::clear()
     gfxv.clear();
     has_thread_trace = true;
     has_pc_sampling = false;
+    hidden_latency_analyzed = false;
     counter_names.clear();
     wave_hierarchy.clear();
+    hidden_latency_by_line.clear();
     code.clear();
     source_snapshots.clear();
     source_tree_json.clear();
@@ -317,25 +319,19 @@ ActiveCodeobjIndex::ActiveCodeobjIndex(const DataStore& st, ResolveCodeobj resol
 store(st), resolve_codeobj(std::move(resolve))
 {}
 
-uint64_t ActiveCodeobjIndex::keyFor(int se, int cu, int simd, int slot)
-{
-    return (static_cast<uint64_t>(static_cast<uint16_t>(se))) |
-           (static_cast<uint64_t>(static_cast<uint16_t>(cu)) << 16) |
-           (static_cast<uint64_t>(static_cast<uint16_t>(simd)) << 32) |
-           (static_cast<uint64_t>(static_cast<uint16_t>(slot)) << 48);
-}
+uint64_t ActiveCodeobjIndex::keyFor(HWID hwid) { return hwid.packedKey(); }
 
-std::vector<ActiveCodeobjIndex::Interval> ActiveCodeobjIndex::buildBucket(int se, int cu, int simd, int slot) const
+std::vector<ActiveCodeobjIndex::Interval> ActiveCodeobjIndex::buildBucket(HWID hwid) const
 {
     std::vector<Interval> built;
-    auto se_it = store.occupancy_by_se.find(se);
+    auto se_it = store.occupancy_by_se.find(hwid.se);
     if (se_it == store.occupancy_by_se.end()) return built;
 
     std::vector<const occupancy_record_t*> records;
     records.reserve(se_it->second.size());
     for (const auto& rec : se_it->second)
     {
-        if (rec.cu != cu || rec.simd != simd || rec.wave_id != slot) continue;
+        if (rec.cu != hwid.cu || rec.simd != hwid.simd || rec.wave_id != hwid.slot) continue;
         records.push_back(&rec);
     }
 
@@ -378,18 +374,18 @@ std::vector<ActiveCodeobjIndex::Interval> ActiveCodeobjIndex::buildBucket(int se
     return built;
 }
 
-const std::vector<ActiveCodeobjIndex::Interval>& ActiveCodeobjIndex::bucketFor(int se, int cu, int simd, int slot)
+const std::vector<ActiveCodeobjIndex::Interval>& ActiveCodeobjIndex::bucketFor(HWID hwid)
 {
-    const uint64_t key = keyFor(se, cu, simd, slot);
+    const uint64_t key = keyFor(hwid);
     std::lock_guard<std::mutex> lock(cache_mutex);
     auto it = cache.find(key);
-    if (it == cache.end()) it = cache.emplace(key, buildBucket(se, cu, simd, slot)).first;
+    if (it == cache.end()) it = cache.emplace(key, buildBucket(hwid)).first;
     return it->second;
 }
 
-uint64_t ActiveCodeobjIndex::resolve(int se, int cu, int simd, int slot, int64_t time)
+uint64_t ActiveCodeobjIndex::resolve(HWID hwid, int64_t time)
 {
-    const auto& bucket = bucketFor(se, cu, simd, slot);
+    const auto& bucket = bucketFor(hwid);
     if (bucket.empty()) return 0;
 
     auto first_after =

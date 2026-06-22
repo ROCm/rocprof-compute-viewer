@@ -24,6 +24,7 @@
 #include <QPixmap>
 #include <filesystem>
 #include <string>
+#include <system_error>
 #include "mainwindow.h"
 
 int main(int argc, char* argv[])
@@ -41,15 +42,21 @@ int main(int argc, char* argv[])
         // Parse CLI arguments: positional paths auto-detected by filename
         // Recognizes: code.json, snapshots.json, directories, .rocpd files
         std::string input_path;
+        auto absolutePath = [](const std::string& path)
+        {
+            std::error_code ec;
+            auto absolute = std::filesystem::absolute(path, ec);
+            return ec ? path : absolute.string();
+        };
         for (int i = 1; i < argc; i++)
         {
             std::string arg = argv[i];
             std::string basename = arg.substr(arg.find_last_of("/\\") + 1);
 
             if (basename == "code.json")
-                MainWindow::cli_code_json_override = std::filesystem::absolute(arg).string();
+                MainWindow::cli_code_json_override = absolutePath(arg);
             else if (basename == "snapshots.json")
-                MainWindow::cli_snapshots_json_override = std::filesystem::absolute(arg).string();
+                MainWindow::cli_snapshots_json_override = absolutePath(arg);
             else if (input_path.empty())
                 input_path = arg;
         }

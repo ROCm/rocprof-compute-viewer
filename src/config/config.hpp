@@ -84,4 +84,5 @@ const QColor& PlotColors(int index);
 
 const QColor& StallColor();
 const QColor& IssueColor();
+const QColor& HiddenLatencyColor();
 }; // namespace Config

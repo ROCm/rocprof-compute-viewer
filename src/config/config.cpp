@@ -575,4 +575,9 @@ const QColor& PlotColors(int index)
 
     return colors.at(index % colors.size());
 }
+const QColor& HiddenLatencyColor()
+{
+    static QColor color(0, 127, 255, 127);
+    return color;
+}
 }; // namespace Config

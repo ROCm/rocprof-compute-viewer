@@ -93,6 +93,7 @@ public:
     void OpenRocpd();
     void OpenOptionsDialog();
     void OpenDerivedCounterEditor();
+    void OpenHiddenLatencyAnalysis();
     void SetWaveViewMipmap(int value);
     void SetGlobalViewMipmap(int value);
     int GetHotspotBins() const { return hotspot_n_bins; }
@@ -231,13 +232,19 @@ private:
     void saveLevelOfDetailSetting(int state);
     void saveDisplayLineNumberSetting(int state);
     void saveSourceHotspotSizeSetting();
+    void saveSourceIncludeHiddenLatencySetting(int state);
     void saveFontSizeSetting();
     void saveDarkThemeSetting(int state);
     void saveDisplayScalingSetting(int state);
     void saveSeparateLDSPipeSetting(int state);
+    void saveShowIdleTimeSetting(int state);
 
     // Instruction column visibility
     void saveColumnVisibilitySetting(int element, bool visible);
+
+    bool shouldAutoAnalyzeHiddenLatency() const;
+    bool runHiddenLatencyAnalysis(bool show_dialogs);
+    void refreshHiddenLatencyViews();
 
     static std::optional<int> parseLineEditInt(const QLineEdit* edit);
     static std::optional<int64_t> parseLineEditInt64(const QLineEdit* edit);

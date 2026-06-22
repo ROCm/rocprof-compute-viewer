@@ -140,11 +140,21 @@ void SourceLine::add_latency(int type, Latency sqtt, Latency pcs)
     hotspot.add_latency(type, sqtt, pcs);
     parent->latency.add_latency(type, sqtt, pcs);
 
-    parent->max_sqtt_latency = std::max(parent->max_sqtt_latency, hotspot.sqtt.latency);
-    parent->max_pcs_latency = std::max(parent->max_pcs_latency, hotspot.pcs.latency);
+    // Match normalization to the current display mode so idle segments fit
+    // when enabled and active-only latency fills the scale when disabled.
+    parent->max_sqtt_latency = std::max(
+        parent->max_sqtt_latency,
+        hotspot.sqtt.displayTotal(HorizontalHotspot::show_idle_time, HorizontalHotspot::source_include_hidden_latency)
+    );
+    parent->max_pcs_latency = std::max(parent->max_pcs_latency, hotspot.pcs.total());
     // TODO: Reset this when reloading code
-    SourceFile::global_max_sqtt_latency = std::max(SourceFile::global_max_sqtt_latency, parent->latency.sqtt.latency);
-    SourceFile::global_max_pcs_latency = std::max(SourceFile::global_max_pcs_latency, parent->latency.pcs.latency);
+    SourceFile::global_max_sqtt_latency = std::max(
+        SourceFile::global_max_sqtt_latency,
+        parent->latency.sqtt.displayTotal(
+            HorizontalHotspot::show_idle_time, HorizontalHotspot::source_include_hidden_latency
+        )
+    );
+    SourceFile::global_max_pcs_latency = std::max(SourceFile::global_max_pcs_latency, parent->latency.pcs.total());
 }
 
 void SourceLine::paint(QPainter& painter, int posx, int posy, int sizey, int overline, int numlines_width)
@@ -292,4 +302,71 @@ void SourceFileTab::resetLatency()
         }
     SourceFile::global_max_sqtt_latency = 1;
     SourceFile::global_max_pcs_latency = 1;
+}
+
+void SourceFileTab::refreshHiddenLatencyFromAsm()
+{
+    for (auto& [_, file] : files)
+        if (file.second)
+        {
+            file.second->latency.sqtt.clearHidden();
+            for (auto& line : file.second->lines)
+                if (line) line->hotspot.sqtt.clearHidden();
+        }
+
+    for (auto& [_, file] : files)
+        if (file.second)
+            for (auto& line : file.second->lines)
+                if (line)
+                    for (auto& ref : line->refs)
+                        if (auto asm_line = ref.lock())
+                        {
+                            Latency hidden;
+                            const Latency& src = asm_line->hotspot.sqtt;
+                            hidden.hidden = src.hidden;
+
+                            line->hotspot.sqtt += hidden;
+                            file.second->latency.sqtt += hidden;
+                        }
+}
+
+void SourceFileTab::refreshLatencyDisplay()
+{
+    SourceFile::global_max_sqtt_latency = 1;
+    SourceFile::global_max_pcs_latency = 1;
+
+    for (auto& [_, file] : files)
+        if (file.second)
+        {
+            SourceFile* source = file.second;
+            source->max_sqtt_latency = 1;
+            source->max_pcs_latency = 1;
+
+            for (auto& line : source->lines)
+                if (line)
+                {
+                    source->max_sqtt_latency = std::max(
+                        source->max_sqtt_latency,
+                        line->hotspot.sqtt.displayTotal(
+                            HorizontalHotspot::show_idle_time, HorizontalHotspot::source_include_hidden_latency
+                        )
+                    );
+                    source->max_pcs_latency = std::max(source->max_pcs_latency, line->hotspot.pcs.total());
+                }
+
+            SourceFile::global_max_sqtt_latency = std::max(
+                SourceFile::global_max_sqtt_latency,
+                source->latency.sqtt.displayTotal(
+                    HorizontalHotspot::show_idle_time, HorizontalHotspot::source_include_hidden_latency
+                )
+            );
+            SourceFile::global_max_pcs_latency =
+                std::max(SourceFile::global_max_pcs_latency, source->latency.pcs.total());
+
+            source->updateGeometry();
+            source->update();
+        }
+
+    updateGeometry();
+    update();
 }

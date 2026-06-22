@@ -22,7 +22,7 @@
 
 #pragma once
 
-#include "../analysis/latency.hpp"
+#include "../analysis/memory_latency.hpp"
 
 #include <QDialog>
 #include <array>

@@ -710,6 +710,16 @@
                     </widget>
                    </item>
                    <item>
+                    <widget class="QCheckBox" name="source_include_hidden_latency_box">
+                     <property name="text">
+                      <string>Include hidden latency</string>
+                     </property>
+                     <property name="checked">
+                      <bool>true</bool>
+                     </property>
+                    </widget>
+                   </item>
+                   <item>
                     <layout class="QHBoxLayout" name="horizontalLayout_12">
                      <item>
                       <widget class="QLabel" name="label_14">
@@ -797,6 +807,16 @@
                      </property>
                      <property name="checked">
                       <bool>false</bool>
+                     </property>
+                    </widget>
+                   </item>
+                   <item>
+                    <widget class="QCheckBox" name="show_idle_time_box">
+                     <property name="text">
+                      <string>Show idle time</string>
+                     </property>
+                     <property name="checked">
+                      <bool>true</bool>
                      </property>
                     </widget>
                    </item>
@@ -1125,6 +1145,7 @@
     </property>
     <addaction name="actionDerived_counters"/>
     <addaction name="actionMemoryLatency"/>
+    <addaction name="actionHiddenLatency"/>
    </widget>
    <widget class="QMenu" name="menuHelp">
     <property name="title">
@@ -1182,6 +1203,11 @@
   <action name="actionMemoryLatency">
    <property name="text">
     <string>Memory Latency</string>
+   </property>
+  </action>
+  <action name="actionHiddenLatency">
+   <property name="text">
+    <string>Hidden Latency</string>
    </property>
   </action>
  </widget>

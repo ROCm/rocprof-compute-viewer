@@ -143,6 +143,7 @@ void QWaveView::DrawDecoderEvents(QPainter& painter, int64_t clock_start, int64_
         painter,
         trace_events,
         dispatch_records,
+        WaveOverlay::DecoderEventSurface::ComputeUnit,
         clock_start,
         clock_end,
         height,
@@ -167,6 +168,8 @@ bool QWaveView::ShowDecoderEventTooltip(const QPoint& global_pos, int64_t clock)
 
     if (const auto* trace_event = WaveOverlay::findRecordAt(trace_events, clock, tolerance, true))
     {
+        if (!WaveOverlay::showTraceEvent(*trace_event, WaveOverlay::DecoderEventSurface::ComputeUnit)) return false;
+
         clearLineHover();
         QToolTip::showText(
             global_pos, QString::fromStdString(WaveOverlay::formatTraceEventTooltip(*trace_event, decoder_event_se))
@@ -398,9 +401,26 @@ void QWaveSlots::wheelEvent(QWheelEvent* event)
     // Horizontal scroll: forward to a single scrollbar. It doesn't matter which
     // one — ScrollValue::notify() syncs all parents to the same value, so the
     // others follow. Forwarding to more than one would apply the delta twice.
-    if (horizontalScrollDominates(event))
+    const bool shift = QApplication::keyboardModifiers() & Qt::ShiftModifier;
+    if (horizontalScrollDominates(event) || shift)
     {
-        if (!view->parents.empty()) QApplication::sendEvent(view->parents.front()->scrollbar, event);
+        // Shift + wheel scrolls forward (right) at reduced speed; touchpad gestures pass through.
+        const qreal scale = shift ? -0.25 : 1.0;
+        if (!view->parents.empty())
+        {
+            QWheelEvent scaled(
+                event->position(),
+                event->globalPosition(),
+                event->pixelDelta() * scale,
+                event->angleDelta() * scale,
+                event->buttons(),
+                event->modifiers(),
+                event->phase(),
+                event->inverted(),
+                event->source()
+            );
+            QApplication::sendEvent(view->parents.front()->scrollbar, &scaled);
+        }
         event->accept();
         return;
     }

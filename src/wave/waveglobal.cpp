@@ -320,10 +320,15 @@ constexpr int64_t SQTT_POINT_MARKER_MIN_CYCLES = 8;
 /// Pack a (se, cu, simd, slot) location into the 24-bit key used by both
 /// constructors' trace maps. Layout (LSB → MSB):
 ///   slot:5 | simd:2 | cu:7 | sa:1 | se:N
-/// Note: the SA bit is encoded as 0 here because both producer paths only
-/// have (se, cu, simd, slot) at this point — sa is inferred from cu by the
-/// QOutsideWaveView constructor downstream of decodeTraceID().
+/// `cu` is the classic packed CU value: cu_low7 | (sa << 7).
 inline int packTraceID(int se, int cu, int simd, int slot) { return slot + 32 * (simd + 4 * (cu + 256 * se)); }
+
+inline int classicCu(int sa, int cu) { return (cu & 0x7F) | ((sa & 0x1) << 7); }
+
+inline HWID hwidFromGlobalView(const QOutsideWaveView& view)
+{
+    return {view.se, classicCu(view.sa, view.cu), view.simd, view.slot};
+}
 
 struct DecodedTraceID
 {
@@ -512,15 +517,21 @@ QGlobalView::QGlobalView(DataStore& store)
     std::map<int, TraceEventRecordVec> trace_events_by_se;
     for (const auto& [se, records] : store.trace_events_by_se)
     {
-        auto sorted = std::make_shared<std::vector<trace_event_record_t>>(records);
+        auto sorted = std::make_shared<std::vector<trace_event_record_t>>();
+        sorted->reserve(records.size());
+        for (const auto& record : records)
+        {
+            if (WaveOverlay::showTraceEvent(record, WaveOverlay::DecoderEventSurface::Global))
+                sorted->push_back(record);
+        }
         std::sort(
             sorted->begin(),
             sorted->end(),
             [](const trace_event_record_t& a, const trace_event_record_t& b) { return a.time < b.time; }
         );
-        trace_events_by_se[se] = sorted;
         if (!sorted->empty())
         {
+            trace_events_by_se[se] = sorted;
             begintime = std::min(begintime, sorted->front().time);
             maxtime = std::max(maxtime, sorted->back().time);
         }
@@ -596,7 +607,8 @@ void QGlobalView::SetShaderData(const ShaderDataManager& manager)
 
     for (auto* view : views)
     {
-        auto records = manager.GetRecords(view->se, view->cu, view->simd, view->slot);
+        const HWID hwid = hwidFromGlobalView(*view);
+        auto records = manager.GetRecords(hwid);
         if (records) view->SetShaderData(std::move(records));
     }
 }
@@ -607,7 +619,8 @@ void QGlobalView::SetMarkers(const ShaderDataManager& manager)
 
     for (auto* view : views)
     {
-        auto spans = manager.GetMarkers(view->se, view->cu, view->simd, view->slot);
+        const HWID hwid = hwidFromGlobalView(*view);
+        auto spans = manager.GetMarkers(hwid);
         if (spans) view->SetMarkers(std::move(spans));
     }
 
@@ -921,6 +934,7 @@ void QOutsideWaveView::DrawDecoderEvents(QPainter& painter, const QRect& area)
         painter,
         trace_events.get(),
         dispatch_records.get(),
+        WaveOverlay::DecoderEventSurface::Global,
         visible_clock_start,
         visible_clock_end,
         row_h,

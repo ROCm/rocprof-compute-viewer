@@ -14,16 +14,40 @@ ROCprof Compute Viewer interprets the output of `ui_output_agent_{agent_id}_disp
 - Hotspot analysis
 - Memory ops to ``waitcnt`` dependency
 - Occupancy visualization
+- Flamegraph view (per-target-CU/SIMD source/ISA stack rollup, plus a global marker flamegraph when SQTT instrumentation is present)
+- SQTT instrumentation marker visualization (from the ``.sqtt_funcmap`` ELF section emitted by the LLVM pass)
 
-To launch the Compute Viewer, use any of the following methods:
+RCV accepts two kinds of input:
 
-- Go to Menu -> Import -> rocprofv3 UI
-- Provide the full path to "UI path"
+- A ``rocprofv3`` UI output directory (JSON), produced when ``rocprofv3`` converts the thread trace for you.
+- A directory of raw ``.att``/``.out`` thread-trace files captured directly through the rocprofiler-sdk API. These require a decoder-enabled build.
+
+To launch the Compute Viewer with a ``rocprofv3`` UI output directory, use any of the following methods:
+
+- Go to Menu -> Import -> Rocprofv3 UI Output
+- Provide the full path to "Ui path"
 - Use command line:
 
 .. code-block:: bash
 
     ./rcviewer <dir_to_ui_folder>
+
+To open raw ``.att``/``.out`` files directly (decoder-enabled build):
+
+- Go to Menu -> Import -> ATT Trace Files... and select the ``.att``/``.out`` files.
+- Or pass the directory on the command line:
+
+.. code-block:: bash
+
+    ./rcviewer <dir_with_att_out_files>
+
+When the raw trace was captured via the rocprofiler-sdk API it has no ``code.json``/``snapshots.json``, so the Instructions view and source pane stay empty until you regenerate that correlation from the kernel code objects:
+
+.. code-block:: bash
+
+    python3 scripts/generate_snapshot.py kernel_code_object_id_1.out kernel_code_object_id_2.out
+
+This writes ``code.json``, ``snapshots.json``, and copies of the referenced source files into the current directory, which you then pass to the viewer.
 
 The various views available as tabs on the top are described in the following sections.
 
@@ -44,9 +68,7 @@ To ensure that ``rocprofv3`` generates the thread trace data correctly, install 
 
 * ROCprof Trace Decoder:
 
-  * `Repository <https://github.com/ROCm/rocprof-trace-decoder>`_.
-
-  * `Binary releases <https://github.com/ROCm/rocprof-trace-decoder/releases>`_.
+  * Bundled with ``rocprofv3`` since ROCm 7.13, so no extra install is needed. On ROCm versions earlier than 7.13, `build from source <https://github.com/ROCm/rocm-systems/tree/develop/projects/rocprof-trace-decoder>`_.
 
 For instructions on how to run ``rocprofv3`` to collect thread trace data, see `using rocprofv3 to collect thread trace <https://rocm.docs.amd.com/projects/rocprofiler-sdk/en/latest/how-to/using-thread-trace.html>`_.
 
@@ -90,6 +112,8 @@ Here are the user controls for Compute Unit and Utilization views:
   - If no ISA is highlighted, it is likely that the token couldn't be matched with the ISA. Check for warnings on the ``rocprofv3`` output.
 
 - Use A and D keys for panning.
+
+- Use Shift + MouseWheel to scroll the timeline horizontally.
 
 - Use WaveView zoom box on the left panel or CTRL + MouseWheel to control the zoom level.
 
@@ -165,10 +189,10 @@ To enable the summary view, use the following parameters:
 
   - For other values: :math:`add_all(X)/add_all(SQ_BUSY_CU_CYCLES)`
 
-Wave states, Occupancy, and Kernel dispatch views
-==================================================
+Occupancy and Kernel dispatch views
+===================================
 
-Here are the user controls for Wave states, Occupancy, and Kernel dispatch views:
+Here are the user controls for Occupancy and Kernel dispatch views:
 
 - Use the mouse wheel to zoom plots in and out.
 
@@ -180,15 +204,9 @@ Here are the user controls for Wave states, Occupancy, and Kernel dispatch views
 
 - Clicking on a token in the waveview (trace) adds a blue marker to identify the cycle for that token.
 
-- The Wave States tab shows the number of active waves in each state (IDLE, EXEC, STALL, and WAIT).
+.. note::
 
-Wave states view
------------------
-
-.. image:: /data/wavestate.png
-    :alt: Wave states
-
-The Wave States tab presents a vertical slice of the Compute Unit tab, looking at the wave states. The Wave States tab is applicable only for the ``target_cu``.
+   The standalone Wave States tab (a vertical slice of the Compute Unit view showing the number of active waves in each state: IDLE, EXEC, STALL, and WAIT) has been temporarily removed. Its functionality will eventually be absorbed into the Counters view. The wave-state coloring within the Compute Unit view itself is unaffected.
 
 Occupancy view
 --------------
@@ -274,6 +292,12 @@ To view the plot for SQ counters collected per Compute Unit (CU) or SE:
 
 To view the plot for SQ counters collected per SIMD, use :ref:`SIMD mask <simd-mask>` and filter the CU in "Menu -> Edit -> Counters shown".
 
+On ROCm 7.13 or later, collect counters only for the target CU with ``--att-perfcounter-target-only``. This is recommended when using a high polling rate:
+
+.. code-block:: shell
+
+    rocprofv3 --att-perfcounter-target-only 1 [...]
+
 Here are the SQ counters that help to analyze hardware utilization:
 
 - SQ_INST_LEVEL_LDS - Measures the current number of in-flight LDS instructions.
@@ -290,28 +314,33 @@ Here is a zoomed-in view of the preceding figure.
 
 .. image:: /data/counter_close.png
 
-Explorer view
-==============
+Derived counters
+----------------
 
-The Explorer view provides a hierarchical file browser for all source files and profiling data included in your analysis session. It is located on the left side of the main window and lets you perform the following operations:
+In addition to the raw SQ counters, RCV lets you define derived counters that are evaluated in real time. Go to Menu -> Edit -> Derived Counters.
 
-- Browse the file structure of the profiled application, including folders and files.
+- Some simple derived counters are provided by default, such as ``MFMA_util``, ``VALU_util``, and ``LDS_util``.
 
-- Visualize hotspots directly in the tree. Each file node displays a colored bar representing the total latency (hotspot) for that file, making it easy to identify performance-critical files at a glance.
+- Use the "Help" button to see the derived counter syntax.
 
-- Click on any file to display a hotspot summary for the selected file, with the source lines listed and sorted by the highest latency.
+- Create, delete, and edit user-defined derived counters.
 
-- Expand and collapse folders to navigate large projects efficiently.
+- If multiple files are present, the currently selected widget tab defines which derived counter list is shown.
 
-The Explorer view is tightly integrated with the rest of the application:
+The left list shows the raw (basic) counters collected with SQTT, along with their shapes ``(XCC, SE, CU, Time)``.
 
-- Selecting a file automatically updates the hotspot summary and Source view.
+Flamegraph view
+===============
 
-- The hotspot bars in the explorer are color-coded and scaled relative to the maximum latency in the dataset.
+The Flamegraph view (which replaces the previous Explorer view) rolls up latency into a stack so you can quickly find the most expensive code paths.
 
-- Only leaf nodes (files) display hotspot bars. Folders don't show bars.
+- Frames are sized by accumulated latency cycles; wider frames cost more.
 
-This view helps you to quickly locate and focus on the most performance-critical files in your application.
+- The stack is built per target CU/SIMD over the source and ISA, so you can drill from a source line down to the individual instructions.
+
+- Hover a frame to see its latency; click to zoom into that frame.
+
+- When the trace contains SQTT instrumentation markers, a separate global marker flamegraph is also available, rolling up time spent inside instrumented regions.
 
 Troubleshooting
 ================

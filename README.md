@@ -1,6 +1,6 @@
 # ROCprof Compute Viewer
 
-For pre-build binaries, see [releases](https://github.com/ROCm/rocprof-compute-viewer/releases)
+For pre-built binaries, see [releases](https://github.com/ROCm/rocprof-compute-viewer/releases), or the [GitHub Actions](https://github.com/ROCm/rocprof-compute-viewer/actions) artifacts for bleeding-edge builds.
 
 ## Table of Contents
 - [Summary](#summary)
@@ -8,14 +8,17 @@ For pre-build binaries, see [releases](https://github.com/ROCm/rocprof-compute-v
 - [Rocprof Compute Viewer](#using-the-rocprof-compute-viewer)
   - [Hotspot Tab](#hotspot-tab)
   - [Instructions View](#instructions-view)
-  - [Occupancy and Dispatches Plots](#wave-states-occupancy-and-dispatches-plots-tab)
+  - [Occupancy and Dispatches Plots](#occupancy-and-dispatches-plots-tab)
   - [Left Side Panel](#left-side-panel)
   - [Compute Unit and Utilization Views](#compute-unit-and-utilization-views)
+  - [Counters](#counters)
   - [Global View](#global-view)
-  - [Summary](#summary)
-  - [Explorer View](#explorer-view)
+  - [Summary](#summary-1)
+  - [Flamegraph View](#flamegraph-view)
 - [Troubleshooting](#troubleshooting)
 - [Building from Source](#building-from-source)
+- [Viewing traces from the rocprofiler-sdk API](#viewing-traces-from-the-rocprofiler-sdk-api)
+- [Hidden Latency](#hidden-latency)
 
 ## Summary
 
@@ -27,30 +30,23 @@ The tool interprets the rocprofv3 thread trace output, which are directories nam
 * Memory ops to waitcnt dependency.
 * Occupancy visualization
 * Flamegraph view (per-target-CU/SIMD source/ISA stack rollup, plus a global marker flamegraph when SQTT instrumentation is present)
+* Hidden latency analysis.
 * SQTT instrumentation marker visualization — LLVM pass (`.sqtt_funcmap` ELF section).
 
-To open a UI directory, use:
-* Menu -> Import -> Rocprofv3 UI,
-* or paste the full path to "Ui path",
-* or launch the viewer from the command line with:
+There are two input formats:
+* **Rocprofv3 UI output**: A directory containing `filenames.json` (standard rocprofv3 output).
+* **ATT files**: A directory of raw `.att`/`.out` thread-trace files, as extracted from rocprofiler-sdk. See [Viewing traces from the rocprofiler-sdk API](#viewing-traces-from-the-rocprofiler-sdk-api).
+
+In the GUI, pick the matching entry under **Menu -> Import**:
+* **Import -> Rocprofv3 UI Output** for the JSON directory (or paste the full path into "Ui path").
+* **Import -> ATT Trace Files...** to select raw `.att`/`.out` files.
+
+From the command line the input format is auto-detected from the path:
 
 ```bash
 # Open a rocprofv3 ui_output_* directory (JSON path)
 ./rocprof-compute-viewer <dir_to_ui_folder>
-
-# Open raw .att/.out files directly (requires trace-decoder build, see below)
-./rocprof-compute-viewer <dir_with_att_and_out_files>
-
-# With optional code.json and/or snapshots.json (auto-detected by filename)
-./rocprof-compute-viewer <dir> /path/to/code.json /path/to/snapshots.json
 ```
-
-The viewer auto-detects the input format:
-* **JSON directory**: A directory containing `filenames.json` (standard rocprofv3 output).
-* **ATT files**: A directory containing `.att` and `.out` files (parsed directly via rocprof-trace-decoder; requires a decoder-enabled build, see [Building with trace-decoder support](#building-with-trace-decoder-support)).
-* **rocpd**: A `.rocpd` file (in progress on the `gbaraldi/initial_rocpd_support` branch; same decoder dependency as ATT).
-
-Paths to `code.json` and `snapshots.json` are auto-detected by filename and can be passed in any order. They supply ISA disassembly and source file snapshot data respectively, and are useful when opening raw `.att/.out` files that don't have accompanying JSON metadata.
 
 For information on how to generate thread trace data, see the documentation on [using rocprofv3 to collect thread trace](https://rocm.docs.amd.com/projects/rocprofiler-sdk/en/latest/how-to/using-thread-trace.html). Also, see the [ROCprof Compute Viewer documentation](https://rocm.docs.amd.com/projects/rocprof-compute-viewer/en/latest/).
 
@@ -66,11 +62,9 @@ For rocprofv3 to generate thread trace data correctly, the following components 
   * ROCm 7.x, or
   * [Build from source](https://github.com/ROCm/rocm-systems/tree/develop/projects/rocprofiler-sdk)
 
-* ROCprof Trace Decoder (only required for `.att/.out` and `.rocpd` inputs; the JSON path needs nothing here):
-  * [Repository](https://github.com/ROCm/rocprof-trace-decoder)
-  * [Binary releases](https://github.com/ROCm/rocprof-trace-decoder/releases)
-  * Requires V2 API (SOVERSION 0.2, built with `VERSION_MINOR=2`).
-  * Disassembly backend: LLVM-C is the default — `amd_comgr` (and therefore a ROCm install) is no longer required. See [Building with trace-decoder support](#building-with-trace-decoder-support).
+* ROCprof Trace Decoder — used in two independent places:
+  * **By rocprofv3**, to turn captured thread trace into its JSON/UI output. Bundled with rocprofv3 since **ROCm 7.13**, so nothing extra is needed. On **ROCm < 7.13**, install it from [source](https://github.com/ROCm/rocm-systems/tree/develop/projects/rocprof-trace-decoder).
+  * **By RCV (optional)**, to open raw `.att`/`.out` directly without rocprofv3 — this is a separate, RCV-side link to the decoder. Requires V2 API (SOVERSION 0.2, built with `VERSION_MINOR=2`); the default disassembly backend is `amd_comgr`. See [Trace-decoder support](#trace-decoder-support).
 
 ## Using the ROCprof Compute Viewer
 
@@ -87,6 +81,7 @@ For rocprofv3 to generate thread trace data correctly, the following components 
 * Compute Unit and Utilization:
   * A/D for panning
   * Mousewheel for vertical scroll
+  * Shift + Mousewheel for horizontal scroll
   * Ctrl + Mousewheel for zoom in/out
   * Right click and drag for measuring cycles (also Global View)
 
@@ -115,22 +110,18 @@ If debug symbols are present, rocprofv3 snapshots the related source files, whic
 * Left click on a token highlights (in green) the ISA line corresponding to that instruction.
 * Hover or Click on an ISA line to highlight the corresponding source line. The opposite way is also possible.
   * Clicking on a source line permanently highlights the ISA lines until the user clicks on the same or another line.
+* Hidden latency analysis runs automatically for gfx10+ thread traces and can also be run from Analyze -> Hidden Latency. After it runs, the instruction latency dropdown can show Total latency or Nonhidden Latency, and source hotspots can optionally include or exclude hidden latency.
 
-### Wave States, Occupancy and Dispatches plots tab
+### Occupancy and Dispatches plots tab
 * Keys:
    * Plots can be zoomed in and out with mousewheel
    * Holding Left Ctrl zooms in and out on the vertical axis
    * Click and drag to select an area.
    * Right click and drag for panning.
    * Clicking on a token in the waveview (Trace) will add a blue marker to identify the cycle of that token.
-   * The wave states tab shows the number of active waves in each state (IDLE, EXEC, STALL, WAIT)
 * The Highlighted region shows what is visible from the "CU" and "Utilization" tabs.
 
-* Wave state tab:
-  * Essentially a vertical slice of the Compute Unit tab when looking at wave states.
-  * Only for the target_cu
-
-![Alt text](docs/data/wavestate.png)
+> **Note:** The standalone **Wave States** tab (a vertical slice of the Compute Unit view showing the number of active waves in each state: IDLE, EXEC, STALL, WAIT, for the `target_cu`) has been temporarily removed. Its functionality will eventually be absorbed into the **Counters** view. This does not affect the wave-state coloring within the Compute Unit view itself.
 
 * Occupancy tab shows occupancy per Shader Engine, in number of waves.
 
@@ -258,21 +249,16 @@ rocprofv3 --att-activity 10
 
 ![Alt text](docs/data/summary.png)
 
-### Explorer View
+### Flamegraph View
 
-The Explorer View provides a hierarchical file browser for all source files and profiling data included in your analysis session. It is located on the left side of the main window and allows you to:
+The Flamegraph View (which replaces the previous Explorer View) rolls up latency into a stack so you can quickly find the most expensive code paths.
 
-- **Browse the file structure** of the profiled application, including folders and files.
-- **Visualize hotspots directly in the tree:** Each file node displays a colored bar representing the total latency (hotspot) for that file, making it easy to identify performance-critical files at a glance.
-- **Click on any file** to display a detailed hotspot summary for that file in the right panel, the top lines by latency and their corresponding source code.
-- **Expand and collapse folders** to navigate large projects efficiently.
-
-The Explorer View is tightly integrated with the rest of the application:
-- Selecting a file automatically updates the Hotspot Summary and Source View.
-- The hotspot bars in the explorer are color-coded and scaled relative to the maximum latency in the dataset.
-- Only leaf nodes (files) display hotspot bars; folders do not show bars.
-
-This view helps you quickly locate and focus on the most performance-critical files in your application.
+- Frames are sized by accumulated latency cycles; wider frames cost more.
+- The stack is built per target CU/SIMD over the source and ISA, so you can drill from a source line down to the individual instructions.
+- Hover a frame to see its latency; click to zoom into that frame.
+- After hidden latency analysis runs, the flamegraph can be weighted by Total latency or Nonhidden Latency. Tooltips show the total, nonhidden and hidden cycle breakdown.
+- When the trace contains SQTT instrumentation markers, a separate global marker flamegraph is also available, rolling up time spent inside instrumented regions.
+- Marker flamegraphs can also use Total latency or Nonhidden Latency; see [Hidden Latency](#hidden-latency) for the marker limitation.
 
 ## Troubleshooting:
 
@@ -353,13 +339,18 @@ make -j
 
 ### Trace-decoder support
 
-Trace-decoder support lets RCV open directories of raw `.att` / `.out` files (and `.rocpd` files) directly, without needing rocprofv3 to convert them to JSON first.
+Trace-decoder support lets RCV open directories of raw `.att` / `.out` files (as extracted from rocprofiler-sdk thread-trace output) directly, without needing rocprofv3 to convert them to JSON first. This is RCV's own link to the decoder and is independent of the decoder that rocprofv3 uses internally (bundled since ROCm 7.13).
 
 It is **disabled by default** so a plain `cmake -B build` produces a JSON-only viewer with no extra dependencies. Opt in by either fetching the decoder automatically or pointing at a pre-built one.
 
-##### Prerequisites (only when enabling the decoder)
+##### Disassembly backend (optional)
 
-The decoder's disassembly backend uses LLVM. Install a system LLVM development package (with the AMDGPU target enabled — the standard distro builds qualify):
+A disassembly backend lets the decoder produce ISA for raw `.att`/`.out` inputs. It is **only needed if you want built-in disassembly** — if you instead supply `code.json` (see [Generating ISA/source correlation](#generating-isasource-correlation)), or only need the trace itself, you can build the decoder without one via `-DRCV_FETCH_TRACE_DECODER_WITH_DISASSEMBLY=OFF`.
+
+When a backend is enabled (the default), two are supported:
+
+* **amd_comgr** (default): comes from a ROCm install. Point CMake at it with `CMAKE_PREFIX_PATH` / `ROCM_PATH`; no separate LLVM package is required.
+* **LLVM-C**: a system LLVM development package (with the AMDGPU target — standard distro builds qualify). The RCV fetch path always uses amd_comgr, so this applies only to a pre-built decoder you configure yourself with `-DUSE_LLVM_DISASM=ON`. Install it with:
 
 ```bash
 # Ubuntu
@@ -376,9 +367,10 @@ On Windows, install a full LLVM dev package (e.g. via the official installer or 
 | Variable | Default | Effect |
 |---|---|---|
 | `RCV_FETCH_TRACE_DECODER` | `OFF` | When `ON`, fetch and build the trace decoder automatically at configure time. |
+| `RCV_FETCH_TRACE_DECODER_WITH_DISASSEMBLY` | `ON` | Build the fetched decoder with the amd_comgr disassembly backend. Set `OFF` to skip built-in disassembly (no ROCm needed). |
 | `TRACE_DECODER_ROOT` | *(unset)* | Use a **pre-built** decoder tree (build dir or install prefix) instead of fetching. Takes precedence over `RCV_FETCH_TRACE_DECODER`. |
 | `RCV_TRACE_DECODER_REPO` | rocm-systems upstream | Git URL to fetch from. |
-| `RCV_TRACE_DECODER_TAG` | tracked branch | Branch / tag / commit to check out. |
+| `RCV_TRACE_DECODER_TAG` | tracked branch | Branch / tag / commit to check out. Use `develop` for the latest decoder. |
 | `RCV_TRACE_DECODER_FETCH_DIR` | `${CMAKE_SOURCE_DIR}/external/rocm-systems` | Where to place the sparse checkout. Lives outside `build/` so a clean rebuild does not re-download the monorepo. |
 
 ##### Common configurations
@@ -390,6 +382,10 @@ cmake --build build -j
 
 # Fetch and build the decoder automatically.
 cmake -B build -DRCV_FETCH_TRACE_DECODER=ON
+cmake --build build -j
+
+# Fetch a specific decoder branch (e.g. the latest from develop).
+cmake -B build -DRCV_FETCH_TRACE_DECODER=ON -DRCV_TRACE_DECODER_TAG=develop
 cmake --build build -j
 
 # Use a pre-built decoder you maintain yourself.
@@ -420,3 +416,57 @@ To build on Windows, use QT Tools with QT-6.8+:
 ```bash
 cmake .. -DRCV_DISABLE_OPENGL=On
 ```
+
+## Viewing traces from the rocprofiler-sdk API
+
+rocprofv3 normally converts thread trace into a UI output directory (JSON). If instead you capture trace by calling the **rocprofiler-sdk API from your own application**, you get a directory of raw `.att`/`.out` files. RCV can open these directly — they are parsed via the trace decoder, so rocprofv3 doesn't need to convert them to JSON first. This requires a decoder-enabled build (see [Trace-decoder support](#trace-decoder-support)).
+
+### Loading raw `.att`/`.out`
+
+* **GUI**: **Menu -> Import -> ATT Trace Files...**, then select the `.att`/`.out` files.
+* **CLI**: pass the directory; the format is auto-detected.
+
+```bash
+# Open raw .att/.out files directly (requires trace-decoder build)
+./rocprof-compute-viewer <dir_with_att_and_out_files>
+
+# With optional code.json and/or snapshots.json (auto-detected by filename, any order)
+./rocprof-compute-viewer <dir_with_att_and_out_files> /path/to/code.json /path/to/snapshots.json
+```
+
+`code.json` and `snapshots.json` supply ISA disassembly and source-file snapshots respectively. rocprofv3 emits them automatically, but the SDK API does not — so generate them as described below.
+
+### Generating ISA/source correlation
+
+**When:** you captured the trace via the rocprofiler-sdk API, so the raw `.att`/`.out` output has the trace samples but no `code.json`/`snapshots.json`.
+
+**Why:** without this metadata the viewer can still draw the trace, but it cannot map SQTT tokens to ISA instructions or to source lines (the Instructions view and source pane stay empty). `scripts/generate_snapshot.py` recreates that correlation from the kernel code objects so the SDK-API workflow matches the CLI experience.
+
+**How:** point the script at the kernel ELF code objects (`.hsaco`, `.out`, or `.o`):
+
+```bash
+# Explicit code objects.
+python3 scripts/generate_snapshot.py kernel_code_object_id_1.out kernel_code_object_id_2.out
+
+# Or, with no arguments, every *.hsaco and *.out in the current directory.
+python3 scripts/generate_snapshot.py
+```
+
+It writes `code.json`, `snapshots.json`, and copies of the referenced source files into the current directory, which you then pass to the viewer as shown under [Loading raw `.att`/`.out`](#loading-raw-attout) above.
+
+Notes:
+* Each code object is tagged with the **code object id** the trace references, parsed from the trailing number in the filename (e.g. `..._code_object_id_1.out` → `1`, `codeobj_42.out` → `42`). Only `.hsaco` files may use id `0`; a `.out` without a parseable id, or an id that collides with another input, is skipped with a warning.
+* Build the code objects with debug info (`-g`) for source correlation; without it you still get ISA but no source mapping.
+* Requires `llvm-objdump` (from a ROCm/LLVM install or on `PATH`) and the `pyelftools` Python package (`pip install pyelftools`).
+
+## Hidden Latency
+
+Hidden latency runs automatically for gfx10+ thread traces. It can also be run manually from menu Analyze -> Hidden Latency.
+
+Hidden latency estimates cycles hidden by other busy pipes. A wave's idle or stalled cycles are hidden when another pipe is busy; issuing/executing cycles are hidden only by a higher-priority busy pipe.
+
+Current pipe priority is: WMMA > VALU > VMEM/LDS/FLAT > SMEM/SALU > Others. Others include IMMED, MSG, branches, and similar token types; they never hide latency. This priority order is a first approximation.
+
+Total latency includes hidden latency. Nonhidden Latency subtracts it. After analysis runs, the Instructions view, source hotspots, and Flamegraph view can display or weight by total or nonhidden latency.
+
+Marker flamegraphs have one limitation: nonhidden marker widths distribute hidden latency from per-ISA-line totals. If the same instruction line appears under multiple marker scopes, or hidden work crosses marker boundaries, marker-level nonhidden widths are approximate. Total-latency marker flamegraphs are unaffected.

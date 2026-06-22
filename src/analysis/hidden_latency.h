@@ -20,22 +20,36 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-#include "markerflamegraphwidget.h"
+#pragma once
 
-#include "flamegraph/layout.h"
-#include "flamegraph/stack_builder.h"
+#include <atomic>
+#include <cstdint>
+#include <map>
+#include <vector>
 
-MarkerFlameGraphWidget::MarkerFlameGraphWidget(QWidget* parent) : FlameGraphWidget(parent)
+class DataStore;
+
+namespace HiddenLatencyAnalysis
 {
-    setLatencyModeControlVisible(false);
-}
 
-void MarkerFlameGraphWidget::rebuild()
+struct HiddenLatency
 {
-    resetFrameState();
+    int64_t idle{0};
+    int64_t stall{0};
+    int64_t issue{0};
 
-    flamegraph::Roots roots = flamegraph::buildGlobalMarkerRoots();
-    if (roots.empty()) return;
+    HiddenLatency& operator+=(const HiddenLatency& other)
+    {
+        idle += other.idle;
+        stall += other.stall;
+        issue += other.issue;
+        return *this;
+    }
 
-    applyLayout(flamegraph::layoutFromRoots(roots));
-}
+    int64_t total() const { return idle + stall + issue; }
+};
+
+bool analyze(DataStore& store);
+void applyToAsm(const DataStore& store);
+
+} // namespace HiddenLatencyAnalysis

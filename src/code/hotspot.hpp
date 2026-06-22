@@ -24,19 +24,50 @@
 
 #include <QComboBox>
 #include <QWidget>
+#include <algorithm>
+#include <array>
+#include <cstdint>
 #include <optional>
+#include "analysis/hidden_latency.h"
 #include "util/custom_layouts.h"
 #include "util/highlight.h"
 
 struct Latency
 {
-    int64_t latency = 0;
-    int64_t stalled = 0;
+    int64_t latency = 0; // active execution time (issue + stall)
+    int64_t stalled = 0; // stalled sub-portion of `latency` (stalled <= latency)
+    int64_t idle = 0;    // gap/dead time between tokens; not part of `latency`. SQTT-only (pcs leaves it 0).
+
+    HiddenLatencyAnalysis::HiddenLatency hidden{};
+
+    // Total wall time attributable to the line. Idle can be excluded for views
+    // that need to show only active instruction latency.
+    int64_t total(bool include_idle = true) const { return latency + (include_idle ? idle : 0); }
+    int64_t hiddenTotal(bool include_idle = true) const
+    {
+        const int64_t active = std::max<int64_t>(0, latency);
+        const int64_t stall = std::clamp<int64_t>(stalled, 0, active);
+        const int64_t issue = active - stall;
+        const int64_t visibleIdle = include_idle ? std::max<int64_t>(0, idle) : 0;
+
+        const int64_t hiddenIdle = std::clamp<int64_t>(include_idle ? hidden.idle : 0, 0, visibleIdle);
+        const int64_t hiddenStall = std::clamp<int64_t>(hidden.stall, 0, stall);
+        const int64_t hiddenIssue = std::clamp<int64_t>(hidden.issue, 0, issue);
+        return hiddenIdle + hiddenStall + hiddenIssue;
+    }
+    int64_t nonHidden(bool include_idle = true) const { return total(include_idle) - hiddenTotal(include_idle); }
+    int64_t displayTotal(bool include_idle = true, bool include_hidden = true) const
+    {
+        return include_hidden ? total(include_idle) : nonHidden(include_idle);
+    }
+    void clearHidden() { hidden = {}; }
 
     Latency& operator+=(const Latency& other)
     {
         latency += other.latency;
         stalled += other.stalled;
+        idle += other.idle;
+        hidden += other.hidden;
         return *this;
     }
 };
@@ -84,13 +115,20 @@ public:
         return *this;
     }
 
-    int64_t combined() const { return sqtt.latency + pcs.latency; }
+    int64_t combined() const { return sqtt.total(show_idle_time) + pcs.latency; }
 
     static int GetHistogramWidth() { return HISTOGRAM_WIDTH; }
     static void SetHistogramWidth(int width);
 
     static bool is_pcs_enabled;
     static bool is_sqtt_enabled;
+    static bool show_idle_time;
+    static bool source_include_hidden_latency;
+
+    /// Walk ASMCodeline::line_vec and publish latency Annotation::Categories
+    /// ("inst_latency", "nonhidden_latency", "stall_reasons", "latency_stall") reflecting the
+    /// current hotspot data. Call once after Populate fills the hotspots.
+    static void PublishCategories(int64_t max_sqtt_latency, int64_t max_pcs_latency);
 
 private:
     static int HISTOGRAM_WIDTH;

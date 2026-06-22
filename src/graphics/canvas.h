@@ -55,10 +55,7 @@ public:
     {
         DrawArrows,
         DrawBranch,
-        DrawStall,
-        DrawReasons,
-        DrawStallAndReason,
-        MemoryLatency,
+        Annotation, ///< Generic per-line bar — category resolved from Canvas::active_annotation_id.
         DrawLast
     };
 
@@ -91,9 +88,8 @@ private:
     void handleHotspotHover(QMouseEvent* event);
     void setHoveredLine(int line_index);
     void paintArrows();
-    void paintStalls();
     void paintBranch();
-    void paintMemoryLatency();
+    void paintAnnotation();
 
     std::vector<arrow_t> branches{};
     std::vector<arrow_t> arrows{};
@@ -102,5 +98,8 @@ private:
 public:
     static std::vector<QColor> arrow_colors;
     static DrawType drawtype;
-    static double max_memory_latency;
+    /// id of the currently-selected Annotation::Category, or empty if none.
+    /// Resolved against the registry on each paint/hover; if the category was
+    /// removed, paintAnnotation/handleHotspotHover simply do nothing.
+    static std::string active_annotation_id;
 };

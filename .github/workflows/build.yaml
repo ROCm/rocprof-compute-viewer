@@ -24,11 +24,11 @@ jobs:
       fail-fast: false
       matrix:
         system: [
-          {name: 'windows-x86', runner: windows-2022, host: 'windows', arch: 'win64_msvc2022_64', cmake: '', cmd: ''},
-          {name: 'macos-x86', runner: macos-15-intel, host: 'mac', arch: 'clang_64', cmake: '-DCMAKE_OSX_ARCHITECTURES=x86_64 -DCMAKE_OSX_DEPLOYMENT_TARGET="12.7.3"', cmd: 'x86'},
-          {name: 'ubuntu-22-x86', runner: ubuntu-22.04, host: 'linux', arch: 'linux_gcc_64', cmake: '', cmd: ''},
-          {name: 'ubuntu-24-x86', runner: ubuntu-24.04, host: 'linux', arch: 'linux_gcc_64', cmake: '', cmd: ''},
-          {name: 'macos-arm64', runner: macos-14, host: 'mac', arch: 'clang_64', cmake: '-DCMAKE_OSX_ARCHITECTURES="arm64" -DCMAKE_OSX_DEPLOYMENT_TARGET="12.7.3"', cmd: 'arm64'}
+          {name: 'windows-x86', runner: windows-2022, host: 'windows', arch: 'win64_msvc2022_64', cmake: '-DRCV_FETCH_TRACE_DECODER=ON -DRCV_FETCH_TRACE_DECODER_WITH_DISASSEMBLY=ON', cmd: ''},
+          {name: 'macos-x86', runner: macos-15-intel, host: 'mac', arch: 'clang_64', cmake: '-DRCV_FETCH_TRACE_DECODER=ON -DRCV_FETCH_TRACE_DECODER_WITH_DISASSEMBLY=OFF -DCMAKE_OSX_ARCHITECTURES=x86_64 -DCMAKE_OSX_DEPLOYMENT_TARGET="12.7.3"', cmd: 'x86'},
+          {name: 'ubuntu-22-x86', runner: ubuntu-22.04, host: 'linux', arch: 'linux_gcc_64', cmake: '-DRCV_FETCH_TRACE_DECODER=ON -DRCV_FETCH_TRACE_DECODER_WITH_DISASSEMBLY=OFF', cmd: ''},
+          {name: 'ubuntu-24-x86', runner: ubuntu-24.04, host: 'linux', arch: 'linux_gcc_64', cmake: '-DRCV_FETCH_TRACE_DECODER=ON -DRCV_FETCH_TRACE_DECODER_WITH_DISASSEMBLY=OFF', cmd: ''},
+          {name: 'macos-arm64', runner: macos-14, host: 'mac', arch: 'clang_64', cmake: '-DRCV_FETCH_TRACE_DECODER=ON -DRCV_FETCH_TRACE_DECODER_WITH_DISASSEMBLY=OFF -DCMAKE_OSX_ARCHITECTURES="arm64" -DCMAKE_OSX_DEPLOYMENT_TARGET="12.7.3"', cmd: 'arm64'}
         ]
 
     runs-on: ${{ matrix.system.runner }}
@@ -45,10 +45,10 @@ jobs:
         sudo apt install -y cmake rpm libffi-dev libedit-dev libtinfo-dev zlib1g-dev
         sudo cat /etc/os-release
 
-    # Temporarily disabled in CI with `false && ...`; keep this COMGR setup for
-    # re-enabling trace-decoder/disassembly builds later.
+    # Windows decoder builds use amd_comgr from the ROCm SDK. Linux/macOS build
+    # the decoder with both COMGR and LLVM disassembly disabled.
     - name: Detect system ROCm COMGR
-      if: ${{ false && matrix.system.host != 'mac' }}
+      if: ${{ matrix.system.host == 'windows' }}
       id: system-comgr
       shell: bash
       run: |
@@ -89,7 +89,7 @@ jobs:
         echo "System ROCm COMGR not found; using CI wheel fallback"
 
     - name: Restore ROCm SDK COMGR cache
-      if: ${{ false && matrix.system.host != 'mac' && steps.system-comgr.outputs.found != 'true' }}
+      if: ${{ matrix.system.host == 'windows' && steps.system-comgr.outputs.found != 'true' }}
       id: rocm-sdk-cache
       uses: actions/cache/restore@v4
       with:
@@ -97,7 +97,7 @@ jobs:
         key: ${{ matrix.system.host }}-rocm-sdk-comgr-${{ env.ROCM_SDK_VERSION }}-v2
 
     - name: Install ROCm SDK COMGR
-      if: ${{ false && matrix.system.host != 'mac' && steps.system-comgr.outputs.found != 'true' && steps.rocm-sdk-cache.outputs.cache-hit != 'true' }}
+      if: ${{ matrix.system.host == 'windows' && steps.system-comgr.outputs.found != 'true' && steps.rocm-sdk-cache.outputs.cache-hit != 'true' }}
       timeout-minutes: 20
       shell: bash
       run: |
@@ -168,7 +168,7 @@ jobs:
         PY
 
     - name: Save ROCm SDK COMGR cache
-      if: ${{ false && matrix.system.host != 'mac' && steps.system-comgr.outputs.found != 'true' && steps.rocm-sdk-cache.outputs.cache-hit != 'true' }}
+      if: ${{ matrix.system.host == 'windows' && steps.system-comgr.outputs.found != 'true' && steps.rocm-sdk-cache.outputs.cache-hit != 'true' }}
       uses: actions/cache/save@v4
       continue-on-error: true
       with:
@@ -176,7 +176,7 @@ jobs:
         key: ${{ matrix.system.host }}-rocm-sdk-comgr-${{ env.ROCM_SDK_VERSION }}-v2
 
     - name: Export ROCm SDK path
-      if: ${{ false && matrix.system.host != 'mac' && steps.system-comgr.outputs.found != 'true' }}
+      if: ${{ matrix.system.host == 'windows' && steps.system-comgr.outputs.found != 'true' }}
       shell: bash
       run: |
         if command -v cygpath >/dev/null 2>&1; then
@@ -197,7 +197,7 @@ jobs:
         fi
 
     - name: Verify ROCm SDK COMGR
-      if: ${{ false && matrix.system.host != 'mac' }}
+      if: ${{ matrix.system.host == 'windows' }}
       shell: bash
       run: |
         echo "ROCM_PATH=${ROCM_PATH:-<unset>}"
@@ -247,9 +247,9 @@ jobs:
       timeout-minutes: 10
       run: cmake --build "${{github.workspace}}/build" --config "${{env.BUILD_TYPE}}" --parallel 16
 
-    # The tests project re-uses the decoder sub-build cached by the main
-    # configure (shared external/ checkout + reused build tree), so this is
-    # usually fast — but keep a generous budget for the cold path.
+    # The tests project reuses the decoder checkout created by the main
+    # configure, but keeps its own build tree. Keep a generous budget for the
+    # cold path.
     - name: Configure Tests
       if: ${{ matrix.system.host != 'mac' }}
       timeout-minutes: 30
@@ -259,7 +259,8 @@ jobs:
         if [ -n "${CMAKE_PREFIX_PATH:-}" ]; then CMAKE_PREFIX_PATH_ARG="-DCMAKE_PREFIX_PATH=$CMAKE_PREFIX_PATH"; fi
         cmake -S "${{github.workspace}}/tests" -B "${{github.workspace}}/build-tests" \
           -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} \
-          $CMAKE_PREFIX_PATH_ARG
+          $CMAKE_PREFIX_PATH_ARG \
+          ${{ matrix.system.cmake }}
 
     - name: Build Tests
       if: ${{ matrix.system.host != 'mac' }}
