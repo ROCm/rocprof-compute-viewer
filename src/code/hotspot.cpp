@@ -84,6 +84,32 @@ LatencySplit splitLatency(const Latency& latency, bool includeIdle)
     return split;
 }
 
+std::string formatPercent(int64_t value, int64_t total)
+{
+    const double percent = 100.0 * static_cast<double>(value) / static_cast<double>(total);
+    std::stringstream ss;
+    ss << std::fixed << std::setprecision(percent < 10.0 ? 1 : 0) << percent << "%";
+    return ss.str();
+}
+
+void appendPercentRow(std::ostream& out, const QColor& color, const std::string& label, int64_t value, int64_t total)
+{
+    out << "  <tr>\n"
+        << "    <td><font color='" << color.name().toStdString() << "'>&#9632;</font></td>\n"
+        << "    <td>" << label << ":</td>\n"
+        << "    <td align='right'>" << formatPercent(value, total) << "</td>\n"
+        << "  </tr>\n";
+}
+
+void appendValueRow(std::ostream& out, const std::string& label, int64_t value)
+{
+    out << "  <tr>\n"
+        << "    <td></td>\n"
+        << "    <td>" << label << ":</td>\n"
+        << "    <td align='right'>" << value << "</td>\n"
+        << "  </tr>\n";
+}
+
 } // namespace
 
 bool HorizontalHotspot::is_pcs_enabled = false;
@@ -226,48 +252,30 @@ void HorizontalHotspot::paint(
 
 std::string HorizontalHotspot::getTooltip() const
 {
-    // Build tooltip with all information from this line
     std::stringstream ss;
 
     const Latency& latency = is_pcs_enabled ? pcs : sqtt;
-
     const int64_t totalCycles = latency.total(show_idle_time);
 
     if (totalCycles > 0)
     {
         const LatencySplit split = splitLatency(latency, show_idle_time);
-        double total = static_cast<double>(totalCycles) / 100.0;
 
-        // Get colors as hex strings for HTML
-        QColor stallColor = Config::StallColor();
-        QColor issueColor = Config::IssueColor();
-        QColor idleColor = Config::TokenColors().at(0).qcolor;
-        QColor hidden = Config::HiddenLatencyColor();
-
-        // Use Unicode square character (■) with color styling - Qt rich text supports this
-        ss << "<table cellspacing='2'>";
+        ss << "<table cellspacing='2'>\n";
         if (split.hidden() > 0)
-            ss << "<tr><td><font color='" << hidden.name().toStdString() << "'>&#9632;</font></td>"
-               << "<td>Hidden:</td><td align='right'>" << std::fixed << std::setprecision(0) << split.hidden() / total
-               << "%</td></tr>";
-        ss << "<tr><td><font color='" << stallColor.name().toStdString() << "'>&#9632;</font></td>"
-           << "<td>Stall:</td><td align='right'>" << std::fixed << std::setprecision(0) << split.visibleStall / total
-           << "%</td></tr>";
-        ss << "<tr><td><font color='" << issueColor.name().toStdString() << "'>&#9632;</font></td>"
-           << "<td>Issue:</td><td align='right'>" << std::fixed << std::setprecision(0) << split.visibleIssue / total
-           << "%</td></tr>";
+            appendPercentRow(ss, Config::HiddenLatencyColor(), "Hidden", split.hidden(), totalCycles);
+        appendPercentRow(ss, Config::StallColor(), "Stall", split.visibleStall, totalCycles);
+        appendPercentRow(ss, Config::IssueColor(), "Issue", split.visibleIssue, totalCycles);
         if (show_idle_time && split.visibleIdle > 0)
-            ss << "<tr><td><font color='" << idleColor.name().toStdString() << "'>&#9632;</font></td>"
-               << "<td>Idle:</td><td align='right'>" << std::fixed << std::setprecision(0) << split.visibleIdle / total
-               << "%</td></tr>";
+            appendPercentRow(ss, Config::TokenColors().at(0).qcolor, "Idle", split.visibleIdle, totalCycles);
         if (split.hidden() > 0)
         {
-            ss << "<tr><td></td><td>Hidden idle:</td><td align='right'>" << split.hiddenIdle << "</td></tr>";
-            ss << "<tr><td></td><td>Hidden stall:</td><td align='right'>" << split.hiddenStall << "</td></tr>";
-            ss << "<tr><td></td><td>Hidden issue:</td><td align='right'>" << split.hiddenIssue << "</td></tr>";
+            appendValueRow(ss, "Hidden idle", split.hiddenIdle);
+            appendValueRow(ss, "Hidden stall", split.hiddenStall);
+            appendValueRow(ss, "Hidden issue", split.hiddenIssue);
         }
-        ss << "<tr><td></td><td>Total:</td><td align='right'>" << totalCycles << "</td></tr>";
-        ss << "</table>";
+        appendValueRow(ss, "Total", totalCycles);
+        ss << "</table>\n";
     }
 
     return ss.str();
@@ -431,23 +439,16 @@ std::string HorizontalHotspot::getStallTip() const
 
     if (total > 0)
     {
-        double totalNorm = static_cast<double>(total) / 100.0;
-
-        ss << "<br><b>Stall Reasons: " << total << "</b>";
-        ss << "<table cellspacing='2'>";
-        if (includeIdle)
-            ss << "<tr><td><font color='" << Config::TokenColors().at(0).qcolor.name().toStdString()
-               << "'>&#9632;</font></td>"
-               << "<td>Idle:</td><td align='right'>" << std::fixed << std::setprecision(0) << sqtt.idle / totalNorm
-               << "%</td></tr>";
+        ss << "<br>\n"
+           << "<b>Stall Reasons: " << total << "</b>\n"
+           << "<table cellspacing='2'>\n";
+        if (includeIdle) appendPercentRow(ss, Config::TokenColors().at(0).qcolor, "Idle", sqtt.idle, total);
         for (size_t i = 0; i < data.size() && i < colors.size(); i++)
         {
             if (data[i] == 0) continue;
-            ss << "<tr><td><font color='" << colors[i].qcolor.name().toStdString() << "'>&#9632;</font></td>"
-               << "<td>" << colors[i].name << ":</td><td align='right'>" << std::fixed << std::setprecision(0)
-               << data[i] / totalNorm << "%</td></tr>";
+            appendPercentRow(ss, colors[i].qcolor, colors[i].name, data[i], total);
         }
-        ss << "</table>";
+        ss << "</table>\n";
     }
 
     return ss.str();
