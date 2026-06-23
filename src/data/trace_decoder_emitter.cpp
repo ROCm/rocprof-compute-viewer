@@ -415,6 +415,7 @@ void TraceDecoderEmitter::preDisassembleKernels()
 
                 ISALine line;
                 line.text = inst->inst;
+                line.cppline = inst->comment;
                 line.memory_size = inst->size;
                 line.addr = addr;
                 line.codeobj_id = cobj_id;
@@ -504,6 +505,7 @@ rocprofiler_thread_trace_decoder_status_t TraceDecoderEmitter::isaCallback(
 
     ISALine line;
     line.text = inst_text;
+    line.cppline = inst->comment;
     line.memory_size = inst_mem_size;
     line.addr = address.address;
     line.codeobj_id = address.code_object_id;
@@ -706,7 +708,7 @@ void TraceDecoderEmitter::buildCodeFromISACache(const std::vector<CodeData>& cod
                     0,
                     0,
                     isa_line.text,
-                    "",
+                    isa_line.cppline,
                     std::vector<int64_t>()
                 ));
             }
