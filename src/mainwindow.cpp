@@ -27,6 +27,8 @@
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QFontDatabase>
+#include <QHBoxLayout>
+#include <QLabel>
 #include <QMessageBox>
 #include <QPainterPath>
 #include <QScrollArea>
@@ -75,6 +77,7 @@
 #include "summary/summaryview.h"
 #include "util/version.h"
 #include "wave/othersimd.h"
+#include "wave/overlay_utils.h"
 #include "wave/scroll.h"
 #include "wave/waveglobal.h"
 #include "wave/waveview.h"
@@ -1731,6 +1734,38 @@ void MainWindow::CreateGlobalView()
         global_view_widget = new QGlobalView(*data_store);
     else
         global_view_widget = new QGlobalView(GetUIDir() + "occupancy.json");
+
+    auto* eventFilter = new QWidget(this);
+    eventFilter->setMinimumWidth(0);
+    eventFilter->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
+    auto* eventFilterLayout = new QHBoxLayout(eventFilter);
+    eventFilterLayout->setContentsMargins(6, 2, 6, 2);
+    eventFilterLayout->setSpacing(10);
+    eventFilterLayout->addWidget(new QLabel("Event filter:", eventFilter));
+    auto addEventFilter = [&](const char* label, uint32_t group)
+    {
+        auto* checkbox = new QCheckBox(label, eventFilter);
+        checkbox->setChecked(global_view_widget->DecoderEventGroups() & group);
+        connect(
+            checkbox,
+            &QCheckBox::toggled,
+            this,
+            [this, group](bool checked)
+            {
+                uint32_t groups = global_view_widget->DecoderEventGroups();
+                global_view_widget->SetDecoderEventGroups(checked ? (groups | group) : (groups & ~group));
+            }
+        );
+        eventFilterLayout->addWidget(checkbox);
+    };
+    addEventFilter("Dispatches", WaveOverlay::DecoderEventGroupDispatch);
+    addEventFilter("Flush events", WaveOverlay::DecoderEventGroupFlush);
+    addEventFilter("Code object", WaveOverlay::DecoderEventGroupCodeObject);
+    addEventFilter("SQTT", WaveOverlay::DecoderEventGroupSQTT);
+    addEventFilter("GC Rinse", WaveOverlay::DecoderEventGroupGCRinse);
+    addEventFilter("Others", WaveOverlay::DecoderEventGroupOther);
+    eventFilterLayout->addStretch();
+    mainLayout->addWidget(eventFilter);
 
     // Load shaderdata from multiple threads before setting up the view
     // (shaderdata_manager is already loaded in ResetSelector, just pass to global view)

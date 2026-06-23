@@ -243,6 +243,10 @@ bool analyzeScoped(DataStore& store, int SE, int SIMD)
         QWARNING(false, "failed to analyze waves", return false);
     }
 
+    if (auto it = store.other_simd_by_se.find(SE); it != store.other_simd_by_se.end())
+        for (const auto& rec : it->second)
+            if (rec.cycles > 0) vmem.push_back({rec.time, rec.cycles});
+
     wmma = compute_util(wmma);
     valu = compute_util(valu);
     vmem = compute_util(vmem);

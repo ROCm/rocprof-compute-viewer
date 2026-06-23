@@ -23,6 +23,7 @@
 #pragma once
 
 #include <QWidget>
+#include <cstdint>
 #include <iostream>
 #include <memory>
 #include <unordered_set>
@@ -241,6 +242,7 @@ public:
 
     static int GetMip() { return mipmap_level; }
     static int SpinToMip(int spinValue) { return std::max(0, std::min(15 - spinValue, 15)); }
+    static uint32_t DecoderEventGroups() { return decoder_event_groups; }
 
     // Calculate new scroll position when zooming, keeping anchor_x at the same viewport position
     static int calcZoomScroll(int old_mip, int new_mip, int old_scroll, int anchor_viewport_x);
@@ -269,6 +271,7 @@ private:
     static int64_t begintime;
     static int mipmap_level;
     static int height_scale;
+    static uint32_t decoder_event_groups;
     std::vector<QOutsideWaveView*> views;
     QScrollArea* m_scrollArea = nullptr;
 
@@ -277,6 +280,7 @@ public:
     QLabelPanel* labelPanel = nullptr;   // External label panel for sticky labels
     void setScrollArea(QScrollArea* sa); // Connect to scroll area for sync
     void populateLabelPanel();           // Fill labelPanel with label data
+    void SetDecoderEventGroups(uint32_t groups);
 
     /// Distribute pre-loaded shaderdata records to matching wave views.
     void SetShaderData(const ShaderDataManager& manager);
