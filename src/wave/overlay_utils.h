@@ -41,10 +41,12 @@ inline constexpr uint32_t DecoderEventGroupDispatch = 1u << 0;
 inline constexpr uint32_t DecoderEventGroupFlush = 1u << 1;
 inline constexpr uint32_t DecoderEventGroupCodeObject = 1u << 2;
 inline constexpr uint32_t DecoderEventGroupSQTT = 1u << 3;
-inline constexpr uint32_t DecoderEventGroupOther = 1u << 4;
+inline constexpr uint32_t DecoderEventGroupGCRinse = 1u << 4;
+inline constexpr uint32_t DecoderEventGroupOther = 1u << 5;
 inline constexpr uint32_t DecoderEventAllGroups = DecoderEventGroupDispatch | DecoderEventGroupFlush |
                                                   DecoderEventGroupCodeObject | DecoderEventGroupSQTT |
-                                                  DecoderEventGroupOther;
+                                                  DecoderEventGroupGCRinse | DecoderEventGroupOther;
+inline constexpr uint32_t DecoderEventDefaultGlobalGroups = DecoderEventAllGroups & ~DecoderEventGroupGCRinse;
 
 enum class DecoderEventSurface
 {
@@ -56,7 +58,7 @@ inline uint32_t traceEventGroup(int type)
 {
     switch (type)
     {
-        case ROCPROF_TRACE_DECODER_EVENT_GC_RINSE:
+        case ROCPROF_TRACE_DECODER_EVENT_GC_RINSE: return DecoderEventGroupGCRinse;
         case ROCPROF_TRACE_DECODER_EVENT_CS_PARTIAL_FLUSH:
         case ROCPROF_TRACE_DECODER_EVENT_CACHE_FLUSH:
         case ROCPROF_TRACE_DECODER_EVENT_BOTTOM_OF_PIPE_TS: return DecoderEventGroupFlush;
@@ -123,7 +125,9 @@ template <typename Record> int findRecordIndexAt(
     const std::vector<Record>* records, int64_t clock, int64_t tolerance, bool prefer_later_on_tie = false
 )
 {
-    return findRecordIndexAtIf(records, clock, tolerance, [](const Record&) { return true; }, prefer_later_on_tie);
+    return findRecordIndexAtIf(
+        records, clock, tolerance, [](const Record&) { return true; }, prefer_later_on_tie
+    );
 }
 
 template <typename Record> const Record* findRecordAt(

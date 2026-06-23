@@ -44,7 +44,7 @@ int64_t QGlobalView::begintime = 0;
 int64_t QGlobalView::maxtime = 0;
 int QGlobalView::mipmap_level = 10;
 int QGlobalView::height_scale = 4;
-uint32_t QGlobalView::decoder_event_groups = WaveOverlay::DecoderEventAllGroups;
+uint32_t QGlobalView::decoder_event_groups = WaveOverlay::DecoderEventDefaultGlobalGroups;
 
 // Column positions for SE|SA|CU|SM labels
 static constexpr int COL_SE = 3;

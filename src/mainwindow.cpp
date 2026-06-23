@@ -28,6 +28,7 @@
 #include <QFileInfo>
 #include <QFontDatabase>
 #include <QHBoxLayout>
+#include <QLabel>
 #include <QMessageBox>
 #include <QPainterPath>
 #include <QScrollArea>
@@ -1735,9 +1736,12 @@ void MainWindow::CreateGlobalView()
         global_view_widget = new QGlobalView(GetUIDir() + "occupancy.json");
 
     auto* eventFilter = new QWidget(this);
+    eventFilter->setMinimumWidth(0);
+    eventFilter->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
     auto* eventFilterLayout = new QHBoxLayout(eventFilter);
     eventFilterLayout->setContentsMargins(6, 2, 6, 2);
     eventFilterLayout->setSpacing(10);
+    eventFilterLayout->addWidget(new QLabel("Event filter:", eventFilter));
     auto addEventFilter = [&](const char* label, uint32_t group)
     {
         auto* checkbox = new QCheckBox(label, eventFilter);
@@ -1758,6 +1762,7 @@ void MainWindow::CreateGlobalView()
     addEventFilter("Flush events", WaveOverlay::DecoderEventGroupFlush);
     addEventFilter("Code object", WaveOverlay::DecoderEventGroupCodeObject);
     addEventFilter("SQTT", WaveOverlay::DecoderEventGroupSQTT);
+    addEventFilter("GC Rinse", WaveOverlay::DecoderEventGroupGCRinse);
     addEventFilter("Others", WaveOverlay::DecoderEventGroupOther);
     eventFilterLayout->addStretch();
     mainLayout->addWidget(eventFilter);
