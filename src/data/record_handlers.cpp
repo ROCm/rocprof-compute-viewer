@@ -50,6 +50,7 @@ void OccupancyHandler::onOccupancy(int se, const occupancy_record_t& rec) { stor
 
 void OccupancyHandler::onParsingComplete()
 {
+    auto by_time = [](const auto& a, const auto& b) { return a.time < b.time; };
     for (auto& [se, records] : store.occupancy_by_se)
         std::sort(
             records.begin(),
@@ -60,6 +61,8 @@ void OccupancyHandler::onParsingComplete()
                 return a.start < b.start;
             }
         );
+    for (auto& [se, records] : store.trace_events_by_se) std::stable_sort(records.begin(), records.end(), by_time);
+    for (auto& [se, records] : store.dispatch_records_by_se) std::stable_sort(records.begin(), records.end(), by_time);
 }
 
 void OccupancyHandler::onTraceEvent(int se, const trace_event_record_t& rec)

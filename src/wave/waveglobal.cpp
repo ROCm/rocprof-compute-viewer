@@ -44,6 +44,7 @@ int64_t QGlobalView::begintime = 0;
 int64_t QGlobalView::maxtime = 0;
 int QGlobalView::mipmap_level = 10;
 int QGlobalView::height_scale = 4;
+uint32_t QGlobalView::decoder_event_groups = WaveOverlay::DecoderEventAllGroups;
 
 // Column positions for SE|SA|CU|SM labels
 static constexpr int COL_SE = 3;
@@ -536,12 +537,7 @@ QGlobalView::QGlobalView(DataStore& store)
     for (const auto& [se, records] : store.trace_events_by_se)
     {
         auto sorted = std::make_shared<std::vector<trace_event_record_t>>();
-        sorted->reserve(records.size());
-        for (const auto& record : records)
-        {
-            if (WaveOverlay::showTraceEvent(record, WaveOverlay::DecoderEventSurface::Global))
-                sorted->push_back(record);
-        }
+        *sorted = records;
         std::sort(
             sorted->begin(),
             sorted->end(),
@@ -673,6 +669,12 @@ void QGlobalView::populateLabelPanel()
     // MainWindow), the extra-height info on each view is already known but
     // wasn't applied because rows didn't exist yet. Re-sync now.
     syncLabelPanelExtraHeights();
+}
+
+void QGlobalView::SetDecoderEventGroups(uint32_t groups)
+{
+    decoder_event_groups = groups;
+    for (auto* view : views) view->update();
 }
 
 void QGlobalView::paintEvent(QPaintEvent* event)
@@ -955,18 +957,30 @@ void QOutsideWaveView::DrawDecoderEvents(QPainter& painter, const QRect& area)
         visible_clock_start,
         visible_clock_end,
         row_h,
-        [](int64_t time) { return QGlobalView::ClockToPos(time); }
+        [](int64_t time) { return QGlobalView::ClockToPos(time); },
+        QGlobalView::DecoderEventGroups()
     );
 }
 
 int QOutsideWaveView::FindTraceEventAt(int64_t clock_pos) const
 {
     const int64_t tol = std::max<int64_t>(QGlobalView::Delta() * 4, 4);
-    return WaveOverlay::findRecordIndexAt(trace_events.get(), clock_pos, tol);
+    return WaveOverlay::findRecordIndexAtIf(
+        trace_events.get(),
+        clock_pos,
+        tol,
+        [](const trace_event_record_t& event)
+        {
+            return WaveOverlay::showTraceEvent(
+                event, WaveOverlay::DecoderEventSurface::Global, QGlobalView::DecoderEventGroups()
+            );
+        }
+    );
 }
 
 int QOutsideWaveView::FindDispatchAt(int64_t clock_pos) const
 {
+    if ((QGlobalView::DecoderEventGroups() & WaveOverlay::DecoderEventGroupDispatch) == 0) return -1;
     const int64_t tol = std::max<int64_t>(QGlobalView::Delta() * 4, 4);
     return WaveOverlay::findRecordIndexAt(dispatch_records.get(), clock_pos, tol);
 }
@@ -1042,13 +1056,23 @@ void QOutsideWaveView::paintEvent(QPaintEvent* event)
     QPainter painter(this);
     painter.setRenderHint(QPainter::Antialiasing);
 
+    const QRect area = event->rect();
+    const int64_t visible_clock_start = QGlobalView::PosToClock(area.left());
+    const int64_t visible_clock_end = QGlobalView::PosToClock(area.right());
     int64_t leftover = 0;
     int64_t end_clock = 0;
-    for (auto& wave : waves)
+    auto it = std::lower_bound(
+        waves.begin(),
+        waves.end(),
+        visible_clock_start,
+        [](const WaveTraceData& wave, int64_t clock) { return wave.end < clock; }
+    );
+    for (; it != waves.end() && it->begin <= visible_clock_end; ++it)
     {
+        const auto& wave = *it;
         if (end_clock + QGlobalView::Delta() < wave.begin) leftover = 0;
 
-        leftover = this->DrawWave(painter, wave.begin - leftover, wave, event->rect());
+        leftover = this->DrawWave(painter, wave.begin - leftover, wave, area);
 
         if (leftover == 0) end_clock = wave.end;
     }
@@ -1175,12 +1199,18 @@ void QOutsideWaveView::mouseMoveEvent(QMouseEvent* event)
         return;
     }
 
-    int index = 0;
-    while (index < waves.size() && waves[index].end < clock_pos) index++;
+    auto wave_it = std::upper_bound(
+        waves.begin(),
+        waves.end(),
+        clock_pos,
+        [](int64_t clock, const WaveTraceData& wave) { return clock < wave.begin; }
+    );
+    if (wave_it == waves.begin()) return;
+    --wave_it;
+    if (wave_it->end < clock_pos) return;
 
-    if (index >= waves.size() || waves[index].begin > clock_pos) return;
-
-    const auto& wave = waves[index];
+    const int index = static_cast<int>(wave_it - waves.begin());
+    const auto& wave = *wave_it;
     std::stringstream tooltip;
     tooltip << "SE:" << se << "  SA:" << sa << "  CU:" << cu << "  SIMD:" << simd << "  SLOT:" << slot
             << "  ID:" << index << "\nBegin: " << wave.begin << "  End: " << wave.end
