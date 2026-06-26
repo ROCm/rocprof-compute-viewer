@@ -558,6 +558,7 @@ void MainWindow::SetMainWave(int se, int simd, int sl, int wid)
     }
 
     UpdateWaveViewRange();
+    ScrollViewsTo(main_wave->wave_begin);
     force_gather = false;
 
     if (thread_wait.valid()) thread_wait.get();
@@ -1044,19 +1045,18 @@ MainWindow::LoadResult MainWindow::LoadInputImpl(InputInfo input_info, const std
             {
                 TraceDecoderEmitter emitter(input_info, dispatcher, *data_store);
                 emitter.run();
-                // Surface decoder parse errors to the user. These are .att files
-                // that the decoder failed to parse — without this popup the only
-                // signal was a stderr line they'd never see.
+                // Surface decoder issues that otherwise only appeared on stderr.
                 const auto& errs = emitter.parseErrors();
                 if (!errs.empty())
                 {
                     QString details;
-                    for (const auto& e : errs) details += QString::fromStdString(e) + "\n";
+                    for (const auto& msg : errs) details += QString::fromStdString(msg) + "\n";
+                    load_result.message = details.trimmed();
                     if (show_dialogs)
                         QMessageBox::warning(
                             this,
-                            "Trace decoder parse errors",
-                            QString("%1 .att file(s) failed to parse:\n\n%2").arg(errs.size()).arg(details)
+                            "Trace decoder issues",
+                            QString("%1 decoder issue(s) were reported:\n\n%2").arg(errs.size()).arg(details.trimmed())
                         );
                 }
                 break;

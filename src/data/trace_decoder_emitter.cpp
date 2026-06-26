@@ -133,6 +133,12 @@ TraceDecoderEmitter::~TraceDecoderEmitter()
     if (decoder_handle.handle != 0) rocprof_trace_decoder_destroy_handle(decoder_handle);
 }
 
+void TraceDecoderEmitter::addParseError(const std::string& message)
+{
+    std::lock_guard<std::mutex> lock(parse_errors_mutex);
+    parse_errors.push_back(message);
+}
+
 void TraceDecoderEmitter::run()
 {
     if (decoder_handle.handle == 0) return;
@@ -291,6 +297,7 @@ uint64_t parseCodeobjIdFromPath(const std::string& path)
         return 0;
     }
 }
+
 } // namespace
 
 bool TraceDecoderEmitter::loadCodeObjectFile(const std::string& path, uint64_t code_object_id)
@@ -330,11 +337,21 @@ void TraceDecoderEmitter::loadCodeObjects()
     // expensive per-PC COMGR disassembly stays lazy via codeobj_map.get() inside
     // isaCallback.
     std::unordered_set<std::string> seen;
+    std::map<uint64_t, std::string> loaded_ids;
     auto load = [&](const std::string& out_path)
     {
         if (!seen.insert(out_path).second) return;
         uint64_t id = parseCodeobjIdFromPath(out_path);
-        loadCodeObjectFile(out_path, id);
+        auto id_it = loaded_ids.find(id);
+        if (id_it != loaded_ids.end())
+        {
+            std::ostringstream oss;
+            oss << "Code object ID conflict: " << id_it->second << " and " << out_path << " both use ID " << id
+                << ". Skipping " << out_path << ".";
+            addParseError(oss.str());
+            return;
+        }
+        if (loadCodeObjectFile(out_path, id)) loaded_ids.emplace(id, out_path);
     };
 
     for (const auto& out_path : info.out_files) load(out_path);
@@ -835,7 +852,7 @@ void TraceDecoderEmitter::parseATTFiles()
 
     // Parse all SEs with bounded parallelism
     std::vector<std::thread> threads;
-    std::counting_semaphore<12> semaphore(12);
+    std::counting_semaphore<8> semaphore(8);
 
     for (auto& se_file : se_files)
     {
@@ -843,9 +860,7 @@ void TraceDecoderEmitter::parseATTFiles()
         const auto raw_file_size = fs::file_size(se_file.path, ec);
         if (ec)
         {
-            std::cerr << "Warning: Cannot stat ATT file: " << se_file.path << ": " << ec.message() << std::endl;
-            std::lock_guard<std::mutex> lock(parse_errors_mutex);
-            parse_errors.push_back("SE" + std::to_string(se_file.se) + " (" + se_file.path + "): " + ec.message());
+            addParseError("SE" + std::to_string(se_file.se) + " (" + se_file.path + "): " + ec.message());
             continue;
         }
         const auto file_size =
@@ -865,7 +880,9 @@ void TraceDecoderEmitter::parseATTFiles()
                 std::ifstream file(path, std::ios::binary);
                 if (!file.is_open())
                 {
-                    std::cerr << "Warning: Cannot open ATT file: " << path << std::endl;
+                    std::string msg = "SE" + std::to_string(se) + " (" + path + "): cannot open ATT file";
+                    std::cerr << "Warning: " << msg << std::endl;
+                    addParseError(msg);
                     inflight_bytes -= file_size;
                     semaphore.release();
                     return;
@@ -888,12 +905,9 @@ void TraceDecoderEmitter::parseATTFiles()
 
                 if (status != ROCPROFILER_THREAD_TRACE_DECODER_STATUS_SUCCESS)
                 {
-                    std::cerr << "Warning: Failed to parse SE" << se << " (" << path
-                              << "): " << rocprof_trace_decoder_get_status_string(status) << std::endl;
                     std::ostringstream oss;
                     oss << "SE" << se << " (" << path << "): " << rocprof_trace_decoder_get_status_string(status);
-                    std::lock_guard<std::mutex> lock(parse_errors_mutex);
-                    parse_errors.push_back(oss.str());
+                    addParseError(oss.str());
                 }
 
                 // Free the buffer immediately
