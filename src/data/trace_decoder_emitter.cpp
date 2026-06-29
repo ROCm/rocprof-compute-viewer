@@ -1020,6 +1020,22 @@ rocprofiler_thread_trace_decoder_status_t TraceDecoderEmitter::traceCallback(
                 const char* desc = rocprof_trace_decoder_get_info_string(infos[i]);
                 std::cerr << "[trace_decoder][se=" << ctx->se << "] INFO " << static_cast<int>(infos[i]) << ": "
                           << (desc ? desc : "(null)") << '\n';
+                const char* user_visible_name = nullptr;
+                switch (infos[i])
+                {
+                    case ROCPROFILER_THREAD_TRACE_DECODER_INFO_DATA_LOST: user_visible_name = "PACKET_LOST"; break;
+                    case ROCPROFILER_THREAD_TRACE_DECODER_INFO_STITCH_INCOMPLETE:
+                        user_visible_name = "STITCH_INCOMPLETE";
+                        break;
+                    default: break;
+                }
+                if (user_visible_name)
+                {
+                    std::ostringstream oss;
+                    oss << "SE" << ctx->se << ": " << user_visible_name;
+                    if (desc) oss << ": " << desc;
+                    ctx->emitter->addParseError(oss.str());
+                }
             }
             break;
         }
