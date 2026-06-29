@@ -87,28 +87,16 @@ jobs:
         set -euo pipefail
         candidates=()
         if [ -n "${ROCM_PATH:-}" ]; then candidates+=("$ROCM_PATH"); fi
-        if [ "${{ matrix.system.host }}" = "linux" ]; then candidates+=("/opt/rocm"); fi
 
         for rocm_root in "${candidates[@]}"; do
           if [ ! -d "$rocm_root" ] || [ ! -f "$rocm_root/include/amd_comgr/amd_comgr.h" ]; then
             continue
           fi
 
-          if [ "${{ matrix.system.host }}" = "windows" ]; then
-            if [ ! -f "$rocm_root/lib/amd_comgr.lib" ] || [ ! -f "$rocm_root/bin/amd_comgr.dll" ]; then
-              continue
-            fi
-            echo "$(cygpath -w "$rocm_root/bin")" >> "$GITHUB_PATH"
-          elif [ ! -f "$rocm_root/lib/libamd_comgr.so" ]; then
+          if [ ! -f "$rocm_root/lib/amd_comgr.lib" ] || [ ! -f "$rocm_root/bin/amd_comgr.dll" ]; then
             continue
-          else
-            rocm_llvm_lib="$rocm_root/lib/llvm/lib"
-            rocm_sysdeps_lib="$rocm_root/lib/rocm_sysdeps/lib"
-            if [ -d "$rocm_llvm_lib" ] && [ -d "$rocm_sysdeps_lib" ]; then
-              echo "LD_LIBRARY_PATH=$rocm_root/lib:$rocm_llvm_lib:$rocm_sysdeps_lib:${LD_LIBRARY_PATH:-}" >> "$GITHUB_ENV"
-              echo "LDFLAGS=-Wl,-rpath-link,$rocm_llvm_lib -Wl,-rpath-link,$rocm_sysdeps_lib ${LDFLAGS:-}" >> "$GITHUB_ENV"
-            fi
           fi
+          echo "$(cygpath -w "$rocm_root/bin")" >> "$GITHUB_PATH"
 
           echo "found=true" >> "$GITHUB_OUTPUT"
           echo "ROCM_PATH=$rocm_root" >> "$GITHUB_ENV"
@@ -134,13 +122,8 @@ jobs:
       shell: bash
       run: |
         set -euo pipefail
-        if command -v cygpath >/dev/null 2>&1; then
-          temp_root="$(cygpath -u "${RUNNER_TEMP}")"
-          wheel_platform="win_amd64"
-        else
-          temp_root="${RUNNER_TEMP}"
-          wheel_platform="linux_x86_64"
-        fi
+        temp_root="$(cygpath -u "${RUNNER_TEMP}")"
+        wheel_platform="win_amd64"
 
         install_root="$temp_root/rocm-sdk-comgr"
         wheel="$temp_root/rocm_sdk_core-${ROCM_SDK_VERSION}-py3-none-${wheel_platform}.whl"
@@ -151,7 +134,6 @@ jobs:
         curl -L --fail --retry 3 --retry-delay 10 "$wheel_url" -o "$wheel"
 
         python - "$wheel" "$install_root" <<'PY'
-        import shutil
         import sys
         import zipfile
         from pathlib import Path
@@ -160,11 +142,6 @@ jobs:
             return (
                 member_name == "_rocm_sdk_core/bin/amd_comgr.dll"
                 or member_name == "_rocm_sdk_core/lib/amd_comgr.lib"
-                or member_name.startswith("_rocm_sdk_core/lib/libamd_comgr.so")
-                or member_name.startswith("_rocm_sdk_core/lib/llvm/lib/libLLVM.so")
-                or member_name.startswith("_rocm_sdk_core/lib/llvm/lib/libclang-cpp.so")
-                or member_name.startswith("_rocm_sdk_core/lib/rocm_sysdeps/lib/librocm_sysdeps_z.so")
-                or member_name.startswith("_rocm_sdk_core/lib/rocm_sysdeps/lib/librocm_sysdeps_zstd.so")
                 or member_name.startswith("_rocm_sdk_core/include/amd_comgr/")
                 or member_name.startswith("_rocm_sdk_core/share/doc/amd_comgr/")
             )
@@ -186,17 +163,6 @@ jobs:
                 else:
                     target.parent.mkdir(parents=True, exist_ok=True)
                     target.write_bytes(zf.read(member))
-
-        # The Linux wheel ships only the versioned SONAME. Add the unversioned
-        # linker name so CMake's find_library(NAMES amd_comgr) can find it.
-        lib_dir = install_root / "_rocm_sdk_core" / "lib"
-        linker_so = lib_dir / "libamd_comgr.so"
-        versioned_sos = sorted(lib_dir.glob("libamd_comgr.so.*"))
-        if versioned_sos and not linker_so.exists():
-            try:
-                linker_so.symlink_to(versioned_sos[-1].name)
-            except (NotImplementedError, OSError):
-                shutil.copy2(versioned_sos[-1], linker_so)
         PY
 
     - name: Save ROCm SDK COMGR cache
@@ -211,22 +177,12 @@ jobs:
       if: ${{ matrix.system.host == 'windows' && steps.system-comgr.outputs.found != 'true' }}
       shell: bash
       run: |
-        if command -v cygpath >/dev/null 2>&1; then
-          rocm_root="$(cygpath -u "${RUNNER_TEMP}")/rocm-sdk-comgr/_rocm_sdk_core"
-          echo "$(cygpath -w "$rocm_root/bin")" >> "$GITHUB_PATH"
-        else
-          rocm_root="${RUNNER_TEMP}/rocm-sdk-comgr/_rocm_sdk_core"
-        fi
+        rocm_root="$(cygpath -u "${RUNNER_TEMP}")/rocm-sdk-comgr/_rocm_sdk_core"
+        echo "$(cygpath -w "$rocm_root/bin")" >> "$GITHUB_PATH"
 
         echo "ROCM_PATH=$rocm_root" >> "$GITHUB_ENV"
         echo "CMAKE_PREFIX_PATH=$rocm_root" >> "$GITHUB_ENV"
         echo "Using ROCm SDK at $rocm_root"
-        if [ "${{ matrix.system.host }}" = "linux" ]; then
-          rocm_llvm_lib="$rocm_root/lib/llvm/lib"
-          rocm_sysdeps_lib="$rocm_root/lib/rocm_sysdeps/lib"
-          echo "LD_LIBRARY_PATH=$rocm_root/lib:$rocm_llvm_lib:$rocm_sysdeps_lib:${LD_LIBRARY_PATH:-}" >> "$GITHUB_ENV"
-          echo "LDFLAGS=-Wl,-rpath-link,$rocm_llvm_lib -Wl,-rpath-link,$rocm_sysdeps_lib ${LDFLAGS:-}" >> "$GITHUB_ENV"
-        fi
 
     - name: Verify ROCm SDK COMGR
       if: ${{ matrix.system.host == 'windows' }}
@@ -238,16 +194,8 @@ jobs:
           exit 1
         fi
         test -f "$ROCM_PATH/include/amd_comgr/amd_comgr.h"
-        if [ "${{ matrix.system.host }}" = "windows" ]; then
-          test -f "$ROCM_PATH/lib/amd_comgr.lib"
-          test -f "$ROCM_PATH/bin/amd_comgr.dll"
-        else
-          test -f "$ROCM_PATH/lib/libamd_comgr.so" || test -f "$ROCM_PATH/lib/libamd_comgr.so.3"
-          compgen -G "$ROCM_PATH/lib/llvm/lib/libLLVM.so*" > /dev/null
-          compgen -G "$ROCM_PATH/lib/llvm/lib/libclang-cpp.so*" > /dev/null
-          compgen -G "$ROCM_PATH/lib/rocm_sysdeps/lib/librocm_sysdeps_z.so*" > /dev/null
-          compgen -G "$ROCM_PATH/lib/rocm_sysdeps/lib/librocm_sysdeps_zstd.so*" > /dev/null
-        fi
+        test -f "$ROCM_PATH/lib/amd_comgr.lib"
+        test -f "$ROCM_PATH/bin/amd_comgr.dll"
         echo "Verified amd_comgr in $ROCM_PATH"
 
     - name: Install Qt
@@ -267,13 +215,15 @@ jobs:
       timeout-minutes: 45
       shell: bash
       run: |
-        CMAKE_PREFIX_PATH_ARG=""
-        if [ -n "${CMAKE_PREFIX_PATH:-}" ]; then CMAKE_PREFIX_PATH_ARG="-DCMAKE_PREFIX_PATH=$CMAKE_PREFIX_PATH"; fi
-        cmake -B "${{github.workspace}}/build" \
-          -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} \
-          -DBUILD_LOCATION="${{github.workspace}}/build" \
-          $CMAKE_PREFIX_PATH_ARG \
-          ${{ matrix.system.cmake }}
+        cmake_args=(
+          "-DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}}"
+          "-DBUILD_LOCATION=${{github.workspace}}/build"
+        )
+        if [ -n "${CMAKE_PREFIX_PATH:-}" ]; then
+          cmake_args+=("-DCMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}")
+        fi
+        cmake_args+=(${{ matrix.system.cmake }})
+        cmake -B "${{github.workspace}}/build" "${cmake_args[@]}"
 
     - name: Build
       timeout-minutes: 10
