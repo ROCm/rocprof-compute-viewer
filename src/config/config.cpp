@@ -239,28 +239,28 @@ const QColor& MarkerUnknownColor()
 }
 const QColor& DecoderEventCsPartialFlushColor()
 {
-    static QColor dark(255, 0, 0, 210);
+    static QColor dark(255, 0, 0, 144);
     return dark;
 }
 const QColor& DecoderEventDefaultColor()
 {
-    static QColor dark(66, 165, 245, 191);
-    static QColor light(66, 165, 245, 191);
+    static QColor dark(66, 165, 245, 144);
+    static QColor light(66, 165, 245, 144);
     return bDarkTheme ? dark : light;
 }
 const QColor& DecoderEventPacketLossColor()
 {
-    static QColor dark(255, 0, 0, 191);
+    static QColor dark(255, 0, 0, 144);
     return dark;
 }
 const QColor& DecoderEventStallColor()
 {
-    static QColor dark(255, 160, 0, 95);
+    static QColor dark(255, 160, 0, 144);
     return dark;
 }
 const QColor& DecoderEventCodeObjectColor()
 {
-    static QColor dark(255, 255, 0, 224);
+    static QColor dark(255, 255, 0, 144);
     return dark;
 }
 const QColor& DecoderEventMiscColor()
