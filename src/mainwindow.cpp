@@ -95,11 +95,7 @@ namespace fs = std::filesystem;
 #    include <QDesktopWidget>
 #endif
 
-// Maximum number of instructions to load into Compute Unit / Utilization views at once.
-// When all wave data is in memory (decoder path), GatherWaves will expand the clock
-// window to show more waves, up to this budget. Tokens are ~24 bytes each and are
-// duplicated across the WaveInstance cache and the Utilization view (~3x multiplier).
-constexpr size_t GATHER_INSTRUCTION_BUDGET = 50'000'000;
+constexpr uintmax_t WAVE_LOAD_BUDGET_BYTES = 200 * 1024 * 1024;
 
 std::vector<QColor> MainWindow::dispatchcolors = {
     {0,   255, 0  },
@@ -526,31 +522,22 @@ void MainWindow::SetMainWave(int se, int simd, int sl, int wid)
     ui->wview_range_min->setText(std::to_string(main_wave->wave_begin).c_str());
     ui->wview_range_max->setText(std::to_string(main_wave->wave_end + WAVE_END_ROOM).c_str());
 
-    // Hidden-latency traces already require all waves, so use the full selected SE
-    // for Compute Unit, Utilization and Hotspot too.
-    const bool load_all_waves = shouldAutoAnalyzeHiddenLatency();
-    if (load_all_waves || !data_store->wave_records.empty())
+    // Use the full selected SE only when the load-time wave-file budget gate allows it.
+    const bool load_all_waves = full_wave_load_allowed.value_or(false);
+    if (load_all_waves)
     {
         int64_t se_min = INT64_MAX, se_max = INT64_MIN;
-        size_t total_instructions = 0;
 
         data_store->forEachWave(
             [&](const DataStore::WaveCoordinate& coord, const WaveEntry& entry)
             {
                 if (coord.hwid.se != se) return;
-                if (!data_store->wave_records.empty())
-                {
-                    auto rec_it = data_store->wave_records.find(entry.id);
-                    if (rec_it == data_store->wave_records.end() && !load_all_waves) return;
-                    if (rec_it != data_store->wave_records.end())
-                        total_instructions += rec_it->second.instructions.size();
-                }
                 se_min = std::min(se_min, entry.begin);
                 se_max = std::max(se_max, entry.end);
             }
         );
 
-        if ((load_all_waves || total_instructions <= GATHER_INSTRUCTION_BUDGET) && se_min < se_max)
+        if (se_min < se_max)
         {
             ui->wview_range_min->setText(std::to_string(se_min).c_str());
             ui->wview_range_max->setText(std::to_string(se_max + WAVE_END_ROOM).c_str());
@@ -741,6 +728,35 @@ bool MainWindow::shouldAutoAnalyzeHiddenLatency() const
     std::string gfxv = data_store->gfxv;
     std::transform(gfxv.begin(), gfxv.end(), gfxv.begin(), [](unsigned char c) { return std::tolower(c); });
     return gfxv.find("navi") != std::string::npos;
+}
+
+bool MainWindow::allowFullWaveLoad(bool show_dialogs)
+{
+    if (!data_store) return false;
+    if (full_wave_load_allowed) return *full_wave_load_allowed;
+
+    uintmax_t bytes = 0;
+    data_store->forEachWave(
+        [&](const DataStore::WaveCoordinate&, const WaveEntry& entry)
+        {
+            std::error_code ec;
+            auto size = fs::file_size(data_store->ui_dir + entry.id, ec);
+            if (!ec) bytes += size;
+        }
+    );
+
+    if (bytes <= WAVE_LOAD_BUDGET_BYTES) return true;
+    if (!show_dialogs) return false;
+
+    full_wave_load_allowed = QMessageBox::question(
+                                 this,
+                                 "Load All Wave Files?",
+                                 "The wave files for this trace exceed the 200MB limit.\n\n"
+                                 "Load all wave files? Choose No to load only the subset needed for the current view.",
+                                 QMessageBox::Yes | QMessageBox::No,
+                                 QMessageBox::No
+                             ) == QMessageBox::Yes;
+    return *full_wave_load_allowed;
 }
 
 bool MainWindow::runHiddenLatencyAnalysis(bool show_dialogs)
@@ -1009,6 +1025,7 @@ MainWindow::LoadResult MainWindow::LoadInputImpl(InputInfo input_info, const std
     // lazily load any waves for the incoming trace.
     WaveInstance::main_wave.reset();
     WaveInstance::InvalidadeCache();
+    full_wave_load_allowed.reset();
 
     // Clear non-owning pointer before resetting data_store (which owns the memory)
     shaderdata_manager = nullptr;
@@ -1200,9 +1217,10 @@ MainWindow::LoadResult MainWindow::LoadInputImpl(InputInfo input_info, const std
 
     if (this->seSelector) delete this->seSelector;
     this->seSelector = nullptr;
+    full_wave_load_allowed = allowFullWaveLoad(show_dialogs);
     this->seSelector = new SESelector(*data_store);
 
-    if (shouldAutoAnalyzeHiddenLatency()) runHiddenLatencyAnalysis(false);
+    if (shouldAutoAnalyzeHiddenLatency() && full_wave_load_allowed.value_or(false)) runHiddenLatencyAnalysis(false);
 
     if (history_table) history_table->setRowCount(0);
 

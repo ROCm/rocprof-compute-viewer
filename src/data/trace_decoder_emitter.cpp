@@ -785,8 +785,8 @@ void TraceDecoderEmitter::parseATTFiles()
     auto att_files = info.att_files;
     std::sort(att_files.begin(), att_files.end());
 
-    // Memory budget: ~100MB concurrent .att data
-    constexpr size_t MEMORY_BUDGET = 100 * 1024 * 1024;
+    // Memory budget: ~256MB concurrent .att data
+    constexpr size_t MEMORY_BUDGET = 256 * 1024 * 1024;
     std::atomic<size_t> inflight_bytes{0};
 
     // Group .att files by SE number (extract from filename "seN.att" or "N.att")
