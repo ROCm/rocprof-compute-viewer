@@ -11,6 +11,7 @@ on:
 env:
   # Customize the CMake build type here (Release, Debug, RelWithDebInfo, etc.)
   BUILD_TYPE: Release
+  ROCM_SDK_VERSION: 7.14.0a20260529
 
 jobs:
   prepare-release:
@@ -55,10 +56,10 @@ jobs:
       matrix:
         system: [
           {name: 'windows-x86', runner: windows-2022, host: 'windows', arch: 'win64_msvc2022_64', cmake: '', cmd: ''},
-          {name: 'macos-x86', runner: macos-15-intel, host: 'mac', arch: 'clang_64', cmake: '-DCMAKE_OSX_ARCHITECTURES=x86_64 -DCMAKE_OSX_DEPLOYMENT_TARGET="12.7.3"', cmd: 'x86'},
-          {name: 'ubuntu-22-x86', runner: ubuntu-22.04, host: 'linux', arch: 'linux_gcc_64', cmake: '', cmd: ''},
-          {name: 'ubuntu-24-x86', runner: ubuntu-24.04, host: 'linux', arch: 'linux_gcc_64', cmake: '', cmd: ''},
-          {name: 'macos-arm64', runner: macos-14, host: 'mac', arch: 'clang_64', cmake: '-DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_DEPLOYMENT_TARGET="12.7.3"', cmd: 'arm64'}
+          {name: 'macos-x86', runner: macos-15-intel, host: 'mac', arch: 'clang_64', cmake: '-DRCV_FETCH_TRACE_DECODER_WITH_DISASSEMBLY=OFF -DCMAKE_OSX_ARCHITECTURES=x86_64 -DCMAKE_OSX_DEPLOYMENT_TARGET="12.7.3"', cmd: 'x86'},
+          {name: 'ubuntu-22-x86', runner: ubuntu-22.04, host: 'linux', arch: 'linux_gcc_64', cmake: '-DRCV_FETCH_TRACE_DECODER_WITH_DISASSEMBLY=OFF', cmd: ''},
+          {name: 'ubuntu-24-x86', runner: ubuntu-24.04, host: 'linux', arch: 'linux_gcc_64', cmake: '-DRCV_FETCH_TRACE_DECODER_WITH_DISASSEMBLY=OFF', cmd: ''},
+          {name: 'macos-arm64', runner: macos-14, host: 'mac', arch: 'clang_64', cmake: '-DRCV_FETCH_TRACE_DECODER_WITH_DISASSEMBLY=OFF -DCMAKE_OSX_ARCHITECTURES="arm64" -DCMAKE_OSX_DEPLOYMENT_TARGET="12.7.3"', cmd: 'arm64'}
         ]
 
     runs-on: ${{ matrix.system.runner }}
@@ -76,6 +77,127 @@ jobs:
         sudo apt update
         sudo apt install -y cmake rpm
 
+    # Windows decoder builds use amd_comgr from the ROCm SDK. Linux/macOS keep
+    # decoder disassembly disabled.
+    - name: Detect system ROCm COMGR
+      if: ${{ matrix.system.host == 'windows' }}
+      id: system-comgr
+      shell: bash
+      run: |
+        set -euo pipefail
+        candidates=()
+        if [ -n "${ROCM_PATH:-}" ]; then candidates+=("$ROCM_PATH"); fi
+
+        for rocm_root in "${candidates[@]}"; do
+          if [ ! -d "$rocm_root" ] || [ ! -f "$rocm_root/include/amd_comgr/amd_comgr.h" ]; then
+            continue
+          fi
+
+          if [ ! -f "$rocm_root/lib/amd_comgr.lib" ] || [ ! -f "$rocm_root/bin/amd_comgr.dll" ]; then
+            continue
+          fi
+          echo "$(cygpath -w "$rocm_root/bin")" >> "$GITHUB_PATH"
+
+          echo "found=true" >> "$GITHUB_OUTPUT"
+          echo "ROCM_PATH=$rocm_root" >> "$GITHUB_ENV"
+          echo "CMAKE_PREFIX_PATH=$rocm_root" >> "$GITHUB_ENV"
+          echo "Using system ROCm COMGR at $rocm_root"
+          exit 0
+        done
+
+        echo "found=false" >> "$GITHUB_OUTPUT"
+        echo "System ROCm COMGR not found; using CI wheel fallback"
+
+    - name: Restore ROCm SDK COMGR cache
+      if: ${{ matrix.system.host == 'windows' && steps.system-comgr.outputs.found != 'true' }}
+      id: rocm-sdk-cache
+      uses: actions/cache/restore@v4
+      with:
+        path: ${{ runner.temp }}/rocm-sdk-comgr
+        key: ${{ matrix.system.host }}-rocm-sdk-comgr-${{ env.ROCM_SDK_VERSION }}-v2
+
+    - name: Install ROCm SDK COMGR
+      if: ${{ matrix.system.host == 'windows' && steps.system-comgr.outputs.found != 'true' && steps.rocm-sdk-cache.outputs.cache-hit != 'true' }}
+      timeout-minutes: 20
+      shell: bash
+      run: |
+        set -euo pipefail
+        temp_root="$(cygpath -u "${RUNNER_TEMP}")"
+        wheel_platform="win_amd64"
+
+        install_root="$temp_root/rocm-sdk-comgr"
+        wheel="$temp_root/rocm_sdk_core-${ROCM_SDK_VERSION}-py3-none-${wheel_platform}.whl"
+        wheel_url="https://rocm.nightlies.amd.com/whl-multi-arch/rocm_sdk_core-${ROCM_SDK_VERSION}-py3-none-${wheel_platform}.whl"
+
+        rm -rf "$install_root"
+        mkdir -p "$install_root"
+        curl -L --fail --retry 3 --retry-delay 10 "$wheel_url" -o "$wheel"
+
+        python - "$wheel" "$install_root" <<'PY'
+        import sys
+        import zipfile
+        from pathlib import Path
+
+        def keep(member_name):
+            return (
+                member_name == "_rocm_sdk_core/bin/amd_comgr.dll"
+                or member_name == "_rocm_sdk_core/lib/amd_comgr.lib"
+                or member_name.startswith("_rocm_sdk_core/include/amd_comgr/")
+                or member_name.startswith("_rocm_sdk_core/share/doc/amd_comgr/")
+            )
+
+        wheel = Path(sys.argv[1])
+        install_root = Path(sys.argv[2])
+        install_root_resolved = install_root.resolve()
+        with zipfile.ZipFile(wheel) as zf:
+            for member in zf.infolist():
+                if not keep(member.filename):
+                    continue
+                target = (install_root / member.filename).resolve()
+                try:
+                    target.relative_to(install_root_resolved)
+                except ValueError:
+                    raise RuntimeError(f"Refusing to extract {member.filename}")
+                if member.is_dir():
+                    target.mkdir(parents=True, exist_ok=True)
+                else:
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_bytes(zf.read(member))
+        PY
+
+    - name: Save ROCm SDK COMGR cache
+      if: ${{ matrix.system.host == 'windows' && steps.system-comgr.outputs.found != 'true' && steps.rocm-sdk-cache.outputs.cache-hit != 'true' }}
+      uses: actions/cache/save@v4
+      continue-on-error: true
+      with:
+        path: ${{ runner.temp }}/rocm-sdk-comgr
+        key: ${{ matrix.system.host }}-rocm-sdk-comgr-${{ env.ROCM_SDK_VERSION }}-v2
+
+    - name: Export ROCm SDK path
+      if: ${{ matrix.system.host == 'windows' && steps.system-comgr.outputs.found != 'true' }}
+      shell: bash
+      run: |
+        rocm_root="$(cygpath -u "${RUNNER_TEMP}")/rocm-sdk-comgr/_rocm_sdk_core"
+        echo "$(cygpath -w "$rocm_root/bin")" >> "$GITHUB_PATH"
+
+        echo "ROCM_PATH=$rocm_root" >> "$GITHUB_ENV"
+        echo "CMAKE_PREFIX_PATH=$rocm_root" >> "$GITHUB_ENV"
+        echo "Using ROCm SDK at $rocm_root"
+
+    - name: Verify ROCm SDK COMGR
+      if: ${{ matrix.system.host == 'windows' }}
+      shell: bash
+      run: |
+        echo "ROCM_PATH=${ROCM_PATH:-<unset>}"
+        if [ -z "${ROCM_PATH:-}" ] || [ ! -d "$ROCM_PATH" ]; then
+          echo "::error::ROCm SDK install did not populate ROCM_PATH"
+          exit 1
+        fi
+        test -f "$ROCM_PATH/include/amd_comgr/amd_comgr.h"
+        test -f "$ROCM_PATH/lib/amd_comgr.lib"
+        test -f "$ROCM_PATH/bin/amd_comgr.dll"
+        echo "Verified amd_comgr in $ROCM_PATH"
+
     - name: Install Qt
       uses: jurplel/install-qt-action@48d3ad6db93f3627c8ee7a0454bc6f3744f7e730 # v4.3.1
       timeout-minutes: 15
@@ -87,17 +209,29 @@ jobs:
         arch: ${{ matrix.system.arch }}
         cache: true
 
+    # Configure also builds the rocprof-trace-decoder sub-project at configure
+    # time (see cmake/FetchTraceDecoder.cmake), so allow extra wall time.
     - name: Configure CMake
-      timeout-minutes: 10
-      run: cmake -B ${{github.workspace}}/build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} -DBUILD_LOCATION=${{github.workspace}}/build ${{ matrix.system.cmake }}
+      timeout-minutes: 45
+      shell: bash
+      run: |
+        cmake_args=(
+          "-DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}}"
+          "-DBUILD_LOCATION=${{github.workspace}}/build"
+        )
+        if [ -n "${CMAKE_PREFIX_PATH:-}" ]; then
+          cmake_args+=("-DCMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}")
+        fi
+        cmake_args+=(${{ matrix.system.cmake }})
+        cmake -B "${{github.workspace}}/build" "${cmake_args[@]}"
 
     - name: Build
       timeout-minutes: 10
-      run: cmake --build ${{github.workspace}}/build --config ${{env.BUILD_TYPE}} --parallel 16
+      run: cmake --build "${{github.workspace}}/build" --config "${{env.BUILD_TYPE}}" --parallel 16
 
     - name: Building Packages
       timeout-minutes: 10
-      run: cmake --build ${{github.workspace}}/build --config ${{env.BUILD_TYPE}} --target package --parallel 16
+      run: cmake --build "${{github.workspace}}/build" --config "${{env.BUILD_TYPE}}" --target package --parallel 16
 
     - name: Rename Packages
       if: ${{ contains(matrix.system.host, 'mac') }}

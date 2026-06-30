@@ -244,7 +244,10 @@ private:
 
     bool shouldAutoAnalyzeHiddenLatency() const;
     bool runHiddenLatencyAnalysis(bool show_dialogs);
+    bool allowFullWaveLoad(bool show_dialogs);
     void refreshHiddenLatencyViews();
+
+    std::optional<bool> full_wave_load_allowed;
 
     static std::optional<int> parseLineEditInt(const QLineEdit* edit);
     static std::optional<int64_t> parseLineEditInt64(const QLineEdit* edit);

@@ -124,13 +124,22 @@ InputInfo detectInput(const std::string& path)
 
     fs::path p(path);
 
-    // Single file: check for .rocpd
+    // Single file: check for direct-load formats
     if (fs::is_regular_file(p))
     {
         if (p.extension() == ".rocpd")
         {
             info.type = InputType::ROCPD;
             info.rocpd_path = path;
+            return info;
+        }
+        if (p.extension() == ".att")
+        {
+            const fs::path parent = p.parent_path().empty() ? fs::path(".") : p.parent_path();
+            info.type = InputType::ATT_FILES;
+            info.base_path = parent.string();
+            info.att_files.push_back(path);
+            info.att_file_info.push_back(parseAttFilename(path));
             return info;
         }
         info.type = InputType::UNKNOWN;

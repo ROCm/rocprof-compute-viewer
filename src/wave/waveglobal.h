@@ -250,7 +250,11 @@ public:
     void SetMip(int new_mipmap_level)
     {
         mipmap_level = new_mipmap_level;
-        for (auto* view : views) view->updateGeometry();
+        for (auto* view : views)
+        {
+            view->setFixedHeight(view->sizeHint().height());
+            view->updateGeometry();
+        }
         if (labelPanel) labelPanel->recalculatePositions();
         if (tickHeader) tickHeader->update();
         this->updateGeometry();

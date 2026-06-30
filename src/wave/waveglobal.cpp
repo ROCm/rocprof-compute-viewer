@@ -736,6 +736,8 @@ se(_se), sa(_sa), cu(_cu), simd(_simd), slot(_slot), waves(_waves), tool(_tool)
 {
     setMouseTracking(true);
     this->setAttribute(Qt::WA_AlwaysShowToolTips, true);
+    setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    setFixedHeight(sizeHint().height());
 
     height_multiplier = 0; // No extra space for separators
 
@@ -759,6 +761,7 @@ void QOutsideWaveView::SetDispatchRecords(DispatchRecordVec records)
 void QOutsideWaveView::SetMarkers(MarkerSpanVec spans)
 {
     markers.Reset(std::move(spans));
+    setFixedHeight(sizeHint().height());
     updateGeometry();
     update();
 }
@@ -945,7 +948,7 @@ int QOutsideWaveView::FindShaderDataAt(int64_t clock_pos) const
 
 void QOutsideWaveView::DrawDecoderEvents(QPainter& painter, const QRect& area)
 {
-    const int row_h = sizeHint().height();
+    const int row_h = height();
     const int64_t visible_clock_start = QGlobalView::PosToClock(area.left() - 2);
     const int64_t visible_clock_end = QGlobalView::PosToClock(area.right() + 2);
 
@@ -1287,7 +1290,11 @@ void QGlobalView::wheelEvent(QWheelEvent* event)
             int new_scroll = std::max(0, new_anchor_y - mouse_viewport_y);
 
             height_scale = new_scale;
-            for (auto* view : views) view->updateGeometry();
+            for (auto* view : views)
+            {
+                view->setFixedHeight(view->sizeHint().height());
+                view->updateGeometry();
+            }
             // Marker track height scales with HEIGHT(), so each row's contribution
             // to the label panel must be re-pushed before recalculatePositions().
             syncLabelPanelExtraHeights();
@@ -1299,7 +1306,11 @@ void QGlobalView::wheelEvent(QWheelEvent* event)
         else if (new_scale != height_scale)
         {
             height_scale = new_scale;
-            for (auto* view : views) view->updateGeometry();
+            for (auto* view : views)
+            {
+                view->setFixedHeight(view->sizeHint().height());
+                view->updateGeometry();
+            }
             syncLabelPanelExtraHeights();
             this->updateGeometry();
             this->repaint();

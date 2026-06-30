@@ -44,10 +44,8 @@ public:
 
     void run();
 
-    /// Errors collected during parseATTFiles() — one entry per .att file whose
-    /// rocprof_trace_decoder_parse() returned non-SUCCESS. Read after run()
-    /// returns; UI surfaces these in a popup so the user knows the trace is
-    /// incomplete (until now they only appeared on stderr).
+    /// User-visible decoder issues collected during run(). Kept under the
+    /// existing parseErrors() API for tests and callers.
     const std::vector<std::string>& parseErrors() const { return parse_errors; }
 
 private:
@@ -91,6 +89,7 @@ private:
     void buildDispatches();
 
     void alignSEClocks();
+    void addParseError(const std::string& message);
 
     /// Find the active code object at a given (HWID,time) by
     /// locating the wave instance occupying that slot and binary-searching its

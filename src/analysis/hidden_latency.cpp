@@ -75,6 +75,7 @@ std::vector<Util> compute_util(std::vector<Util>& in)
     // Convert to clock end time so search is easier
     for (auto& util : out) util.clock += util.cycles;
 
+    out.shrink_to_fit();
     return out;
 }
 
@@ -165,6 +166,7 @@ std::vector<Util> compute_union(const std::vector<Util>& va, const std::vector<U
 
     while (b != vb.end()) append(*b++);
 
+    out.shrink_to_fit();
     return out;
 }
 

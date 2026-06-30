@@ -115,6 +115,21 @@ TEST(InputDetector, RocpdFileDetected)
     EXPECT_EQ(info.rocpd_path, file.string());
 }
 
+TEST(InputDetector, AttFileDetectedDirectly)
+{
+    TempDir dir("rcv_input_att_file_dir");
+    fs::path att = dir.path / "123_456_shader_engine_0_1.att";
+    touch(att);
+
+    auto info = detectInput(att.string());
+    EXPECT_EQ(info.type, InputType::ATT_FILES);
+    EXPECT_EQ(info.base_path, dir.path.string());
+    ASSERT_EQ(info.att_files.size(), 1u);
+    EXPECT_EQ(info.att_files[0], att.string());
+    ASSERT_EQ(info.att_file_info.size(), 1u);
+    EXPECT_EQ(info.att_file_info[0].path, att.string());
+}
+
 TEST(InputDetector, MalformedAttFilenameStillRecognizedAsAttInput)
 {
     TempDir dir("rcv_input_malformed_att_dir");
