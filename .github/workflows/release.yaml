@@ -55,11 +55,11 @@ jobs:
       fail-fast: false
       matrix:
         system: [
-          {name: 'windows-x86', runner: windows-2022, host: 'windows', arch: 'win64_msvc2022_64', cmake: '', cmd: ''},
-          {name: 'macos-x86', runner: macos-15-intel, host: 'mac', arch: 'clang_64', cmake: '-DRCV_FETCH_TRACE_DECODER_WITH_DISASSEMBLY=OFF -DCMAKE_OSX_ARCHITECTURES=x86_64 -DCMAKE_OSX_DEPLOYMENT_TARGET="12.7.3"', cmd: 'x86'},
+          {name: 'windows-x86', runner: windows-2022, host: 'windows', arch: 'win64_msvc2022_64', cmake: '-DRCV_FETCH_TRACE_DECODER=OFF', cmd: ''},
+          {name: 'macos-x86', runner: macos-15-intel, host: 'mac', arch: 'clang_64', cmake: '-DRCV_FETCH_TRACE_DECODER=OFF -DCMAKE_OSX_ARCHITECTURES=x86_64 -DCMAKE_OSX_DEPLOYMENT_TARGET="12.7.3"', cmd: 'x86'},
           {name: 'ubuntu-22-x86', runner: ubuntu-22.04, host: 'linux', arch: 'linux_gcc_64', cmake: '-DRCV_FETCH_TRACE_DECODER_WITH_DISASSEMBLY=OFF', cmd: ''},
           {name: 'ubuntu-24-x86', runner: ubuntu-24.04, host: 'linux', arch: 'linux_gcc_64', cmake: '-DRCV_FETCH_TRACE_DECODER_WITH_DISASSEMBLY=OFF', cmd: ''},
-          {name: 'macos-arm64', runner: macos-14, host: 'mac', arch: 'clang_64', cmake: '-DRCV_FETCH_TRACE_DECODER_WITH_DISASSEMBLY=OFF -DCMAKE_OSX_ARCHITECTURES="arm64" -DCMAKE_OSX_DEPLOYMENT_TARGET="12.7.3"', cmd: 'arm64'}
+          {name: 'macos-arm64', runner: macos-14, host: 'mac', arch: 'clang_64', cmake: '-DRCV_FETCH_TRACE_DECODER=OFF -DCMAKE_OSX_ARCHITECTURES="arm64" -DCMAKE_OSX_DEPLOYMENT_TARGET="12.7.3"', cmd: 'arm64'}
         ]
 
     runs-on: ${{ matrix.system.runner }}
