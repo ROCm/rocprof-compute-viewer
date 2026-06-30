@@ -4,7 +4,13 @@
 
 include_guard(GLOBAL)
 
-option(RCV_FETCH_TRACE_DECODER "Fetch and build rocprof-trace-decoder when TRACE_DECODER_ROOT is not set" ON)
+if(APPLE)
+    set(_rcv_fetch_trace_decoder_default OFF)
+else()
+    set(_rcv_fetch_trace_decoder_default ON)
+endif()
+option(RCV_FETCH_TRACE_DECODER "Fetch and build rocprof-trace-decoder when TRACE_DECODER_ROOT is not set"
+       ${_rcv_fetch_trace_decoder_default})
 option(RCV_FETCH_TRACE_DECODER_WITH_DISASSEMBLY
        "When fetching rocprof-trace-decoder, build with a disassembly backend (amd_comgr)" ON)
 set(RCV_TRACE_DECODER_REPO "https://github.com/ROCm/rocm-systems.git"

@@ -341,7 +341,7 @@ make -j
 
 Trace-decoder support lets RCV open directories of raw `.att` / `.out` files (as extracted from rocprofiler-sdk thread-trace output) directly, without needing rocprofv3 to convert them to JSON first. This is RCV's own link to the decoder and is independent of the decoder that rocprofv3 uses internally (bundled since ROCm 7.13).
 
-By default, CMake fetches and builds the decoder automatically when `TRACE_DECODER_ROOT` is not provided. To build a JSON-only viewer without fetching the decoder, pass `-DRCV_FETCH_TRACE_DECODER=OFF`. To use a pre-built decoder instead, pass `-DTRACE_DECODER_ROOT=...`.
+By default, CMake fetches and builds the decoder automatically when `TRACE_DECODER_ROOT` is not provided, except on macOS where fetching is disabled by default. To build a JSON-only viewer without fetching the decoder, pass `-DRCV_FETCH_TRACE_DECODER=OFF`. To use a pre-built decoder instead, pass `-DTRACE_DECODER_ROOT=...`.
 
 ##### Disassembly backend (optional)
 
@@ -366,32 +366,12 @@ On Windows, install a full LLVM dev package (e.g. via the official installer or 
 
 | Variable | Default | Effect |
 |---|---|---|
-| `RCV_FETCH_TRACE_DECODER` | `ON` | Fetch and build the trace decoder automatically at configure time when `TRACE_DECODER_ROOT` is not set. Set `OFF` for a JSON-only build. |
-| `RCV_FETCH_TRACE_DECODER_WITH_DISASSEMBLY` | `ON` | Build the fetched decoder with the amd_comgr disassembly backend. Set `OFF` to skip built-in disassembly (no ROCm needed). |
+| `RCV_FETCH_TRACE_DECODER` | `ON` (`OFF` on macOS) | Fetch and build the trace decoder automatically when `TRACE_DECODER_ROOT` is not set. |
+| `RCV_FETCH_TRACE_DECODER_WITH_DISASSEMBLY` | `ON` | Build the fetched decoder with the amd_comgr disassembly backend. |
 | `TRACE_DECODER_ROOT` | *(unset)* | Use a **pre-built** decoder tree (build dir or install prefix) instead of fetching. Takes precedence over `RCV_FETCH_TRACE_DECODER`. |
 | `RCV_TRACE_DECODER_REPO` | rocm-systems upstream | Git URL to fetch from. |
 | `RCV_TRACE_DECODER_TAG` | tracked branch | Branch / tag / commit to check out. Use `develop` for the latest decoder. |
 | `RCV_TRACE_DECODER_FETCH_DIR` | `${CMAKE_SOURCE_DIR}/external/rocm-systems` | Where to place the sparse checkout. Lives outside `build/` so a clean rebuild does not re-download the monorepo. |
-
-##### Common configurations
-
-```bash
-# Default — fetch and build the decoder automatically.
-cmake -B build
-cmake --build build -j
-
-# JSON-only build; do not fetch the decoder.
-cmake -B build -DRCV_FETCH_TRACE_DECODER=OFF
-cmake --build build -j
-
-# Fetch a specific decoder branch (e.g. the latest from develop).
-cmake -B build -DRCV_TRACE_DECODER_TAG=develop
-cmake --build build -j
-
-# Use a pre-built decoder you maintain yourself.
-cmake -B build -DTRACE_DECODER_ROOT=/path/to/rocprof-trace-decoder/build
-cmake --build build -j
-```
 
 The configure step prints one of:
 
