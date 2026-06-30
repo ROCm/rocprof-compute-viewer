@@ -7,6 +7,11 @@ on:
         description: 'Release Tag Version'
         required: true
         type: string
+      dry_run:
+        description: 'Build and validate artifacts without creating a GitHub Release'
+        required: false
+        default: false
+        type: boolean
 
 env:
   # Customize the CMake build type here (Release, Debug, RelWithDebInfo, etc.)
@@ -65,7 +70,7 @@ jobs:
     - uses: actions/checkout@v6
       timeout-minutes: 5
       with:
-        ref: refs/tags/${{ needs.prepare-release.outputs.tag_name }}
+        ref: ${{ github.sha }}
 
     - name: Install Req
       if: ${{ contains(matrix.system.host, 'linux') }}
@@ -278,7 +283,7 @@ jobs:
     - uses: actions/checkout@v6
       timeout-minutes: 5
       with:
-        ref: refs/tags/${{ needs.prepare-release.outputs.tag_name }}
+        ref: ${{ github.sha }}
 
     - name: Download release artifacts
       uses: actions/download-artifact@v7
@@ -298,8 +303,10 @@ jobs:
       env:
         GH_TOKEN: ${{ github.token }}
         TAG_NAME: ${{ needs.prepare-release.outputs.tag_name }}
+        TARGET_SHA: ${{ github.sha }}
+        DRY_RUN: ${{ inputs.dry_run }}
       run: |
-        echo "Creating release for tag: $TAG_NAME"
+        echo "Preparing release for tag: $TAG_NAME"
 
         ASSET_FILES=()
         for file in ./release-assets/*; do
@@ -315,6 +322,11 @@ jobs:
 
         echo "Asset files to upload: ${ASSET_FILES[@]}"
 
-        gh release create "$TAG_NAME" "${ASSET_FILES[@]}" --title "Release $TAG_NAME" --notes-file ./CHANGELOG.md
+        if [[ "$DRY_RUN" == "true" ]]; then
+          echo "Dry run requested; skipping GitHub Release creation for $TAG_NAME at $TARGET_SHA."
+          exit 0
+        fi
+
+        gh release create "$TAG_NAME" "${ASSET_FILES[@]}" --target "$TARGET_SHA" --title "Release $TAG_NAME" --notes-file ./CHANGELOG.md
 
         echo "GitHub Release $TAG_NAME created successfully."
