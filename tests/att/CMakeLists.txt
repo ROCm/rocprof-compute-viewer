@@ -24,6 +24,9 @@ if(RCV_HAS_TRACE_DECODER)
         ${SRC_DIR}/config/config.cpp)
 
     target_include_directories(att_loader_test PRIVATE ${SRC_DIR})
+    if(RCV_FETCH_TRACE_DECODER_WITH_DISASSEMBLY)
+        target_compile_definitions(att_loader_test PRIVATE RCV_TRACE_DECODER_TEST_HAS_DISASSEMBLY)
+    endif()
     target_link_libraries(att_loader_test
         GTest::gtest_main
         Qt6::Core Qt6::Network Qt6::Widgets

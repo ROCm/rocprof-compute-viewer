@@ -206,6 +206,10 @@ std::vector<GoldenRow> loadGolden(const fs::path& csv)
 
 TEST(AttLoaderRealData, PerInstructionAggregatesMatchDecoderGolden)
 {
+#ifndef RCV_TRACE_DECODER_TEST_HAS_DISASSEMBLY
+    GTEST_SKIP() << "Per-instruction golden comparison requires a trace-decoder disassembly backend";
+#endif
+
     std::string root = getDatasetRoot();
     if (root.empty()) GTEST_SKIP() << "RCV_ATT_TEST_ROOT not set";
     const char* golden_root_env = std::getenv("RCV_DECODER_GOLDEN_ROOT");
