@@ -26,6 +26,7 @@
 
 #    include <algorithm>
 #    include <atomic>
+#    include <cctype>
 #    include <cstring>
 #    include <filesystem>
 #    include <fstream>
@@ -278,10 +279,8 @@ uint64_t TraceDecoderEmitter::activeCodeobjAt(HWID hwid, int64_t time) const
 
 namespace
 {
-/// Parse "codeobj_<id>.out" → id. Returns 0 if the filename doesn't match that
-/// shape, signalling "no usable id" to the caller (which can then skip the file
-/// for the lazy-lookup map; the eager path falls back to a hash so behavior is
-/// preserved for non-standard names).
+/// Parse the trailing underscore-delimited token as the code object id
+/// ("..._code_object_id_7.out" -> 7). Returns 0 when no usable id is present.
 uint64_t parseCodeobjIdFromPath(const std::string& path)
 {
     auto stem = fs::path(path).stem().string();
@@ -296,6 +295,14 @@ uint64_t parseCodeobjIdFromPath(const std::string& path)
         RCV_LOG();
         return 0;
     }
+}
+
+std::string leadingNumericTokenFromPath(const std::string& path)
+{
+    const std::string filename = fs::path(path).filename().string();
+    size_t end = 0;
+    while (end < filename.size() && std::isdigit(static_cast<unsigned char>(filename[end]))) ++end;
+    return filename.substr(0, end);
 }
 
 } // namespace
@@ -332,29 +339,48 @@ bool TraceDecoderEmitter::loadCodeObjectFile(const std::string& path, uint64_t c
 void TraceDecoderEmitter::loadCodeObjects()
 {
     // Discover every .out file we have on disk: the explicit info.out_files list
-    // (from auto-detection) plus any siblings under info.base_path. Eager-load
-    // each one — addDecoder() just registers the file with codeobj_map; the
-    // expensive per-PC COMGR disassembly stays lazy via codeobj_map.get() inside
-    // isaCallback.
-    std::unordered_set<std::string> seen;
-    std::map<uint64_t, std::string> loaded_ids;
-    auto load = [&](const std::string& out_path)
+    // (from auto-detection) plus any siblings under info.base_path. Resolve
+    // duplicate IDs before loading so a code object with the selected .att
+    // file's leading numeric token can break an otherwise ambiguous tie without
+    // making that filename prefix a general loading requirement.
+    std::unordered_set<std::string> preferred_prefixes;
+    for (const auto& att : info.att_file_info)
     {
-        if (!seen.insert(out_path).second) return;
-        uint64_t id = parseCodeobjIdFromPath(out_path);
-        auto id_it = loaded_ids.find(id);
-        if (id_it != loaded_ids.end())
-        {
-            std::ostringstream oss;
-            oss << "Code object ID conflict: " << id_it->second << " and " << out_path << " both use ID " << id
-                << ". Skipping " << out_path << ".";
-            addParseError(oss.str());
-            return;
-        }
-        if (loadCodeObjectFile(out_path, id)) loaded_ids.emplace(id, out_path);
+        if (att.pid >= 0)
+            preferred_prefixes.insert(std::to_string(att.pid));
+        else if (std::string prefix = leadingNumericTokenFromPath(att.path); !prefix.empty())
+            preferred_prefixes.insert(std::move(prefix));
+    }
+    for (const auto& att_path : info.att_files)
+        if (std::string prefix = leadingNumericTokenFromPath(att_path); !prefix.empty())
+            preferred_prefixes.insert(std::move(prefix));
+
+    struct CodeObjectChoice
+    {
+        std::string path;
+        std::vector<std::string> conflicts;
+        bool preferred = false;
     };
 
-    for (const auto& out_path : info.out_files) load(out_path);
+    std::unordered_set<std::string> seen;
+    std::map<uint64_t, CodeObjectChoice> selected_by_id;
+    auto consider = [&](const std::string& out_path)
+    {
+        if (!seen.insert(out_path).second) return;
+
+        const uint64_t id = parseCodeobjIdFromPath(out_path);
+        const std::string prefix = leadingNumericTokenFromPath(out_path);
+        const bool preferred = !prefix.empty() && preferred_prefixes.find(prefix) != preferred_prefixes.end();
+        auto& choice = selected_by_id[id];
+        if (choice.path.empty() || (preferred && !choice.preferred))
+        {
+            choice = {out_path, {}, preferred};
+            return;
+        }
+        if (choice.preferred == preferred) choice.conflicts.push_back(out_path);
+    };
+
+    for (const auto& out_path : info.out_files) consider(out_path);
 
     if (!info.base_path.empty())
     {
@@ -367,20 +393,35 @@ void TraceDecoderEmitter::loadCodeObjects()
             // sibling shouldn't abort code-object loading entirely.
             try
             {
+                std::vector<std::string> sibling_paths;
                 for (const auto& entry : fs::directory_iterator(info.base_path, ec))
                 {
                     if (ec) break;
                     std::error_code entry_ec;
                     if (!entry.is_regular_file(entry_ec) || entry_ec) continue;
                     if (entry.path().extension() != ".out" && entry.path().extension() != ".hsaco") continue;
-                    load(entry.path().string());
+                    sibling_paths.push_back(entry.path().string());
                 }
+                std::sort(sibling_paths.begin(), sibling_paths.end());
+                for (const auto& path : sibling_paths) consider(path);
             }
             catch (const std::exception& e)
             {
                 std::cerr << "Warning: directory walk failed under " << info.base_path << ": " << e.what() << std::endl;
             }
         }
+    }
+
+    for (const auto& [id, choice] : selected_by_id)
+    {
+        for (const auto& conflict : choice.conflicts)
+        {
+            std::ostringstream oss;
+            oss << "Code object ID conflict: " << choice.path << " and " << conflict << " both use ID " << id
+                << ". Skipping " << conflict << ".";
+            addParseError(oss.str());
+        }
+        loadCodeObjectFile(choice.path, id);
     }
 }
 
