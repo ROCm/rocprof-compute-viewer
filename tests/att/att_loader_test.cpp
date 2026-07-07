@@ -56,7 +56,90 @@ bool hasUsableData(const DataStore& store)
     return !store.wave_hierarchy.empty() || !store.occupancy_by_se.empty() || !store.code.empty();
 }
 
+struct TempDir
+{
+    fs::path path;
+
+    explicit TempDir(const std::string& name) : path(fs::temp_directory_path() / name)
+    {
+        fs::remove_all(path);
+        fs::create_directories(path);
+    }
+
+    ~TempDir() { fs::remove_all(path); }
+};
+
+void writeFile(const fs::path& path)
+{
+    std::ofstream out(path, std::ios::binary);
+    out << "not an elf";
+}
+
+InputInfo syntheticAttInfo(const TempDir& dir, int pid)
+{
+    InputInfo info;
+    info.type = InputType::ATT_FILES;
+    info.base_path = dir.path.string();
+
+    AttFileInfo att;
+    att.path = (dir.path / (std::to_string(pid) + "_456_shader_engine_0_1.att")).string();
+    att.pid = pid;
+    att.agent = 456;
+    att.se = 0;
+    att.dispatch = 1;
+    info.att_file_info.push_back(att);
+    return info;
+}
+
+std::vector<std::string> runSyntheticAttLoad(const InputInfo& info)
+{
+    DataStore store;
+    RecordDispatcher dispatcher;
+    TraceDecoderEmitter emitter(info, dispatcher, store);
+    emitter.run();
+    return emitter.parseErrors();
+}
+
+bool hasCodeObjectConflict(const std::vector<std::string>& errors)
+{
+    for (const auto& error : errors)
+        if (error.find("Code object ID conflict") != std::string::npos) return true;
+    return false;
+}
+
 } // namespace
+
+TEST(AttLoaderCodeObjects, PrefersDuplicateIdCodeObjectWithSelectedAttPrefix)
+{
+    TempDir dir("rcv_att_codeobj_prefers_att_prefix");
+    writeFile(dir.path / "111_kernel_code_object_id_7.out");
+    writeFile(dir.path / "123_kernel_code_object_id_7.out");
+
+    auto errors = runSyntheticAttLoad(syntheticAttInfo(dir, 123));
+
+    EXPECT_FALSE(hasCodeObjectConflict(errors));
+}
+
+TEST(AttLoaderCodeObjects, AttPrefixIsNotRequiredForUniqueCodeObjectId)
+{
+    TempDir dir("rcv_att_codeobj_prefix_not_required");
+    writeFile(dir.path / "111_kernel_code_object_id_7.out");
+
+    auto errors = runSyntheticAttLoad(syntheticAttInfo(dir, 123));
+
+    EXPECT_FALSE(hasCodeObjectConflict(errors));
+}
+
+TEST(AttLoaderCodeObjects, ReportsDuplicateIdWhenNoCodeObjectMatchesSelectedAttPrefix)
+{
+    TempDir dir("rcv_att_codeobj_conflict_without_att_prefix");
+    writeFile(dir.path / "111_kernel_code_object_id_7.out");
+    writeFile(dir.path / "222_kernel_code_object_id_7.out");
+
+    auto errors = runSyntheticAttLoad(syntheticAttInfo(dir, 123));
+
+    EXPECT_TRUE(hasCodeObjectConflict(errors));
+}
 
 TEST(AttLoaderRecords, EmptyInstructionWaveIsKeptInMemory)
 {
@@ -206,6 +289,10 @@ std::vector<GoldenRow> loadGolden(const fs::path& csv)
 
 TEST(AttLoaderRealData, PerInstructionAggregatesMatchDecoderGolden)
 {
+#ifndef RCV_TRACE_DECODER_TEST_HAS_DISASSEMBLY
+    GTEST_SKIP() << "Per-instruction golden comparison requires a trace-decoder disassembly backend";
+#endif
+
     std::string root = getDatasetRoot();
     if (root.empty()) GTEST_SKIP() << "RCV_ATT_TEST_ROOT not set";
     const char* golden_root_env = std::getenv("RCV_DECODER_GOLDEN_ROOT");
