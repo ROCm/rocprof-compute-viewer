@@ -410,7 +410,7 @@ void FlameGraphWidget::mouseMoveEvent(QMouseEvent* event)
 #if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
                 event->globalPos(),
 #else
-                event->globalPosition()toPoint(),
+                event->globalPosition().toPoint(),
 #endif
                 formatFrameTooltip(*hovered, m_allTotalLatency, m_allNonhiddenLatency),
                 this
