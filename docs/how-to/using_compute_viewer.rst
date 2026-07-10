@@ -8,48 +8,116 @@
 Visualize and analyze GPU thread trace data
 ********************************************
 
-ROCprof Compute Viewer interprets the output of `ui_output_agent_{agent_id}_dispatch_{dispatch_id} <https://rocm.docs.amd.com/projects/rocprofiler-sdk/en/latest/how-to/using-thread-trace.html#rocprofv3-output-files>`_ file for visualization. The visualization includes:
+ROCprof Compute Viewer (RCV) interprets the output of `ui_output_agent_{agent_id}_dispatch_{dispatch_id} <https://rocm.docs.amd.com/projects/rocprofiler-sdk/en/latest/how-to/using-thread-trace.html#rocprofv3-output-files>`_ directories for visualization. The views available in RCV include:
 
-- Source visualization (go to Trace -> ISA)
+- Source visualization (Trace -> ISA)
 - Hotspot analysis
 - Memory ops to ``waitcnt`` dependency
 - Occupancy visualization
-- Flamegraph view (per-target-CU/SIMD source/ISA stack rollup, plus a global marker flamegraph when SQTT instrumentation is present)
+- Flamegraph view (per-target-CU/SIMD source and ISA stack rollup, plus a global marker flamegraph when SQTT instrumentation is present)
 - SQTT instrumentation marker visualization (from the ``.sqtt_funcmap`` ELF section emitted by the LLVM pass)
+
+The views available as tabs are described in the following sections.
+
+Input formats
+==============
 
 RCV accepts two kinds of input:
 
 - A ``rocprofv3`` UI output directory (JSON), produced when ``rocprofv3`` converts the thread trace for you.
-- A directory of raw ``.att``/``.out`` thread-trace files captured directly through the rocprofiler-sdk API. These require a decoder-enabled build.
+- A directory of raw ``.att`` and ``.out`` thread-trace files captured directly through the rocprofiler-sdk API. These require a decoder-enabled build.
 
-To launch the Compute Viewer with a ``rocprofv3`` UI output directory, use any of the following methods:
+Import a rocprofv3 UI output directory
+----------------------------------------
 
-- Go to Menu -> Import -> Rocprofv3 UI Output
-- Provide the full path to "Ui path"
-- Use command line:
+To import a ``rocprofv3`` UI output directory into the Compute Viewer, use any of the following methods:
+
+- Go to **Menu > Import > Rocprofv3 UI Output**.
+- Provide the full path in the **UI path** field.
+- Pass the directory on the command line:
 
 .. code-block:: bash
 
     ./rcviewer <dir_to_ui_folder>
 
-To open raw ``.att``/``.out`` files directly (decoder-enabled build):
+.. _loading-raw-att-out:
 
-- Go to Menu -> Import -> ATT Trace Files... and select the ``.att``/``.out`` files.
+Import raw .att and .out files
+--------------------------------
+
+To import raw ``.att`` and ``.out`` files into the Compute Viewer (requires a decoder-enabled build):
+
+- Go to **Menu > Import > ATT Trace Files...** and select the files.
 - Or pass the directory on the command line:
 
 .. code-block:: bash
 
     ./rcviewer <dir_with_att_out_files>
 
-When the raw trace was captured via the rocprofiler-sdk API it has no ``code.json``/``snapshots.json``, so the Instructions view and source pane stay empty until you regenerate that correlation from the kernel code objects:
+.. _generating-isa-source-correlation:
+
+Generating ISA and source correlation
+---------------------------------------
+
+Raw traces captured via the rocprofiler-sdk API don't include ``code.json`` or ``snapshots.json``, so the Instructions view and source pane stay empty. Use ``scripts/generate_snapshot.py`` to recreate that correlation from the kernel code objects:
 
 .. code-block:: bash
 
+    # Explicit code objects
     python3 scripts/generate_snapshot.py kernel_code_object_id_1.out kernel_code_object_id_2.out
 
-This writes ``code.json``, ``snapshots.json``, and copies of the referenced source files into the current directory, which you then pass to the viewer.
+    # With no arguments, scans every *.hsaco and *.out in the current directory
+    python3 scripts/generate_snapshot.py
 
-The various views available as tabs on the top are described in the following sections.
+This writes ``code.json``, ``snapshots.json``, and copies of the referenced source files into the current directory. See :ref:`importing raw .att and .out files <loading-raw-att-out>` for how to load them in the viewer.
+
+Key considerations when using the script:
+
+- **Code object IDs:** Each code object is tagged with the ID the trace references, parsed from the trailing number in the filename (for example, ``..._code_object_id_1.out`` → ``1``, ``codeobj_42.out`` → ``42``). Only ``.hsaco`` files might use ID ``0``; a ``.out`` without a parseable ID, or an ID that collides with another input, is skipped with a warning.
+
+- **Debug symbols:** Build the code objects with debug info (``-g``) to enable source-line mapping. Without it, the script still produces ISA output but the source pane stays empty.
+
+- **Dependencies:** The script requires ``llvm-objdump`` to disassemble code objects and the ``pyelftools`` Python package to parse ELF metadata. Install ``pyelftools`` with ``pip install pyelftools``. ``llvm-objdump`` is available from a ROCm or LLVM install, or can be added to ``PATH`` separately.
+
+Shortcuts and interactions
+===========================
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 70
+
+   * - Shortcut
+     - Action
+   * - **Tabs**
+     -
+   * - Ctrl + Left click on a tab header
+     - Keep multiple tabs open simultaneously.
+   * - Left click on a tab header
+     - Switch to that tab (closes other tabs).
+   * - :ref:`Plots <occupancy-and-kernel-dispatch-views>`
+     -
+   * - Mouse wheel
+     - Zoom in or out horizontally.
+   * - Ctrl + Mouse wheel
+     - Zoom in or out vertically.
+   * - Right click + drag
+     - Pan the plot.
+   * - Ctrl + Left click
+     - Reset axes to default.
+   * - :ref:`Compute Unit and Utilization view <compute-unit-and-utilization-view>`
+     -
+   * - A / D
+     - Pan left or right.
+   * - Mouse wheel
+     - Scroll vertically.
+   * - Shift + Mouse wheel
+     - Scroll horizontally.
+   * - Ctrl + Mouse wheel
+     - Zoom in or out.
+   * - Right click + drag
+     - Measure a cycle range (also available in :ref:`Global view <global-view>`).
+   * - Left click on a token
+     - Highlight the corresponding ISA line.
 
 Requirements
 ==============
@@ -89,6 +157,8 @@ The Hotspot tab displays a histogram of instruction costs.
 - IMMED instructions such as ``s_nop``, ``s_waitcnt``, and ``s_barrier`` might appear to over-represent cycles since waves in a SIMD often wait concurrently.
 
 - IDLE time is not computed into hotspot; only EXECUTE and STALL.
+
+.. _compute-unit-and-utilization-view:
 
 Compute Unit and Utilization view
 ==================================
@@ -137,6 +207,8 @@ The ISA view is available under Compute Unit and Utilization tabs. The ISA view 
 - Hover or click on an ISA line to highlight the corresponding source line, as seen on the right-hand side of the image. Vice versa is also applicable.
 
   - Clicking on a source line keeps the corresponding ISA line highlighted until you click on the same or another line.
+
+.. _global-view:
 
 Global view
 ============
@@ -188,6 +260,8 @@ To enable the summary view, use the following parameters:
   - For peak rates: :math:`max_over_cycles(add_over_cu(X))/max_over_cycles(add_over_cu(SQ_BUSY_CU_CYCLES))`
 
   - For other values: :math:`add_all(X)/add_all(SQ_BUSY_CU_CYCLES)`
+
+.. _occupancy-and-kernel-dispatch-views:
 
 Occupancy and Kernel dispatch views
 ===================================
@@ -341,6 +415,26 @@ The Flamegraph view (which replaces the previous Explorer view) rolls up latency
 - Hover a frame to see its latency; click to zoom into that frame.
 
 - When the trace contains SQTT instrumentation markers, a separate global marker flamegraph is also available, rolling up time spent inside instrumented regions.
+
+- After hidden latency analysis runs, the flamegraph can be weighted by **Total latency** or **Non-hidden latency**. Tooltips show the total, non-hidden, and hidden cycle breakdown for each frame. Marker flamegraphs can also use either weighting option.
+
+.. note::
+
+   Marker flamegraphs have one limitation: non-hidden marker widths distribute hidden latency from per-ISA-line totals. If the same instruction line appears under multiple marker scopes, or if hidden work crosses marker boundaries, marker-level non-hidden widths are approximate. Total-latency marker flamegraphs are unaffected.
+
+Hidden latency
+===============
+
+Hidden latency runs automatically for gfx10+ thread traces. To run it manually, go to **Analyze > Hidden Latency**.
+
+Hidden latency estimates cycles that are hidden by other busy pipes. A wave's idle or stalled cycles are hidden when another pipe is busy. Issuing or executing cycles are hidden only by a higher-priority busy pipe.
+
+The current pipe priority order, from highest to lowest, is WMMA > VALU > VMEM/LDS/FLAT > SMEM/SALU > Others. Instructions classified as Others (IMMED, MSG, branches, and similar token types) never hide latency. This priority order is a first approximation.
+
+After the analysis runs, the instruction latency dropdown in the Instructions view, the source hotspots, and the Flamegraph view can each be set to display either of the following:
+
+- **Total latency**: All cycles, including those hidden by concurrent pipe activity.
+- **Non-hidden latency**: Latency not hidden by other pipes, calculated as total latency minus the hidden portion.
 
 Troubleshooting
 ================
