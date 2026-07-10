@@ -24,7 +24,16 @@ The documentation is structured as follows:
 
   .. grid-item-card:: How to
 
-    * :ref:`using-compute-viewer`
+    * :ref:`Visualize and analyze GPU thread trace data <using-compute-viewer>`
+    * :ref:`Troubleshooting <rcv-troubleshooting>`
+
+  .. grid-item-card:: Reference
+
+    * :ref:`Views and controls <rcv-views-reference>`
+
+  .. grid-item-card:: Conceptual
+
+    * :ref:`Hidden latency <hidden-latency-concept>`
 
 To contribute to the documentation, refer to
 `Contributing to ROCm <https://rocm.docs.amd.com/en/latest/contribute/contributing.html>`_.

@@ -11,6 +11,13 @@ subtrees:
 - caption: How to
   entries:
   - file: how-to/using_compute_viewer
+  - file: how-to/troubleshooting
+- caption: Reference
+  entries:
+  - file: reference/views
+- caption: Conceptual
+  entries:
+  - file: conceptual/hidden_latency
 - caption: About
   entries:
   - file: license
