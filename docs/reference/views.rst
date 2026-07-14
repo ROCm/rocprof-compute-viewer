@@ -15,39 +15,46 @@ Shortcuts and interactions
 
 .. list-table::
    :header-rows: 1
-   :widths: 30 70
+   :widths: 25 30 45
 
-   * - Shortcut
+   * - Category
+     - Shortcut
      - Action
-   * - **Tabs**
-     -
-   * - Ctrl + Left click on a tab header
+   * - General UI interactions (Tabs)
+     - Ctrl + Left click on a tab header
      - Keep multiple tabs open simultaneously.
-   * - Left click on a tab header
+   * -
+     - Left click on a tab header
      - Switch to that tab (closes other tabs).
    * - :ref:`Plots <occupancy-and-kernel-dispatch-views>`
-     -
-   * - Mouse wheel
+     - Mouse wheel
      - Zoom in or out horizontally.
-   * - Ctrl + Mouse wheel
+   * -
+     - Ctrl + Mouse wheel
      - Zoom in or out vertically.
-   * - Right click + drag
+   * -
+     - Right click + drag
      - Pan the plot.
-   * - Ctrl + Left click
+   * -
+     - Ctrl + Left click
      - Reset axes to default.
    * - :ref:`Compute Unit and Utilization view <compute-unit-and-utilization-view>`
-     -
-   * - A / D
+     - A / D
      - Pan left or right.
-   * - Mouse wheel
+   * -
+     - Mouse wheel
      - Scroll vertically.
-   * - Shift + Mouse wheel
+   * -
+     - Shift + Mouse wheel
      - Scroll horizontally.
-   * - Ctrl + Mouse wheel
+   * -
+     - Ctrl + Mouse wheel
      - Zoom in or out.
-   * - Right click + drag
+   * -
+     - Right click + drag
      - Measure a cycle range (also available in :ref:`Global view <global-view>`).
-   * - Left click on a token
+   * -
+     - Left click on a token
      - Highlight the corresponding ISA line.
 
 Settings
@@ -329,4 +336,4 @@ The Flamegraph view (which replaces the previous Explorer view) rolls up latency
 
 .. note::
 
-   Marker flamegraphs have one limitation: non-hidden marker widths distribute hidden latency from per-ISA-line totals. If the same instruction line appears under multiple marker scopes, or if hidden work crosses marker boundaries, marker-level non-hidden widths are approximate. Total-latency marker flamegraphs are unaffected.
+   Marker flamegraphs have a limitation with non-hidden latency weighting. For details, see :ref:`flamegraph`.

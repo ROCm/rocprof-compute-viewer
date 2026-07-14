@@ -17,7 +17,7 @@ ROCprof Compute Viewer (RCV) interprets the output of `ui_output_agent_{agent_id
 - Flamegraph view (per-target-CU/SIMD source and ISA stack rollup, plus a global marker flamegraph when SQTT instrumentation is present)
 - SQTT instrumentation marker visualization (from the ``.sqtt_funcmap`` ELF section emitted by the LLVM pass)
 
-For a description of each view and its controls, see :ref:`Views and shortcuts <rcv-views-reference>`.
+For a description of each view and its controls, see the :ref:`Views and shortcuts <rcv-views-reference>` topic.
 
 Requirements
 =============
@@ -75,12 +75,14 @@ To import raw ``.att`` and ``.out`` files into the Compute Viewer (requires a de
 
     ./rcviewer <dir_with_att_out_files>
 
+Raw traces captured via the rocprofiler-sdk API don't include ``code.json`` or ``snapshots.json``, so the Instructions view and source pane are empty by default. To enable them, generate the ISA and source correlation before importing.
+
 .. _generating-isa-source-correlation:
 
 Generating ISA and source correlation
----------------------------------------
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Raw traces captured via the rocprofiler-sdk API don't include ``code.json`` or ``snapshots.json``, so the Instructions view and source pane stay empty. Use ``scripts/generate_snapshot.py`` to recreate that correlation from the kernel code objects:
+Use ``scripts/generate_snapshot.py`` to recreate that correlation from the kernel code objects:
 
 .. code-block:: bash
 
@@ -90,7 +92,7 @@ Raw traces captured via the rocprofiler-sdk API don't include ``code.json`` or `
     # With no arguments, scans every *.hsaco and *.out in the current directory
     python3 scripts/generate_snapshot.py
 
-This writes ``code.json``, ``snapshots.json``, and copies of the referenced source files into the current directory. See :ref:`importing raw .att and .out files <loading-raw-att-out>` for how to load them in the viewer.
+This writes ``code.json``, ``snapshots.json``, and copies of the referenced source files into the current directory. Once generated, import the directory as described above.
 
 Key considerations when using the script:
 

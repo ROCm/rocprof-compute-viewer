@@ -19,6 +19,8 @@ After the analysis runs, the instruction latency dropdown in the Instructions vi
 - **Total latency**: All cycles, including those hidden by concurrent pipe activity.
 - **Non-hidden latency**: Latency not hidden by other pipes, calculated as total latency minus the hidden portion.
 
+.. _flamegraph:
+
 Flamegraph and marker interaction
 ===================================
 
