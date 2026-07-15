@@ -28,6 +28,7 @@
 #include <QScrollBar>
 #include <QToolTip>
 #include <algorithm>
+#include <cmath>
 #include <cstdlib>
 #include <sstream>
 #include <utility>
@@ -130,11 +131,12 @@ void QWaveView::paintEvent(QPaintEvent* event)
     MainWindow::getScaling(painter);
     painter.setRenderHint(QPainter::Antialiasing);
 
+    const double scaling = MainWindow::getScaling();
     int64_t cutoff_start = QCustomScroll::clock_cutoff_start + view->start;
     int64_t cutoff_end = std::min(cutoff_start + Token::PosToClock(width()), QCustomScroll::clock_cutoff_end);
 
     for (auto& [_, wave] : waves) wave->Draw(painter, cutoff_start, cutoff_end);
-    DrawDecoderEvents(painter, cutoff_start, cutoff_end, height() / MainWindow::getScaling());
+    DrawDecoderEvents(painter, cutoff_start, cutoff_end, static_cast<int>(std::ceil(height() / scaling)));
 }
 
 void QWaveView::DrawDecoderEvents(QPainter& painter, int64_t clock_start, int64_t clock_end, int height)
@@ -166,13 +168,21 @@ bool QWaveView::ShowDecoderEventTooltip(const QPoint& global_pos, int64_t clock)
         return true;
     }
 
-    if (const auto* trace_event = WaveOverlay::findRecordAt(trace_events, clock, tolerance, true))
+    const int trace_event_index = WaveOverlay::findRecordIndexAtIf(
+        trace_events,
+        clock,
+        tolerance,
+        [](const trace_event_record_t& event)
+        { return WaveOverlay::showTraceEvent(event, WaveOverlay::DecoderEventSurface::ComputeUnit); },
+        true
+    );
+    if (trace_event_index >= 0)
     {
-        if (!WaveOverlay::showTraceEvent(*trace_event, WaveOverlay::DecoderEventSurface::ComputeUnit)) return false;
+        const auto& trace_event = trace_events->at(trace_event_index);
 
         clearLineHover();
         QToolTip::showText(
-            global_pos, QString::fromStdString(WaveOverlay::formatTraceEventTooltip(*trace_event, decoder_event_se))
+            global_pos, QString::fromStdString(WaveOverlay::formatTraceEventTooltip(trace_event, decoder_event_se))
         );
         return true;
     }
@@ -520,18 +530,19 @@ void QWaveSlots::paintEvent(QPaintEvent* event)
     const int64_t pixel_spacing = Token::GetTokenSize(clock_spacing);
     const int64_t clock_start = QCustomScroll::clock_cutoff_start + view->start;
 
+    const double inv_scale = 1.0 / MainWindow::getScaling();
+    const int scaled_wid = static_cast<int>(std::ceil(width() * inv_scale));
+    const int scaled_hei = static_cast<int>(std::ceil(height() * inv_scale));
+    const int content_x = static_cast<int>(std::ceil(cuwaves_content->pos().x() * inv_scale));
+
     int64_t clock_iter = clock_start + clock_spacing - (clock_start % clock_spacing);
-    int barpos = cuwaves_content->pos().x() + Token::GetTokenSize(clock_iter - clock_start);
+    int barpos = content_x + Token::GetTokenSize(clock_iter - clock_start);
 
     QPen pen = painter.pen();
     pen.setWidth(1);
     pen.setStyle(Qt::DashLine);
     pen.setColor(WindowColors::textColor());
     painter.setPen(pen);
-
-    const float INVSCALE = 1.0f / MainWindow::getScaling();
-    const int scaled_wid = width() * INVSCALE;
-    const int scaled_hei = height() * INVSCALE;
 
     while (barpos < scaled_wid)
     {
@@ -553,7 +564,10 @@ void QWaveSlots::paintEvent(QPaintEvent* event)
 
     QPainterPath path;
     path.addRect(QRect(
-        (tool->measure_start_x + cuwaves_content->pos().x()) * INVSCALE, 0, tool->measure_size_x * INVSCALE, scaled_hei
+        (tool->measure_start_x + cuwaves_content->pos().x()) * inv_scale,
+        0,
+        tool->measure_size_x * inv_scale,
+        scaled_hei
     ));
     painter.fillPath(path, WindowColors::MeasureTool());
 }
@@ -837,7 +851,7 @@ int QShaderDataView::suggestedHeight(int legacy_height) const
     if (markers.empty()) return legacy_height;
     // legacy_height is half-row by convention; give one (slightly thinner) row per stack depth, capped.
     const int row_h = std::max((legacy_height * 7) / 8, 7);
-    const int rows = std::min(markers.max_depth + 1, 8);
+    const int rows = std::max(1, std::min(markers.max_depth + 1, 8));
     return row_h * rows;
 }
 
@@ -846,8 +860,11 @@ void QShaderDataView::paintEvent(QPaintEvent* event)
     QPainter painter(this);
     MainWindow::getScaling(painter);
 
-    const int h = height();
-    const int w = width();
+    // Shader-data geometry uses the scaled painter coordinate system.
+    const double scaling = MainWindow::getScaling();
+    const int h = static_cast<int>(std::ceil(height() / scaling));
+    const int w = static_cast<int>(std::ceil(width() / scaling));
+    const int widget_w = width();
 
     // Draw track guide lines
     {
@@ -861,7 +878,7 @@ void QShaderDataView::paintEvent(QPaintEvent* event)
     }
 
     int64_t cutoff_start = QCustomScroll::clock_cutoff_start + view->start;
-    int64_t cutoff_end = std::min(cutoff_start + Token::PosToClock(w), QCustomScroll::clock_cutoff_end);
+    int64_t cutoff_end = std::min(cutoff_start + Token::PosToClock(widget_w), QCustomScroll::clock_cutoff_end);
 
     // Marker mode: render typed colored spans + ticks.
     if (!markers.empty())
@@ -869,7 +886,7 @@ void QShaderDataView::paintEvent(QPaintEvent* event)
         painter.setRenderHint(QPainter::Antialiasing, false);
 
         const auto& spans = *markers.spans;
-        const int rows = std::max(markers.max_depth + 1, 1);
+        const int rows = std::max(1, std::min(markers.max_depth + 1, 8));
         const int row_h = std::max((h - 2) / rows, 2);
 
         const QPen edge(Qt::black, 0.5);
@@ -906,20 +923,7 @@ void QShaderDataView::paintEvent(QPaintEvent* event)
             }
         };
 
-        // First-candidate cursor: closed spans whose enter_time precedes the
-        // viewport are caught via max_closed_dur backstep; open spans before
-        // that cutoff are tracked separately and always considered.
-        const int64_t search_from = cutoff_start - markers.max_closed_dur;
-        for (auto it = markers.FirstCandidate(cutoff_start); it != spans.end(); ++it)
-        {
-            if (it->enter_time > cutoff_end) break;
-            draw_span(*it, static_cast<size_t>(it - spans.begin()));
-        }
-        for (int idx : markers.open_indices)
-        {
-            if (spans[idx].enter_time >= search_from) break;
-            draw_span(spans[idx], static_cast<size_t>(idx));
-        }
+        markers.ForEachOverlapping(cutoff_start, cutoff_end, [&](size_t idx) { draw_span(spans[idx], idx); });
 
         painter.setRenderHint(QPainter::Antialiasing, true);
         return;
@@ -974,12 +978,11 @@ void QShaderDataView::mouseMoveEvent(QMouseEvent* event)
     {
         const auto& spans = *markers.spans;
         const int h = height();
-        const int rows = std::max(markers.max_depth + 1, 1);
+        const int rows = std::max(1, std::min(markers.max_depth + 1, 8));
         const int row_h = std::max((h - 2) / rows, 2);
         const int hover_row = std::clamp((event->pos().y() - 1) / row_h, 0, rows - 1);
         const int hover_depth = markerDepthForRow(hover_row, rows);
 
-        const int64_t search_from = clock - markers.max_closed_dur;
         const int64_t point_tol = std::max<int64_t>(Token::PosToClock(3), SQTT_POINT_MARKER_MIN_CYCLES);
         const MarkerSpan* best = nullptr;
         ptrdiff_t best_idx = -1;
@@ -1002,16 +1005,9 @@ void QShaderDataView::mouseMoveEvent(QMouseEvent* event)
                 best_idx = idx;
             }
         };
-        for (auto it = markers.FirstCandidate(clock); it != spans.end(); ++it)
-        {
-            if (it->enter_time > clock) break;
-            consider(*it, it - spans.begin());
-        }
-        for (int idx : markers.open_indices)
-        {
-            if (spans[idx].enter_time >= search_from) break;
-            consider(spans[idx], idx);
-        }
+        markers.ForEachOverlapping(
+            clock - point_tol, clock + point_tol, [&](size_t idx) { consider(spans[idx], static_cast<ptrdiff_t>(idx)); }
+        );
 
         if (best)
         {

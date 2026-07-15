@@ -252,7 +252,8 @@ public:
         mipmap_level = new_mipmap_level;
         for (auto* view : views)
         {
-            view->setFixedHeight(view->sizeHint().height());
+            const int height = view->sizeHint().height();
+            if (view->height() != height) view->setFixedHeight(height);
             view->updateGeometry();
         }
         if (labelPanel) labelPanel->recalculatePositions();
