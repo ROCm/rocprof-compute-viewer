@@ -52,6 +52,22 @@ static constexpr int COL_SA = 23;
 static constexpr int COL_CU = 35;
 static constexpr int COL_SM = 55;
 
+namespace
+{
+/// Return the first tick in the existing grid that is visible at or after
+/// `visible_clock_start`.  The initial tick deliberately matches the previous
+/// paint loops so the grid phase remains unchanged.
+int64_t firstVisibleTick(int64_t trace_begin, int64_t tick_spacing, int64_t visible_clock_start)
+{
+    int64_t tick = trace_begin + tick_spacing - (trace_begin % tick_spacing);
+    if (tick >= visible_clock_start) return tick;
+
+    const int64_t distance = visible_clock_start - tick;
+    tick += (distance / tick_spacing + (distance % tick_spacing != 0)) * tick_spacing;
+    return tick;
+}
+} // namespace
+
 // QTickHeader implementation
 QTickHeader::QTickHeader(QWidget* parent) : QWidget(parent) { setFixedHeight(HEADER_HEIGHT); }
 
@@ -64,11 +80,10 @@ int QTickHeader::getHorizontalOffset() const
 void QTickHeader::paintEvent(QPaintEvent* event)
 {
     QPainter painter(this);
+    const QRect area = event->rect();
 
     // Fill background
-    QPainterPath path;
-    path.addRect(rect());
-    painter.fillPath(path, WindowColors::Background());
+    painter.fillRect(area, WindowColors::Background());
 
     painter.setPen(WindowColors::textColor());
     QFontMetrics fm(painter.font());
@@ -95,24 +110,28 @@ void QTickHeader::paintEvent(QPaintEvent* event)
         QFontMetrics fm(painter.font());
         int fmheight = fm.ascent();
 
-        // Use the same calculation as QGlobalView::paintEvent
+        // The header itself does not scroll, so map its exposed timeline range
+        // back into the scrolled content. Starting at tick zero makes a zoomed
+        // or far-right view walk every prior tick on every paint.
         int64_t bt = QGlobalView::PosToClock(0); // This equals static begintime
-        int64_t clock_iter = bt + clock_spacing - (bt % clock_spacing);
-
-        while (true)
+        if (area.right() >= LEFT_MARGIN)
         {
-            // Calculate position the same way as in QGlobalView, then add offset
-            int64_t content_pos = QGlobalView::ClockToPos(clock_iter);
-            int barpos = LEFT_MARGIN + content_pos - hOffset;
-            if (barpos >= width()) break;
+            const int64_t content_left = hOffset + std::max(0, area.left() - LEFT_MARGIN);
+            const int64_t content_right = hOffset + std::max(0, area.right() - LEFT_MARGIN);
+            const int64_t visible_clock_start = QGlobalView::PosToClock(content_left);
+            const int64_t visible_clock_end = QGlobalView::PosToClock(content_right);
+            int64_t clock_iter = firstVisibleTick(bt, clock_spacing, visible_clock_start);
 
-            if (barpos >= LEFT_MARGIN)
+            while (clock_iter <= visible_clock_end)
             {
+                // Calculate position the same way as in QGlobalView, then add offset.
+                const int barpos = static_cast<int>(LEFT_MARGIN + QGlobalView::ClockToPos(clock_iter) - hOffset);
                 painter.drawLine(barpos, 0, barpos, height());
                 std::string cycle = std::to_string(clock_iter);
                 painter.drawText(barpos + 3, fmheight + 2, cycle.c_str());
+
+                clock_iter += clock_spacing;
             }
-            clock_iter += clock_spacing;
         }
     }
 
@@ -680,10 +699,9 @@ void QGlobalView::SetDecoderEventGroups(uint32_t groups)
 void QGlobalView::paintEvent(QPaintEvent* event)
 {
     QPainter painter(this);
+    const QRect area = event->rect();
 
-    QPainterPath path;
-    path.addRect(QRect(0, 0, width(), height()));
-    painter.fillPath(path, WindowColors::Background());
+    painter.fillRect(area, WindowColors::Background());
 
     // Draw horizontal separator lines at SIMD group boundaries
     if (labelPanel)
@@ -694,7 +712,11 @@ void QGlobalView::paintEvent(QPaintEvent* event)
         sepPen.setColor(QColor(80, 80, 80));
         painter.setPen(sepPen);
 
-        for (int y : labelPanel->m_simdBoundaries) painter.drawLine(0, y, width(), y);
+        auto it = std::lower_bound(
+            labelPanel->m_simdBoundaries.begin(), labelPanel->m_simdBoundaries.end(), area.top()
+        );
+        for (; it != labelPanel->m_simdBoundaries.end() && *it <= area.bottom(); ++it)
+            painter.drawLine(area.left(), *it, area.right(), *it);
     }
 
     // Draw vertical tick lines (labels are in the sticky header)
@@ -708,14 +730,14 @@ void QGlobalView::paintEvent(QPaintEvent* event)
         pen.setColor(WindowColors::textColor());
         painter.setPen(pen);
 
-        int64_t clock_iter = begintime + clock_spacing - (begintime % clock_spacing);
+        const int64_t visible_clock_start = PosToClock(area.left());
+        const int64_t visible_clock_end = PosToClock(area.right());
+        int64_t clock_iter = firstVisibleTick(begintime, clock_spacing, visible_clock_start);
 
-        while (true)
+        while (clock_iter <= visible_clock_end)
         {
-            int barpos = ClockToPos(clock_iter);
-            if (barpos >= width()) break;
-
-            painter.drawLine(barpos, 0, barpos, height());
+            const int barpos = static_cast<int>(ClockToPos(clock_iter));
+            painter.drawLine(barpos, area.top(), barpos, area.bottom());
             clock_iter += clock_spacing;
         }
     }
