@@ -25,6 +25,7 @@
 #include <QColor>
 #include <QString>
 
+#include <algorithm>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -65,33 +66,61 @@ std::string FormatMarkerTooltip(
 
 /// Per-bucket precomputed cache shared by both the per-wave and global wave
 /// views. All derived fields are filled once in Reset() — paint and hit-test
-/// then run in O(visible) without further allocation or color resolution.
+/// then prune non-intersecting spans without allocation or color resolution.
 struct MarkerRenderCache
 {
     MarkerSpanVec spans;
     /// Parallel to *spans; resolved once via MarkerColor() at Reset time.
     std::vector<QColor> colors;
-    /// Indices of all is_open spans, in enter_time order. They straddle the
-    /// viewport arbitrarily and are always considered on top of the lower_bound
-    /// result.
-    std::vector<int> open_indices;
     int max_depth = 0;
-    /// Largest closed-span duration; used to extend the lower_bound starting
-    /// cursor backward so a long outer span whose enter_time precedes the
-    /// visible window is not missed.
-    int64_t max_closed_dur = 0;
 
     /// Replace the cache contents with the given spans. Recomputes colors,
-    /// max_depth, max_closed_dur, and open_indices. Safe to call with a null
-    /// or empty `spans` (clears the cache).
+    /// max_depth, and the overlap index. Safe to call with a null or empty
+    /// `spans` (clears the cache).
     void Reset(MarkerSpanVec spans);
 
     /// True when no spans are bound. Cheaper than spans->empty() against a null.
     bool empty() const { return !spans || spans->empty(); }
 
-    /// Iterator into *spans of the first closed span whose enter_time may
-    /// overlap `cursor_clock` (i.e. enter_time >= cursor_clock - max_closed_dur).
-    /// Use this as the start of a forward iteration in paint and hit-test.
-    /// Precondition: !empty().
-    std::vector<MarkerSpan>::const_iterator FirstCandidate(int64_t cursor_clock) const;
+    /// Invoke `f(index)` for every span intersecting [begin_clock, end_clock],
+    /// in enter-time order. Open spans are included naturally.
+    template <typename F> void ForEachOverlapping(int64_t begin_clock, int64_t end_clock, F&& f) const
+    {
+        if (empty() || begin_clock > end_clock) return;
+
+        const size_t limit = static_cast<size_t>(
+            std::upper_bound(
+                spans->begin(),
+                spans->end(),
+                end_clock,
+                [](int64_t clock, const MarkerSpan& span) { return clock < span.enter_time; }
+            ) -
+            spans->begin()
+        );
+        if (limit == 0) return;
+
+        forEachOverlapping(1, 0, overlap_tree_base, limit, begin_clock, f);
+    }
+
+private:
+    template <typename F>
+    void forEachOverlapping(size_t node, size_t first, size_t last, size_t limit, int64_t begin_clock, F& f) const
+    {
+        if (first >= limit || overlap_max_exit[node] < begin_clock) return;
+        if (last - first == 1)
+        {
+            f(first);
+            return;
+        }
+
+        const size_t middle = first + (last - first) / 2;
+        forEachOverlapping(node * 2, first, middle, limit, begin_clock, f);
+        forEachOverlapping(node * 2 + 1, middle, last, limit, begin_clock, f);
+    }
+
+    /// Segment tree over `spans`, storing the latest exit in each subtree.
+    /// This avoids a longest-duration backscan when one marker spans a large
+    /// fraction of the trace.
+    size_t overlap_tree_base = 0;
+    std::vector<int64_t> overlap_max_exit;
 };

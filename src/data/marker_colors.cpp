@@ -26,6 +26,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <limits>
 #include <sstream>
 
 #include "config/config.hpp"
@@ -124,31 +125,25 @@ void MarkerRenderCache::Reset(MarkerSpanVec new_spans)
 {
     spans = std::move(new_spans);
     colors.clear();
-    open_indices.clear();
     max_depth = 0;
-    max_closed_dur = 0;
+    overlap_tree_base = 0;
+    overlap_max_exit.clear();
     if (!spans || spans->empty()) return;
+
     const auto& v = *spans;
     colors.reserve(v.size());
+    overlap_tree_base = 1;
+    while (overlap_tree_base < v.size()) overlap_tree_base *= 2;
+    overlap_max_exit.assign(overlap_tree_base * 2, std::numeric_limits<int64_t>::min());
+
     for (size_t i = 0; i < v.size(); ++i)
     {
         const auto& s = v[i];
         colors.push_back(MarkerColor(s.kind, s.name));
         if (s.depth > max_depth) max_depth = s.depth;
-        if (s.is_open)
-            open_indices.push_back(static_cast<int>(i));
-        else if (!s.is_point)
-        {
-            int64_t dur = s.exit_time - s.enter_time;
-            if (dur > max_closed_dur) max_closed_dur = dur;
-        }
+        overlap_max_exit[overlap_tree_base + i] = s.is_open ? std::numeric_limits<int64_t>::max() : s.exit_time;
     }
-}
 
-std::vector<MarkerSpan>::const_iterator MarkerRenderCache::FirstCandidate(int64_t cursor_clock) const
-{
-    const int64_t search_from = cursor_clock - max_closed_dur;
-    return std::lower_bound(
-        spans->begin(), spans->end(), search_from, [](const MarkerSpan& s, int64_t c) { return s.enter_time < c; }
-    );
+    for (size_t node = overlap_tree_base - 1; node > 0; --node)
+        overlap_max_exit[node] = std::max(overlap_max_exit[node * 2], overlap_max_exit[node * 2 + 1]);
 }

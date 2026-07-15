@@ -136,7 +136,7 @@ void ShaderDataManager::Load(const nlohmann::json& shaderdata_filenames, const s
 
     for (auto& [key, records] : tmp)
     {
-        std::sort(records.begin(), records.end(), cmp);
+        std::stable_sort(records.begin(), records.end(), cmp);
         m_records_by_location[key] = std::make_shared<const std::vector<ShaderDataRecord>>(std::move(records));
         m_has_data = true;
     }
@@ -170,7 +170,7 @@ void ShaderDataManager::Finalize()
 
     for (auto& [key, records] : m_pending)
     {
-        std::sort(records.begin(), records.end(), cmp);
+        std::stable_sort(records.begin(), records.end(), cmp);
         m_records_by_location[key] = std::make_shared<const std::vector<ShaderDataRecord>>(std::move(records));
         m_has_data = true;
     }
@@ -253,7 +253,7 @@ void ShaderDataManager::ResolveMarkers(const MarkerResolveAtFn& resolver)
         if (spans.empty()) continue;
 
         // Sort by enter_time so paint can binary-search the visible range.
-        std::sort(
+        std::stable_sort(
             spans.begin(),
             spans.end(),
             [](const MarkerSpan& a, const MarkerSpan& b) { return a.enter_time < b.enter_time; }

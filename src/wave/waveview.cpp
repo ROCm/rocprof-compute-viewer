@@ -168,13 +168,21 @@ bool QWaveView::ShowDecoderEventTooltip(const QPoint& global_pos, int64_t clock)
         return true;
     }
 
-    if (const auto* trace_event = WaveOverlay::findRecordAt(trace_events, clock, tolerance, true))
+    const int trace_event_index = WaveOverlay::findRecordIndexAtIf(
+        trace_events,
+        clock,
+        tolerance,
+        [](const trace_event_record_t& event)
+        { return WaveOverlay::showTraceEvent(event, WaveOverlay::DecoderEventSurface::ComputeUnit); },
+        true
+    );
+    if (trace_event_index >= 0)
     {
-        if (!WaveOverlay::showTraceEvent(*trace_event, WaveOverlay::DecoderEventSurface::ComputeUnit)) return false;
+        const auto& trace_event = trace_events->at(trace_event_index);
 
         clearLineHover();
         QToolTip::showText(
-            global_pos, QString::fromStdString(WaveOverlay::formatTraceEventTooltip(*trace_event, decoder_event_se))
+            global_pos, QString::fromStdString(WaveOverlay::formatTraceEventTooltip(trace_event, decoder_event_se))
         );
         return true;
     }
@@ -843,7 +851,7 @@ int QShaderDataView::suggestedHeight(int legacy_height) const
     if (markers.empty()) return legacy_height;
     // legacy_height is half-row by convention; give one (slightly thinner) row per stack depth, capped.
     const int row_h = std::max((legacy_height * 7) / 8, 7);
-    const int rows = std::min(markers.max_depth + 1, 8);
+    const int rows = std::max(1, std::min(markers.max_depth + 1, 8));
     return row_h * rows;
 }
 
@@ -878,7 +886,7 @@ void QShaderDataView::paintEvent(QPaintEvent* event)
         painter.setRenderHint(QPainter::Antialiasing, false);
 
         const auto& spans = *markers.spans;
-        const int rows = std::max(markers.max_depth + 1, 1);
+        const int rows = std::max(1, std::min(markers.max_depth + 1, 8));
         const int row_h = std::max((h - 2) / rows, 2);
 
         const QPen edge(Qt::black, 0.5);
@@ -915,20 +923,7 @@ void QShaderDataView::paintEvent(QPaintEvent* event)
             }
         };
 
-        // First-candidate cursor: closed spans whose enter_time precedes the
-        // viewport are caught via max_closed_dur backstep; open spans before
-        // that cutoff are tracked separately and always considered.
-        const int64_t search_from = cutoff_start - markers.max_closed_dur;
-        for (auto it = markers.FirstCandidate(cutoff_start); it != spans.end(); ++it)
-        {
-            if (it->enter_time > cutoff_end) break;
-            draw_span(*it, static_cast<size_t>(it - spans.begin()));
-        }
-        for (int idx : markers.open_indices)
-        {
-            if (spans[idx].enter_time >= search_from) break;
-            draw_span(spans[idx], static_cast<size_t>(idx));
-        }
+        markers.ForEachOverlapping(cutoff_start, cutoff_end, [&](size_t idx) { draw_span(spans[idx], idx); });
 
         painter.setRenderHint(QPainter::Antialiasing, true);
         return;
@@ -983,12 +978,11 @@ void QShaderDataView::mouseMoveEvent(QMouseEvent* event)
     {
         const auto& spans = *markers.spans;
         const int h = height();
-        const int rows = std::max(markers.max_depth + 1, 1);
+        const int rows = std::max(1, std::min(markers.max_depth + 1, 8));
         const int row_h = std::max((h - 2) / rows, 2);
         const int hover_row = std::clamp((event->pos().y() - 1) / row_h, 0, rows - 1);
         const int hover_depth = markerDepthForRow(hover_row, rows);
 
-        const int64_t search_from = clock - markers.max_closed_dur;
         const int64_t point_tol = std::max<int64_t>(Token::PosToClock(3), SQTT_POINT_MARKER_MIN_CYCLES);
         const MarkerSpan* best = nullptr;
         ptrdiff_t best_idx = -1;
@@ -1011,16 +1005,9 @@ void QShaderDataView::mouseMoveEvent(QMouseEvent* event)
                 best_idx = idx;
             }
         };
-        for (auto it = markers.FirstCandidate(clock); it != spans.end(); ++it)
-        {
-            if (it->enter_time > clock) break;
-            consider(*it, it - spans.begin());
-        }
-        for (int idx : markers.open_indices)
-        {
-            if (spans[idx].enter_time >= search_from) break;
-            consider(spans[idx], idx);
-        }
+        markers.ForEachOverlapping(
+            clock - point_tol, clock + point_tol, [&](size_t idx) { consider(spans[idx], static_cast<ptrdiff_t>(idx)); }
+        );
 
         if (best)
         {
