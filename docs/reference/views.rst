@@ -288,7 +288,7 @@ On ROCm 7.13 or later, collect counters only for the target CU with ``--att-perf
 
     rocprofv3 --att-perfcounter-target-only 1 [...]
 
-Here are the SQ counters that help to analyze hardware utilization:
+Here are some example SQ counters that help to analyze hardware utilization:
 
 - SQ_INST_LEVEL_LDS - Measures the current number of in-flight LDS instructions.
 
