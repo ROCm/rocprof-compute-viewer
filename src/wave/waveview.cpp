@@ -786,7 +786,7 @@ void QUtilization::PopulateOtherSimdTokens(int se, int simd, int64_t clock_start
 
     ClearOtherSimd();
 
-    other_simd_id = simd ^ 1;
+    other_simd_id = simd ^ 2;
     if (other_simd_id < 0 || other_simd_id >= int(VMEM.size()) || VMEM.at(other_simd_id) == nullptr) return;
     auto* target_view = VMEM.at(other_simd_id);
     const auto& token_colors = Config::TokenColors();
