@@ -55,6 +55,10 @@ public:
     bool getShowIdleTime() const;
     void setShowIdleTime(bool enabled);
 
+    // Import Options
+    QString getLastImportDirectory(const QString& fallback = {}) const;
+    void setLastImportDirectory(const QString& path);
+
     // Instruction Column Visibility (uses ASMCodeline::Element values)
     bool getColumnVisible(int element, bool bDefault = true) const;
     void setColumnVisible(int element, bool enabled);
