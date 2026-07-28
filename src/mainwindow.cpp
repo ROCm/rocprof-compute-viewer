@@ -792,9 +792,13 @@ bool MainWindow::runHiddenLatencyAnalysis(bool show_dialogs)
 
 void MainWindow::SetJsonsFolder()
 {
-    std::string jsons_dir = QFileDialog::getExistingDirectory(this, "Select Dir", ui_dir.c_str()).toStdString();
-    if (jsons_dir.empty()) return;
-    current_path = jsons_dir;
+    AppConfig& config = AppConfig::getInstance();
+    const QString start_dir = config.getLastImportDirectory(QString::fromStdString(ui_dir));
+    const QString jsons_dir = QFileDialog::getExistingDirectory(this, "Select Dir", start_dir);
+    if (jsons_dir.isEmpty()) return;
+
+    config.setLastImportDirectory(jsons_dir);
+    current_path = jsons_dir.toStdString();
     ResetSelector();
 }
 
@@ -809,10 +813,14 @@ void MainWindow::OpenAttFiles()
     );
     return;
 #else
+    AppConfig& config = AppConfig::getInstance();
+    const QString start_dir = config.getLastImportDirectory(QString::fromStdString(ui_dir));
     QStringList picked = QFileDialog::getOpenFileNames(
-        this, "Select ATT Trace Files", ui_dir.c_str(), "ATT Trace Files (*.att);;All Files (*)"
+        this, "Select ATT Trace Files", start_dir, "ATT Trace Files (*.att);;All Files (*)"
     );
     if (picked.isEmpty()) return;
+
+    config.setLastImportDirectory(picked.front());
 
     InputInfo info;
     info.type = InputType::ATT_FILES;
@@ -853,10 +861,14 @@ void MainWindow::OpenRocpd()
     );
     return;
 #else
+    AppConfig& config = AppConfig::getInstance();
+    const QString start_dir = config.getLastImportDirectory(QString::fromStdString(ui_dir));
     QString picked = QFileDialog::getOpenFileName(
-        this, "Select ROCpd Database", ui_dir.c_str(), "ROCpd Database (*.rocpd);;All Files (*)"
+        this, "Select ROCpd Database", start_dir, "ROCpd Database (*.rocpd);;All Files (*)"
     );
     if (picked.isEmpty()) return;
+
+    config.setLastImportDirectory(picked);
 
     InputInfo info;
     info.type = InputType::ROCPD;

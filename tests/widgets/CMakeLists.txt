@@ -26,6 +26,16 @@ add_test(NAME color_test COMMAND color_test)
 set_tests_properties(color_test PROPERTIES ENVIRONMENT "ASAN_OPTIONS=detect_leaks=0")
 
 # ============================================================================
+# AppConfig Tests - persistent import-directory selection and fallback behavior
+# ============================================================================
+add_executable(appconfig_test appconfig_test.cpp ${SRC_DIR}/config/appconfig.cpp)
+target_include_directories(appconfig_test PRIVATE ${SRC_DIR})
+target_link_libraries(appconfig_test GTest::gtest Qt6::Core)
+rcv_enable_asan(appconfig_test)
+add_test(NAME appconfig_test COMMAND appconfig_test)
+set_tests_properties(appconfig_test PROPERTIES ENVIRONMENT "ASAN_OPTIONS=detect_leaks=0")
+
+# ============================================================================
 # PlotCurve Tests - LOD curve data structures and PlotCurve with LOD generation
 # ============================================================================
 add_executable(plotcurve_test plotcurve_test.cpp)

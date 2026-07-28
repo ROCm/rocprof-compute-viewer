@@ -22,7 +22,20 @@
 
 #include "appconfig.h"
 #include <QDir>
+#include <QFileInfo>
 #include <QStandardPaths>
+
+namespace
+{
+QString existingDirectory(const QString& path)
+{
+    if (path.isEmpty()) return {};
+
+    QFileInfo info(QDir::cleanPath(path));
+    if (!info.exists()) return {};
+    return info.isDir() ? info.absoluteFilePath() : info.absolutePath();
+}
+} // namespace
 
 AppConfig& AppConfig::getInstance()
 {
@@ -79,6 +92,26 @@ void AppConfig::setSeparateLDSPipe(bool enabled) { settings.setValue("DisplayOpt
 bool AppConfig::getShowIdleTime() const { return settings.value("DisplayOptions/ShowIdleTime", true).toBool(); }
 
 void AppConfig::setShowIdleTime(bool enabled) { settings.setValue("DisplayOptions/ShowIdleTime", enabled); }
+
+// Import Options
+QString AppConfig::getLastImportDirectory(const QString& fallback) const
+{
+    const QString saved = existingDirectory(settings.value("ImportOptions/LastDirectory").toString());
+    if (!saved.isEmpty()) return saved;
+
+    const QString fallback_dir = existingDirectory(fallback);
+    if (!fallback_dir.isEmpty()) return fallback_dir;
+
+    const QString documents =
+        existingDirectory(QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation));
+    return documents.isEmpty() ? QDir::homePath() : documents;
+}
+
+void AppConfig::setLastImportDirectory(const QString& path)
+{
+    const QString directory = existingDirectory(path);
+    if (!directory.isEmpty()) settings.setValue("ImportOptions/LastDirectory", directory);
+}
 
 // Instruction Column Visibility
 bool AppConfig::getColumnVisible(int element, bool bDefault) const
