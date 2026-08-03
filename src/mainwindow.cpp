@@ -70,6 +70,7 @@
 #    include "data/trace_decoder_emitter.h"
 #endif
 #include "data/shaderdata.h"
+#include "data/spm_json.h"
 #include "data/wavedata.h"
 #include "graphics/canvas.h"
 #include "graphics/hotspot_view.h"
@@ -293,6 +294,7 @@ MainWindow::MainWindow(std::string uidir) : QMainWindow(nullptr), ui(new Ui::Mai
 
     connect(ui->actionJsons_folder, &QAction::triggered, this, &MainWindow::SetJsonsFolder);
     connect(ui->actionAttFiles, &QAction::triggered, this, &MainWindow::OpenAttFiles);
+    connect(ui->actionSpmJson, &QAction::triggered, this, &MainWindow::OpenSpmJson);
     connect(ui->actionRocpd, &QAction::triggered, this, &MainWindow::OpenRocpd);
     connect(ui->actionHotOptions, &QAction::triggered, this, &MainWindow::OpenOptionsDialog);
     connect(ui->actionDerived_counters, &QAction::triggered, this, &MainWindow::OpenDerivedCounterEditor);
@@ -794,8 +796,44 @@ void MainWindow::SetJsonsFolder()
 {
     std::string jsons_dir = QFileDialog::getExistingDirectory(this, "Select Dir", ui_dir.c_str()).toStdString();
     if (jsons_dir.empty()) return;
+    current_spm_path.clear();
     current_path = jsons_dir;
     ResetSelector();
+}
+
+void MainWindow::OpenSpmJson()
+{
+    QString picked =
+        QFileDialog::getOpenFileName(this, "Select SPM JSON", ui_dir.c_str(), "JSON Files (*.json);;All Files (*)");
+    if (picked.isEmpty()) return;
+
+    const std::string path = picked.toStdString();
+    const bool has_loaded_trace =
+        data_store && (!data_store->wave_hierarchy.empty() || !data_store->occupancy_by_se.empty() ||
+                       !data_store->code.empty() || !data_store->counters_by_se.empty());
+    if (has_loaded_trace)
+    {
+        try
+        {
+            SpmData spm = loadSpmJson(path);
+            data_store->spm = std::move(spm);
+            current_spm_path = path;
+            counter_values_tableitem.clear();
+            CreateCountersPlot();
+        }
+        catch (const std::exception& e)
+        {
+            QMessageBox::warning(this, "SPM JSON", QString("Unable to load SPM JSON: %1").arg(e.what()));
+        }
+        return;
+    }
+
+    InputInfo info;
+    info.type = InputType::SPM_JSON;
+    info.spm_json_path = path;
+    info.base_path = info.spm_json_path;
+    std::string display = info.spm_json_path;
+    LoadInput(std::move(info), display);
 }
 
 void MainWindow::OpenAttFiles()
@@ -813,6 +851,7 @@ void MainWindow::OpenAttFiles()
         this, "Select ATT Trace Files", ui_dir.c_str(), "ATT Trace Files (*.att);;All Files (*)"
     );
     if (picked.isEmpty()) return;
+    current_spm_path.clear();
 
     InputInfo info;
     info.type = InputType::ATT_FILES;
@@ -857,6 +896,7 @@ void MainWindow::OpenRocpd()
         this, "Select ROCpd Database", ui_dir.c_str(), "ROCpd Database (*.rocpd);;All Files (*)"
     );
     if (picked.isEmpty()) return;
+    current_spm_path.clear();
 
     InputInfo info;
     info.type = InputType::ROCPD;
@@ -1017,7 +1057,7 @@ MainWindow::LoadResult MainWindow::LoadInputImpl(InputInfo input_info, const std
     }
 #endif
 
-    ui_dir = input_path;
+    ui_dir = input_info.type == InputType::SPM_JSON ? fs::path(input_path).parent_path().string() : input_path;
     if (!ui_dir.empty() && ui_dir.back() != '/') ui_dir.push_back('/');
 
     // New traces can reuse the same generated wave filenames and code.json
@@ -1057,6 +1097,24 @@ MainWindow::LoadResult MainWindow::LoadInputImpl(InputInfo input_info, const std
                 emitter.run();
                 break;
             }
+            case InputType::SPM_JSON:
+            {
+                try
+                {
+                    data_store->spm = loadSpmJson(input_info.spm_json_path);
+                    data_store->has_thread_trace = false;
+                    data_store->ui_dir = ui_dir;
+                    current_spm_path = input_info.spm_json_path;
+                }
+                catch (const std::exception& e)
+                {
+                    load_result.status = LoadStatus::LoadFailed;
+                    load_result.message = QString("Unable to load SPM JSON: %1").arg(e.what());
+                    if (show_dialogs) QMessageBox::warning(this, "SPM JSON", load_result.message);
+                    return load_result;
+                }
+                break;
+            }
 #ifdef RCV_HAS_TRACE_DECODER
             case InputType::ATT_FILES:
             {
@@ -1086,6 +1144,22 @@ MainWindow::LoadResult MainWindow::LoadInputImpl(InputInfo input_info, const std
             }
 #endif
             default: break;
+        }
+
+        if (input_info.type != InputType::SPM_JSON && !current_spm_path.empty())
+        {
+            try
+            {
+                data_store->spm = loadSpmJson(current_spm_path);
+            }
+            catch (const std::exception& e)
+            {
+                if (show_dialogs)
+                    QMessageBox::warning(
+                        this, "SPM JSON", QString("Unable to reload attached SPM JSON: %1").arg(e.what())
+                    );
+                current_spm_path.clear();
+            }
         }
     }
 
@@ -1246,8 +1320,8 @@ MainWindow::LoadResult MainWindow::LoadInputImpl(InputInfo input_info, const std
         return load_result;
     }
 
-    if (!data_store ||
-        (data_store->wave_hierarchy.empty() && data_store->occupancy_by_se.empty() && data_store->code.empty()))
+    if (!data_store || (data_store->wave_hierarchy.empty() && data_store->occupancy_by_se.empty() &&
+                        data_store->code.empty() && data_store->spm.empty()))
     {
         load_result.status = LoadStatus::LoadFailed;
         load_result.message = "Input did not produce usable viewer data.";
@@ -1418,13 +1492,22 @@ void MainWindow::CreateCountersPlot()
     summary_view->clearBarChartData();
     ui->tabWidget_2->setTabEnabled(2, false);
 
-    // Load counter names from DataStore
-    auto perfcounter_names = data_store ? data_store->counter_names : std::vector<std::string>{};
+    const bool load_spm = data_store && !data_store->spm.empty();
+    std::vector<std::string> perfcounter_names;
+    if (load_spm)
+    {
+        perfcounter_names.reserve(data_store->spm.counters.size());
+        for (const auto& counter : data_store->spm.counters) perfcounter_names.push_back(counter.name);
+    }
+    else if (data_store)
+    {
+        perfcounter_names = data_store->counter_names;
+        for (auto& name : perfcounter_names)
+            if (name.size() > 5 && name.find("SQ_") == 0) name = name.substr(3);
+    }
 
-    for (auto& name : perfcounter_names)
-        if (name.size() > 5 && name.find("SQ_") == 0) name = name.substr(3);
-
-    bool load_perf_counters = data_store && !perfcounter_names.empty() && !data_store->counters_by_se.empty();
+    bool load_perf_counters =
+        data_store && !perfcounter_names.empty() && (!data_store->counters_by_se.empty() || load_spm);
 
     auto* traceplot = new TraceCounterPlotView(this);
     this->counters_plot = traceplot;
@@ -1450,6 +1533,8 @@ void MainWindow::CreateCountersPlot()
     this->counters_plot->setGeometry(0, 0, 300, this->counters_plot->size().width());
     this->counters_plot->UpdateDataSelection(perfcounter_names, ~0ULL, ~0ULL, derived_definitions);
     UpdateCountersPlotSelection();
+
+    if (load_spm) return;
 
     auto peak_rates = counters_plot->GetPeakRates();
     auto accumulated = counters_plot->GetAvgRates();

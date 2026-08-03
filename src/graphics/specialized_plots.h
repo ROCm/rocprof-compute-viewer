@@ -68,6 +68,11 @@ protected:
 
     std::vector<std::unique_ptr<class GPUCounterNode>> rootnodes{};
     std::vector<std::string> counter_names{};
+    std::vector<std::shared_ptr<DerivedCounter::Tensor>> sampled_counters{};
+    std::shared_ptr<DerivedCounter::Tensor> sampled_clock{};
+    std::vector<size_t> sampled_counts{};
+    std::vector<std::string> raw_curve_sources{};
+    size_t raw_curve_count = 0;
     int64_t delta = INT64_MAX;
 };
 

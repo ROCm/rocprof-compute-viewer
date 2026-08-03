@@ -190,8 +190,27 @@ void addDispatchSeries(PlotGraph& plot, std::vector<occupancy_data> occupancy, i
 void TraceCounterPlotView::LoadCounterData(const DataStore& store)
 {
     rootnodes.clear();
+    sampled_counters.clear();
+    sampled_clock.reset();
+    sampled_counts.clear();
     rclock.clear();
     rclock_frequency = store.realtime_frequency > 0 ? static_cast<double>(store.realtime_frequency) : 1E8;
+
+    if (!store.spm.empty())
+    {
+        sampled_counts = store.spm.sample_counts;
+        sampled_clock = std::make_shared<DerivedCounter::Tensor>(
+            DerivedCounter::Shape(store.spm.sample_counts.size(), 1, 1, store.spm.sample_count), store.spm.clock
+        );
+        for (const auto& counter : store.spm.counters)
+            sampled_counters.push_back(std::make_shared<DerivedCounter::Tensor>(
+                DerivedCounter::Shape(
+                    counter.xcc_count, counter.se_count, counter.instance_count, store.spm.sample_count
+                ),
+                counter.values
+            ));
+        return;
+    }
 
     for (const auto& [se, banks] : store.counters_by_se)
     {
@@ -313,6 +332,41 @@ void CounterPlotView::UpdateDataSelection(
     this->xmax = 0;
 
     this->curves.clear();
+    raw_curve_sources.clear();
+    raw_curve_count = 0;
+
+    if (!sampled_counters.empty() && sampled_clock)
+    {
+        for (size_t counter_index = 0; counter_index < sampled_counters.size(); ++counter_index)
+        {
+            auto summed = sampled_counters[counter_index]->sum(
+                {DerivedCounter::Axis::XCC, DerivedCounter::Axis::SE, DerivedCounter::Axis::CU}
+            );
+            const std::string name = counter_index < counter_names.size() ? counter_names[counter_index]
+                                                                          : "UNK_" + std::to_string(counter_index);
+
+            std::vector<WeightedPoint> datapoints;
+            datapoints.reserve(summed.shape().getSamples());
+            for (size_t sample = 0; sample < summed.shape().getSamples(); ++sample)
+            {
+                double clock = 0;
+                size_t clock_count = 0;
+                for (size_t xcc = 0; xcc < sampled_counts.size(); ++xcc)
+                {
+                    if (sample >= sampled_counts[xcc]) continue;
+                    clock += sampled_clock->at(xcc, 0, 0, sample);
+                    clock_count++;
+                }
+                if (clock_count == 0) continue;
+                datapoints.push_back({static_cast<float>(clock / clock_count), summed.at(0, 0, 0, sample)});
+            }
+            AddData(name, Config::PlotColors(counter_index), std::move(datapoints));
+            raw_curve_sources.push_back(name);
+        }
+        raw_curve_count = curves.size();
+        UpdateDerivedCounters(derivedDefinitions, true);
+        return;
+    }
 
     QWARNING(rootnodes.size(), "no root node", return );
 
@@ -341,8 +395,11 @@ void CounterPlotView::UpdateDataSelection(
             for (auto& counter : counters_loaded)
                 datapoints.push_back({(float) counter.time, (float) counter.events[c]});
             AddData(name, Config::PlotColors(index), std::move(datapoints));
+            raw_curve_sources.push_back(name);
         }
     }
+
+    raw_curve_count = curves.size();
 
     // Add derived counters
     UpdateDerivedCounters(derivedDefinitions, true);
@@ -351,7 +408,7 @@ void CounterPlotView::UpdateDataSelection(
 void CounterPlotView::UpdateDerivedCounters(const std::string& derivedDefinitions, bool suppress)
 {
     // Remove existing derived counter curves (those added after the raw counters)
-    size_t rawCounterCount = counter_names.size();
+    size_t rawCounterCount = raw_curve_count;
     while (curves.size() > rawCounterCount) curves.pop_back();
 
     std::string builtin_derived = derivedDefinitions.empty() ? getBuiltin() : derivedDefinitions;
@@ -367,11 +424,11 @@ void CounterPlotView::UpdateDerivedCounters(const std::string& derivedDefinition
         if (derived_count == 0) return;
 
         auto& accessed = derivedmanager->context().accessedRawCounters();
-        for (size_t i = 0; i < rawCounterCount && i < curves.size(); i++)
-            if (accessed.count(curves[i].fullname)) curves[i].disabled = true;
+        for (size_t i = 0; i < rawCounterCount && i < curves.size() && i < raw_curve_sources.size(); i++)
+            if (accessed.count(raw_curve_sources[i])) curves[i].disabled = true;
     }
 
-    int derived_index = counter_names.size();
+    int derived_index = rawCounterCount;
     std::shared_ptr<const DerivedCounter::Tensor> time_data;
     try
     {
@@ -399,9 +456,10 @@ void CounterPlotView::UpdateDerivedCounters(const std::string& derivedDefinition
         // If result is already [1,1,1,time], just plot it directly
         if (num_xcc == 1 && num_se == 1 && num_cu == 1)
         {
+            if (!sampled_counts.empty()) num_samples = std::min(num_samples, sampled_counts.front());
             std::vector<WeightedPoint> datapoints;
             datapoints.reserve(num_samples);
-            for (size_t i = 0; i < num_samples; i++) datapoints.push_back({(*time_data)[i], (*result)[i]});
+            for (size_t i = 0; i < num_samples; i++) datapoints.push_back({time_data->at(0, 0, 0, i), (*result)[i]});
             AddData(derived_name, Config::PlotColors(derived_index++), std::move(datapoints));
             continue;
         }
@@ -419,14 +477,19 @@ void CounterPlotView::UpdateDerivedCounters(const std::string& derivedDefinition
                     std::string plot_name = derived_name;
                     if (num_xcc > 1) plot_name += "_XCC" + std::to_string(xcc);
                     if (num_se > 1) plot_name += "_SE" + std::to_string(se);
-                    if (num_cu > 1) plot_name += "_CU" + std::to_string(cu);
+                    if (num_cu > 1) plot_name += (sampled_counters.empty() ? "_CU" : "_INSTANCE") + std::to_string(cu);
 
+                    size_t plot_samples = num_samples;
+                    if (!sampled_counts.empty() && xcc < sampled_counts.size())
+                        plot_samples = std::min(plot_samples, sampled_counts[xcc]);
+                    const size_t clock_xcc =
+                        time_data->shape().getXCC() == 1 ? 0 : std::min(xcc, time_data->shape().getXCC() - 1);
                     std::vector<WeightedPoint> datapoints;
-                    datapoints.reserve(num_samples);
-                    for (size_t t = 0; t < num_samples; t++)
+                    datapoints.reserve(plot_samples);
+                    for (size_t t = 0; t < plot_samples; t++)
                     {
                         float value = result->at(xcc, se, cu, t);
-                        datapoints.push_back({(*time_data)[t], value});
+                        datapoints.push_back({time_data->at(clock_xcc, 0, 0, t), value});
                     }
                     AddData(plot_name, Config::PlotColors(derived_index++), std::move(datapoints));
                     plot_count++;
@@ -541,6 +604,16 @@ std::vector<std::shared_ptr<DerivedCounter::Tensor>> buildCounterTensors(
 void CounterPlotView::buildDerivedManager()
 {
     derivedmanager = std::make_shared<DerivedCounter::DerivedCounterManager>();
+
+    if (!sampled_counters.empty() && sampled_clock)
+    {
+        for (size_t i = 0; i < sampled_counters.size() && i < counter_names.size(); ++i)
+            derivedmanager->context().setCounter(counter_names[i], sampled_counters[i]);
+        derivedmanager->context().setCounter("SPM_CLOCK", sampled_clock);
+        derivedmanager->context().setCounter("SCLOCK", sampled_clock);
+        return;
+    }
+
     // Tensor shape is (num_banks/XCC, num_SEs, NUM_CU, num_time_samples).
     // Phase 1: scan raw nodes to derive that shape + the SCLOCK time axis.
     TimeGrid grid = computeTimeGrid(rootnodes, delta);
@@ -756,6 +829,8 @@ void DispatchPlotView::LoadOccupancyData(DataStore& store)
 
 std::string TraceCounterPlotView::getBuiltin() const
 {
+    if (!sampled_counters.empty()) return {};
+
     std::string derived = "_reduce_busy := sum[max[BUSY_CU_CYCLES, axis=TIME], axis=[XCC,SE,CU]] + 1E-6";
 
     for (auto& [name, mult] : UtilTypes)

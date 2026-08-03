@@ -29,6 +29,7 @@
 enum class InputType
 {
     JSON_DIR,
+    SPM_JSON,
     ATT_FILES,
     ROCPD,
     UNKNOWN
@@ -56,6 +57,7 @@ struct InputInfo
     /// Parallel parsed metadata for att_files (same order, same length).
     std::vector<AttFileInfo> att_file_info;
     std::string rocpd_path;
+    std::string spm_json_path;
     std::string code_json_override;
     std::string snapshots_json_override;
 };

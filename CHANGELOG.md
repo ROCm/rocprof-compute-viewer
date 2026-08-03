@@ -7,7 +7,6 @@ ROCprof Compute Viewer (RCV) is a tool for visualizing and analyzing GPU thread 
 ### Added
 
 * Open raw `.att`/`.out` directories (extracted from rocprofiler-sdk thread-trace output) directly, without first converting to JSON (requires a trace-decoder build; see README).
-* `scripts/generate_snapshot.py` generates ISA/source correlation (`code.json` / `snapshots.json`) from kernel code objects, so traces captured via the rocprofiler-sdk API directly can be viewed with full ISA and source mapping.
 * Flamegraph view (replaces the Explorer view): per-target-CU/SIMD source/ISA stack rollup, plus a global marker flamegraph when SQTT instrumentation is present.
 * Hidden latency analysis for gfx10+/Navi thread traces, with Total latency and Nonhidden Latency views for instructions, source hotspots and flamegraphs.
 * SQTT instrumentation marker visualization from `.sqtt_funcmap` ELF sections, including marker tracks in Global View.

@@ -86,6 +86,7 @@ void DataStore::clear()
     occupancy_has_dispatcher_info = false;
     dispatch_resolver.Clear();
     counters_by_se.clear();
+    spm = {};
     realtime_frequency = 0;
     realtime_by_se.clear();
     realtime_alignment_applied = false;

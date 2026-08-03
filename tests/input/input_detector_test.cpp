@@ -115,6 +115,17 @@ TEST(InputDetector, RocpdFileDetected)
     EXPECT_EQ(info.rocpd_path, file.string());
 }
 
+TEST(InputDetector, SpmJsonFileDetected)
+{
+    TempDir dir("rcv_input_spm_json_dir");
+    fs::path file = dir.path / "results.json";
+    touch(file);
+
+    auto info = detectInput(file.string());
+    EXPECT_EQ(info.type, InputType::SPM_JSON);
+    EXPECT_EQ(info.spm_json_path, file.string());
+}
+
 TEST(InputDetector, AttFileDetectedDirectly)
 {
     TempDir dir("rcv_input_att_file_dir");

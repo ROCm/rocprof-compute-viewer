@@ -89,6 +89,7 @@ public:
     void UpdateGraphAutoLod(int bAutoLod);
     void ToggleDisplayLineNumber(int display);
     void SetJsonsFolder();
+    void OpenSpmJson();
     void OpenAttFiles();
     void OpenRocpd();
     void OpenOptionsDialog();
@@ -195,6 +196,8 @@ private:
     /// Path the user opened (directory or single file). Replaces the old
     /// ConfigNameEdit lineedit as the source-of-truth for "what is loaded".
     std::string current_path;
+    /// Optional SPM counter source attached to the current trace.
+    std::string current_spm_path;
 
     /// Apply a fully-built InputInfo (from detectInput or one of the file pickers).
     /// Centralises the loading sequence so menu handlers can construct InputInfo
