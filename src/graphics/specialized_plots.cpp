@@ -355,6 +355,8 @@ void CounterPlotView::UpdateDataSelection(
 
     if (!sampled_counters.empty() && sampled_clock)
     {
+        // TODO(SPM): XCC tracks have distinct shader-clock timestamps. Rebin
+        // interval values onto a common clock grid before reducing XCC.
         for (size_t counter_index = 0; counter_index < sampled_counters.size(); ++counter_index)
         {
             auto summed = sampled_counters[counter_index]->sum(
@@ -471,6 +473,8 @@ void CounterPlotView::UpdateDerivedCounters(const std::string& derivedDefinition
             datapoints.reserve(num_samples);
             for (size_t i = 0; i < num_samples; i++)
             {
+                // Display-only reduction: SPM_CLOCK remains per-XCC in the
+                // derived-counter context.
                 const float clock = sampled_counts.empty() ? time_data->at(0, 0, 0, i)
                                                            : sampledPlotClock(*time_data, sampled_counts, i);
                 datapoints.push_back({clock, (*result)[i]});

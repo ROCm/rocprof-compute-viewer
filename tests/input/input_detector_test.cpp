@@ -8,7 +8,8 @@
 
 namespace fs = std::filesystem;
 
-namespace {
+namespace
+{
 
 struct TempDir
 {
@@ -89,8 +90,7 @@ TEST(InputDetector, AttFilesAreSortedAndMetadataIsParallel)
     EXPECT_LT(info.att_files[0], info.att_files[1]);
     EXPECT_LT(info.att_files[1], info.att_files[2]);
 
-    for (size_t i = 0; i < info.att_files.size(); ++i)
-        EXPECT_EQ(info.att_files[i], info.att_file_info[i].path);
+    for (size_t i = 0; i < info.att_files.size(); ++i) EXPECT_EQ(info.att_files[i], info.att_file_info[i].path);
 }
 
 TEST(InputDetector, JsonDirectoryTakesPrecedenceOverAttFiles)
@@ -119,11 +119,25 @@ TEST(InputDetector, SpmJsonFileDetected)
 {
     TempDir dir("rcv_input_spm_json_dir");
     fs::path file = dir.path / "results.json";
-    touch(file);
+    std::ofstream out(file);
+    out << R"({"rocprofiler-sdk-tool":[{"callback_records":{"spm_counter_collection":[]}}]})";
+    out.close();
 
     auto info = detectInput(file.string());
     EXPECT_EQ(info.type, InputType::SPM_JSON);
     EXPECT_EQ(info.spm_json_path, file.string());
+}
+
+TEST(InputDetector, OtherJsonFileIsUnknown)
+{
+    TempDir dir("rcv_input_other_json_dir");
+    fs::path file = dir.path / "other.json";
+    std::ofstream out(file);
+    out << R"({"not-spm":true})";
+    out.close();
+
+    auto info = detectInput(file.string());
+    EXPECT_EQ(info.type, InputType::UNKNOWN);
 }
 
 TEST(InputDetector, AttFileDetectedDirectly)

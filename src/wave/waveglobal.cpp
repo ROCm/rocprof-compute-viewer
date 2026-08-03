@@ -712,9 +712,8 @@ void QGlobalView::paintEvent(QPaintEvent* event)
         sepPen.setColor(QColor(80, 80, 80));
         painter.setPen(sepPen);
 
-        auto it = std::lower_bound(
-            labelPanel->m_simdBoundaries.begin(), labelPanel->m_simdBoundaries.end(), area.top()
-        );
+        auto it =
+            std::lower_bound(labelPanel->m_simdBoundaries.begin(), labelPanel->m_simdBoundaries.end(), area.top());
         for (; it != labelPanel->m_simdBoundaries.end() && *it <= area.bottom(); ++it)
             painter.drawLine(area.left(), *it, area.right(), *it);
     }

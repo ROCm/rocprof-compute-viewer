@@ -87,15 +87,19 @@ namespace fs = std::filesystem;
 
 namespace
 {
-SpmData loadSpmForTrace(const std::string& path, const DataStore* trace)
+SpmData loadSpmForTrace(const std::string& path, const DataStore* trace, bool* clocks_out_of_range = nullptr)
 {
     SpmData spm = loadSpmJson(path);
+    if (!trace) return spm;
+
     std::vector<SpmClockAnchor> anchors;
-    if (trace)
-        for (const auto& [se, records] : trace->realtime_by_se)
-            for (const auto& record : records) anchors.push_back({se, record.shader_clock, record.realtime_clock});
-    if (!anchors.empty() && !alignSpmClock(spm, anchors))
-        std::cerr << "Warning: Unable to align SPM timestamps to the thread-trace shader clock\n";
+    for (const auto& [se, records] : trace->realtime_by_se)
+        for (const auto& record : records) anchors.push_back({se, record.shader_clock, record.realtime_clock});
+
+    if (anchors.empty())
+        throw std::runtime_error("SPM clock alignment failed: the loaded trace has no REALTIME records.");
+    if (clocks_out_of_range) *clocks_out_of_range = !spmClockRangesOverlap(spm, anchors);
+    if (!alignSpmClock(spm, anchors)) throw std::runtime_error("SPM clock alignment failed.");
     return spm;
 }
 } // namespace
@@ -811,9 +815,7 @@ void MainWindow::SetJsonsFolder()
 {
     std::string jsons_dir = QFileDialog::getExistingDirectory(this, "Select Dir", ui_dir.c_str()).toStdString();
     if (jsons_dir.empty()) return;
-    current_spm_path.clear();
-    current_path = jsons_dir;
-    ResetSelector();
+    LoadReplacementInput(detectInput(jsons_dir), jsons_dir);
 }
 
 void MainWindow::OpenSpmJson()
@@ -830,7 +832,10 @@ void MainWindow::OpenSpmJson()
     {
         try
         {
-            SpmData spm = loadSpmForTrace(path, data_store.get());
+            bool clocks_out_of_range = false;
+            SpmData spm = loadSpmForTrace(path, data_store.get(), &clocks_out_of_range);
+            if (clocks_out_of_range)
+                QMessageBox::warning(this, "SPM JSON", "SPM and SQTT realtime clocks are out of range.");
             data_store->spm = std::move(spm);
             current_spm_path = path;
             counter_values_tableitem.clear();
@@ -866,7 +871,6 @@ void MainWindow::OpenAttFiles()
         this, "Select ATT Trace Files", ui_dir.c_str(), "ATT Trace Files (*.att);;All Files (*)"
     );
     if (picked.isEmpty()) return;
-    current_spm_path.clear();
 
     InputInfo info;
     info.type = InputType::ATT_FILES;
@@ -892,7 +896,7 @@ void MainWindow::OpenAttFiles()
     // unspecified, so reading info.att_files.front() after std::move(info) on
     // the same call is undefined behaviour (and segfaulted in practice).
     std::string display = info.att_files.front();
-    LoadInput(std::move(info), display);
+    LoadReplacementInput(std::move(info), display);
 #endif
 }
 
@@ -911,14 +915,13 @@ void MainWindow::OpenRocpd()
         this, "Select ROCpd Database", ui_dir.c_str(), "ROCpd Database (*.rocpd);;All Files (*)"
     );
     if (picked.isEmpty()) return;
-    current_spm_path.clear();
 
     InputInfo info;
     info.type = InputType::ROCPD;
     info.rocpd_path = picked.toStdString();
     info.base_path = picked.toStdString();
     std::string display = info.rocpd_path;
-    LoadInput(std::move(info), display);
+    LoadReplacementInput(std::move(info), display);
 #endif
 }
 
@@ -969,9 +972,22 @@ MainWindow::LoadResult MainWindow::LoadInputForTests(InputInfo input_info, const
     return LoadInputImpl(std::move(input_info), input_path, false);
 }
 
-void MainWindow::LoadInput(InputInfo input_info, const std::string& input_path)
+MainWindow::LoadResult MainWindow::LoadInput(InputInfo input_info, const std::string& input_path)
 {
-    (void) LoadInputImpl(std::move(input_info), input_path, true);
+    return LoadInputImpl(std::move(input_info), input_path, true);
+}
+
+MainWindow::LoadResult MainWindow::LoadReplacementInput(InputInfo input_info, const std::string& input_path)
+{
+    std::string previous_spm_path = std::exchange(current_spm_path, {});
+    std::string previous_last_path = std::exchange(lastPath, {});
+    LoadResult result = LoadInput(std::move(input_info), input_path);
+    if (result.status != LoadStatus::Success)
+    {
+        current_spm_path = std::move(previous_spm_path);
+        lastPath = std::move(previous_last_path);
+    }
+    return result;
 }
 
 MainWindow::LoadResult MainWindow::LoadInputImpl(InputInfo input_info, const std::string& input_path, bool show_dialogs)
@@ -1116,7 +1132,7 @@ MainWindow::LoadResult MainWindow::LoadInputImpl(InputInfo input_info, const std
             {
                 try
                 {
-                    data_store->spm = loadSpmForTrace(input_info.spm_json_path, data_store.get());
+                    data_store->spm = loadSpmForTrace(input_info.spm_json_path, nullptr);
                     data_store->has_thread_trace = false;
                     data_store->ui_dir = ui_dir;
                     current_spm_path = input_info.spm_json_path;
@@ -1165,7 +1181,10 @@ MainWindow::LoadResult MainWindow::LoadInputImpl(InputInfo input_info, const std
         {
             try
             {
-                data_store->spm = loadSpmForTrace(current_spm_path, data_store.get());
+                bool clocks_out_of_range = false;
+                data_store->spm = loadSpmForTrace(current_spm_path, data_store.get(), &clocks_out_of_range);
+                if (clocks_out_of_range && show_dialogs)
+                    QMessageBox::warning(this, "SPM JSON", "SPM and SQTT realtime clocks are out of range.");
             }
             catch (const std::exception& e)
             {
@@ -1542,6 +1561,8 @@ void MainWindow::CreateCountersPlot()
     if (perfcounter_names.empty()) return;
 
     // Load user-defined derived counters from file
+    // TODO(SPM): Avoid evaluating incompatible legacy definitions when SPM is
+    // active, or support counter-source-specific definition files.
     std::string derived_definitions = DerivedCounterEditor::loadDefinitions();
 
     this->counters_plot->setAutoLod(ui->lod_checkBox->isChecked());

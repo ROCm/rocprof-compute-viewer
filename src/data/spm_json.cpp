@@ -146,6 +146,8 @@ SpmData loadSpmJson(const std::string& path)
     const auto& tool = tools.front();
     const auto& collections = tool.at("callback_records").at("spm_counter_collection");
     if (!collections.is_array() || collections.empty()) throw std::runtime_error("SPM JSON has no SPM samples");
+    // TODO(SPM): Partition or select SPM data by dispatch and stream instead of
+    // merging every collection for the selected agent into one tensor.
 
     const uint64_t agent = collections.front().at("dispatch_data").at("dispatch_info").at("agent_id").at("handle");
 
@@ -187,6 +189,8 @@ SpmData loadSpmJson(const std::string& path)
     {
         const uint64_t collection_agent =
             collection.at("dispatch_data").at("dispatch_info").at("agent_id").at("handle");
+        // TODO(SPM): Support selecting/partitioning multiple sampled agents.
+        // The viewer currently assumes one agent per attached SPM capture.
         if (collection_agent != agent)
             throw std::runtime_error("SPM JSON contains samples from more than one GPU agent");
 
@@ -276,6 +280,31 @@ SpmData loadSpmJson(const std::string& path)
     return result;
 }
 
+bool spmClockRangesOverlap(const SpmData& spm, const std::vector<SpmClockAnchor>& anchors)
+{
+    if (spm.empty() || anchors.empty()) return false;
+
+    uint64_t spm_min = std::numeric_limits<uint64_t>::max();
+    uint64_t spm_max = 0;
+    for (size_t xcc = 0; xcc < spm.sample_counts.size(); ++xcc)
+        for (size_t sample = 0; sample < spm.sample_counts[xcc]; ++sample)
+        {
+            const uint64_t timestamp = spm.timestamps.at(xcc * spm.sample_count + sample);
+            spm_min = std::min(spm_min, timestamp);
+            spm_max = std::max(spm_max, timestamp);
+        }
+
+    uint64_t realtime_min = std::numeric_limits<uint64_t>::max();
+    uint64_t realtime_max = 0;
+    for (const auto& anchor : anchors)
+    {
+        realtime_min = std::min(realtime_min, anchor.realtime_clock);
+        realtime_max = std::max(realtime_max, anchor.realtime_clock);
+    }
+
+    return spm_min <= realtime_max && realtime_min <= spm_max;
+}
+
 bool alignSpmClock(SpmData& spm, const std::vector<SpmClockAnchor>& anchors)
 {
     if (spm.empty() || spm.sample_count == 0 || anchors.empty()) return false;
@@ -293,9 +322,6 @@ bool alignSpmClock(SpmData& spm, const std::vector<SpmClockAnchor>& anchors)
     const SpmClockAnchor* last = first;
     for (const auto& anchor : anchors)
         if (anchor.se == anchor_se && anchor.realtime_clock > last->realtime_clock) last = &anchor;
-    if (last == first)
-        for (const auto& anchor : anchors)
-            if (anchor.realtime_clock > last->realtime_clock) last = &anchor;
 
     const bool has_linear_range =
         last->realtime_clock > first->realtime_clock && last->shader_clock > first->shader_clock;

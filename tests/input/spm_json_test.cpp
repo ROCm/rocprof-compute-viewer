@@ -71,6 +71,20 @@ TEST(SpmJson, AlignsClockWithSqCyclesAndFirstRealtimeRecord)
     EXPECT_NEAR(after_clock - before_clock, 10.0, 0.01);
 }
 
+TEST(SpmJson, DetectsRealtimeRangeOverlap)
+{
+    SpmData data = loadSpmJson(SPM_TEST_DATA);
+    std::vector<SpmClockAnchor> in_range{
+        {0, 1000, 108}
+    };
+    std::vector<SpmClockAnchor> out_of_range{
+        {0, 1000, 1000}
+    };
+
+    EXPECT_TRUE(spmClockRangesOverlap(data, in_range));
+    EXPECT_FALSE(spmClockRangesOverlap(data, out_of_range));
+}
+
 TEST(SpmJson, UsesRealtimeInterpolationWithoutSqCycles)
 {
     SpmData data = loadSpmJson(SPM_TEST_DATA);
@@ -84,10 +98,29 @@ TEST(SpmJson, UsesRealtimeInterpolationWithoutSqCycles)
     );
     std::vector<SpmClockAnchor> realtime{
         {0, 1000, 108},
-        {1, 1020, 128}
+        {0, 1020, 128}
     };
 
     ASSERT_TRUE(alignSpmClock(data, realtime));
 
     EXPECT_NEAR(data.clock.at(0), 992.0, 0.01);
+}
+
+TEST(SpmJson, RequiresSameSeForRealtimeInterpolation)
+{
+    SpmData data = loadSpmJson(SPM_TEST_DATA);
+    data.counters.erase(
+        std::remove_if(
+            data.counters.begin(),
+            data.counters.end(),
+            [](const SpmCounterData& counter) { return counter.name == "SQ_CYCLES"; }
+        ),
+        data.counters.end()
+    );
+
+    std::vector<SpmClockAnchor> realtime{
+        {0, 1000, 108},
+        {1, 1020, 128}
+    };
+    EXPECT_FALSE(alignSpmClock(data, realtime));
 }

@@ -202,7 +202,8 @@ private:
     /// Apply a fully-built InputInfo (from detectInput or one of the file pickers).
     /// Centralises the loading sequence so menu handlers can construct InputInfo
     /// directly without round-tripping through detectInput.
-    void LoadInput(InputInfo info, const std::string& display_path);
+    LoadResult LoadInput(InputInfo info, const std::string& display_path);
+    LoadResult LoadReplacementInput(InputInfo info, const std::string& display_path);
     LoadResult LoadInputImpl(InputInfo info, const std::string& display_path, bool show_dialogs);
     int hotspot_n_bins = 32;
     int hotspot_begin = 0;

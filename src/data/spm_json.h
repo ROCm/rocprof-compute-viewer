@@ -41,6 +41,8 @@ struct SpmData
 {
     size_t sample_count = 0;
     std::vector<size_t> sample_counts;
+    // TODO(SPM): Add a per-XCC/sample validity mask. Counter tensors currently
+    // use zero for padded samples, which is indistinguishable from a real zero.
     // Row-major [XCC][sample], retaining the absolute SPM timestamp.
     std::vector<uint64_t> timestamps;
     // Row-major [XCC][sample], padded with the final valid clock value.
@@ -60,4 +62,5 @@ struct SpmClockAnchor
 };
 
 SpmData loadSpmJson(const std::string& path);
+bool spmClockRangesOverlap(const SpmData& spm, const std::vector<SpmClockAnchor>& anchors);
 bool alignSpmClock(SpmData& spm, const std::vector<SpmClockAnchor>& anchors);
