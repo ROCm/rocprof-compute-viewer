@@ -90,7 +90,11 @@ namespace
 SpmData loadSpmForTrace(const std::string& path, const DataStore* trace)
 {
     SpmData spm = loadSpmJson(path);
-    if (trace && !trace->realtime_by_se.empty() && !alignSpmClock(spm, trace->realtime_by_se))
+    std::vector<SpmClockAnchor> anchors;
+    if (trace)
+        for (const auto& [se, records] : trace->realtime_by_se)
+            for (const auto& record : records) anchors.push_back({se, record.shader_clock, record.realtime_clock});
+    if (!anchors.empty() && !alignSpmClock(spm, anchors))
         std::cerr << "Warning: Unable to align SPM timestamps to the thread-trace shader clock\n";
     return spm;
 }

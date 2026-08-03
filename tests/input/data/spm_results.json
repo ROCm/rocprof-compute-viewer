@@ -1,0 +1,112 @@
+{
+  "rocprofiler-sdk-tool": [
+    {
+      "counters": [
+        {
+          "agent_id": {"handle": 42},
+          "id": {"handle": 1},
+          "name": "SQ_CYCLES",
+          "dimensions": [
+            {"id": 7, "instance_size": 1, "name": "DIMENSION_INSTANCE"},
+            {"id": 3, "instance_size": 1, "name": "DIMENSION_SHADER_ENGINE"},
+            {"id": 1, "instance_size": 2, "name": "DIMENSION_XCC"}
+          ],
+          "instances": [
+            {
+              "instance_id": 1001,
+              "dimensions": [
+                {"dimension_name": "DIMENSION_INSTANCE", "index": 0},
+                {"dimension_name": "DIMENSION_SHADER_ENGINE", "index": 0},
+                {"dimension_name": "DIMENSION_XCC", "index": 0}
+              ]
+            },
+            {
+              "instance_id": 1002,
+              "dimensions": [
+                {"dimension_name": "DIMENSION_INSTANCE", "index": 0},
+                {"dimension_name": "DIMENSION_SHADER_ENGINE", "index": 0},
+                {"dimension_name": "DIMENSION_XCC", "index": 1}
+              ]
+            }
+          ]
+        },
+        {
+          "agent_id": {"handle": 42},
+          "id": {"handle": 2},
+          "name": "TEST_COUNTER",
+          "dimensions": [
+            {"id": 7, "instance_size": 2, "name": "DIMENSION_INSTANCE"},
+            {"id": 3, "instance_size": 1, "name": "DIMENSION_SHADER_ENGINE"},
+            {"id": 1, "instance_size": 2, "name": "DIMENSION_XCC"}
+          ],
+          "instances": [
+            {
+              "instance_id": 2001,
+              "dimensions": [
+                {"dimension_name": "DIMENSION_INSTANCE", "index": 0},
+                {"dimension_name": "DIMENSION_SHADER_ENGINE", "index": 0},
+                {"dimension_name": "DIMENSION_XCC", "index": 0}
+              ]
+            },
+            {
+              "instance_id": 2002,
+              "dimensions": [
+                {"dimension_name": "DIMENSION_INSTANCE", "index": 1},
+                {"dimension_name": "DIMENSION_SHADER_ENGINE", "index": 0},
+                {"dimension_name": "DIMENSION_XCC", "index": 0}
+              ]
+            },
+            {
+              "instance_id": 2003,
+              "dimensions": [
+                {"dimension_name": "DIMENSION_INSTANCE", "index": 0},
+                {"dimension_name": "DIMENSION_SHADER_ENGINE", "index": 0},
+                {"dimension_name": "DIMENSION_XCC", "index": 1}
+              ]
+            },
+            {
+              "instance_id": 2004,
+              "dimensions": [
+                {"dimension_name": "DIMENSION_INSTANCE", "index": 1},
+                {"dimension_name": "DIMENSION_SHADER_ENGINE", "index": 0},
+                {"dimension_name": "DIMENSION_XCC", "index": 1}
+              ]
+            }
+          ]
+        }
+      ],
+      "callback_records": {
+        "spm_counter_collection": [
+          {
+            "dispatch_data": {
+              "dispatch_info": {
+                "agent_id": {"handle": 42}
+              }
+            },
+            "records": [
+              {"counter_id": {"handle": 1}, "instance_id": 1001, "timestamp": 100, "value": 11},
+              {"counter_id": {"handle": 2}, "instance_id": 2001, "timestamp": 100, "value": 1},
+              {"counter_id": {"handle": 2}, "instance_id": 2002, "timestamp": 100, "value": 2},
+
+              {"counter_id": {"handle": 1}, "instance_id": 1001, "timestamp": 110, "value": 10},
+              {"counter_id": {"handle": 2}, "instance_id": 2001, "timestamp": 110, "value": 3},
+              {"counter_id": {"handle": 2}, "instance_id": 2002, "timestamp": 110, "value": 4},
+
+              {"counter_id": {"handle": 1}, "instance_id": 1001, "timestamp": 120, "value": 10},
+              {"counter_id": {"handle": 2}, "instance_id": 2001, "timestamp": 120, "value": 5},
+              {"counter_id": {"handle": 2}, "instance_id": 2002, "timestamp": 120, "value": 6},
+
+              {"counter_id": {"handle": 1}, "instance_id": 1002, "timestamp": 102, "value": 11},
+              {"counter_id": {"handle": 2}, "instance_id": 2003, "timestamp": 102, "value": 7},
+              {"counter_id": {"handle": 2}, "instance_id": 2004, "timestamp": 102, "value": 8},
+
+              {"counter_id": {"handle": 1}, "instance_id": 1002, "timestamp": 112, "value": 10},
+              {"counter_id": {"handle": 2}, "instance_id": 2003, "timestamp": 112, "value": 9},
+              {"counter_id": {"handle": 2}, "instance_id": 2004, "timestamp": 112, "value": 10}
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

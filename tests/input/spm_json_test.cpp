@@ -27,52 +27,48 @@ TEST(SpmJson, LoadsPerXccClocksAndCounterDimensions)
     const std::filesystem::path path = SPM_TEST_DATA;
     SpmData data = loadSpmJson(path.string());
 
-    EXPECT_EQ(data.counters.size(), 7u);
-    EXPECT_EQ(data.sample_count, 11u);
-    EXPECT_EQ(data.sample_counts, (std::vector<size_t>{9, 9, 9, 10, 10, 10, 11, 11}));
+    EXPECT_EQ(data.counters.size(), 2u);
+    EXPECT_EQ(data.sample_count, 3u);
+    EXPECT_EQ(data.sample_counts, (std::vector<size_t>{3, 2}));
 
-    EXPECT_FLOAT_EQ(data.clock.at(0 * data.sample_count), 86.0f);
-    EXPECT_FLOAT_EQ(data.clock.at(1 * data.sample_count), 0.0f);
-    EXPECT_EQ(data.timestamps.at(0 * data.sample_count), 25079783077210u);
-    EXPECT_EQ(data.timestamps.at(1 * data.sample_count), 25079783077124u);
+    EXPECT_FLOAT_EQ(data.clock.at(0 * data.sample_count), 0.0f);
+    EXPECT_FLOAT_EQ(data.clock.at(1 * data.sample_count), 2.0f);
+    EXPECT_EQ(data.timestamps.at(0 * data.sample_count), 100u);
+    EXPECT_EQ(data.timestamps.at(1 * data.sample_count), 102u);
 
     const auto& sq_cycles = findCounter(data, "SQ_CYCLES");
-    EXPECT_EQ(sq_cycles.xcc_count, 8u);
-    EXPECT_EQ(sq_cycles.se_count, 4u);
+    EXPECT_EQ(sq_cycles.xcc_count, 2u);
+    EXPECT_EQ(sq_cycles.se_count, 1u);
     EXPECT_EQ(sq_cycles.instance_count, 1u);
-    EXPECT_FLOAT_EQ(sq_cycles.values.at(index(sq_cycles, data.sample_count, 0, 0, 0, 0)), 16411.0f);
+    EXPECT_FLOAT_EQ(sq_cycles.values.at(index(sq_cycles, data.sample_count, 0, 0, 0, 0)), 11.0f);
 
-    const auto& ta_busy = findCounter(data, "TA_TA_BUSY");
-    EXPECT_EQ(ta_busy.xcc_count, 8u);
-    EXPECT_EQ(ta_busy.se_count, 4u);
-    EXPECT_EQ(ta_busy.instance_count, 11u);
-
-    const auto& tcc_hit = findCounter(data, "TCC_HIT");
-    EXPECT_EQ(tcc_hit.xcc_count, 8u);
-    EXPECT_EQ(tcc_hit.se_count, 1u);
-    EXPECT_EQ(tcc_hit.instance_count, 16u);
+    const auto& test_counter = findCounter(data, "TEST_COUNTER");
+    EXPECT_EQ(test_counter.xcc_count, 2u);
+    EXPECT_EQ(test_counter.se_count, 1u);
+    EXPECT_EQ(test_counter.instance_count, 2u);
+    EXPECT_FLOAT_EQ(test_counter.values.at(index(test_counter, data.sample_count, 1, 0, 1, 1)), 10.0f);
 }
 
 TEST(SpmJson, AlignsClockWithSqCyclesAndFirstRealtimeRecord)
 {
     SpmData data = loadSpmJson(SPM_TEST_DATA);
-    std::map<int, std::vector<realtime_record_t>> realtime{
-        {0, {{12680, 25079783078590, 0}}}
+    std::vector<SpmClockAnchor> realtime{
+        {0, 1000, 108}
     };
 
     ASSERT_TRUE(alignSpmClock(data, realtime));
 
-    const size_t xcc = 6;
-    const size_t before = 1;
-    const size_t after = 2;
+    const size_t xcc = 0;
+    const size_t before = 0;
+    const size_t after = 1;
     const uint64_t before_timestamp = data.timestamps.at(xcc * data.sample_count + before);
     const uint64_t after_timestamp = data.timestamps.at(xcc * data.sample_count + after);
     const float before_clock = data.clock.at(xcc * data.sample_count + before);
     const float after_clock = data.clock.at(xcc * data.sample_count + after);
-    const double fraction = double(25079783078590u - before_timestamp) / double(after_timestamp - before_timestamp);
+    const double fraction = double(108u - before_timestamp) / double(after_timestamp - before_timestamp);
 
-    EXPECT_NEAR(before_clock + fraction * (after_clock - before_clock), 12680.0, 0.5);
-    EXPECT_NEAR(after_clock - before_clock, 16385.0, 0.5);
+    EXPECT_NEAR(before_clock + fraction * (after_clock - before_clock), 1000.0, 0.01);
+    EXPECT_NEAR(after_clock - before_clock, 10.0, 0.01);
 }
 
 TEST(SpmJson, UsesRealtimeInterpolationWithoutSqCycles)
@@ -86,15 +82,12 @@ TEST(SpmJson, UsesRealtimeInterpolationWithoutSqCycles)
         ),
         data.counters.end()
     );
-    std::map<int, std::vector<realtime_record_t>> realtime{
-        {0, {{12680, 25079783078590, 0}}  },
-        {1, {{4077640, 25079783274738, 0}}}
+    std::vector<SpmClockAnchor> realtime{
+        {0, 1000, 108},
+        {1, 1020, 128}
     };
 
     ASSERT_TRUE(alignSpmClock(data, realtime));
 
-    const long double slope =
-        static_cast<long double>(4077640 - 12680) / static_cast<long double>(25079783274738u - 25079783078590u);
-    const long double expected = 12680.0L - static_cast<long double>(25079783078590u - 25079783077210u) * slope;
-    EXPECT_NEAR(data.clock.at(0), static_cast<double>(expected), 0.5);
+    EXPECT_NEAR(data.clock.at(0), 992.0, 0.01);
 }

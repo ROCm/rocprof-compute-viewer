@@ -24,11 +24,8 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <map>
 #include <string>
 #include <vector>
-
-#include "data/records.h"
 
 struct SpmCounterData
 {
@@ -55,5 +52,12 @@ struct SpmData
     bool empty() const { return counters.empty(); }
 };
 
+struct SpmClockAnchor
+{
+    int se = 0;
+    int64_t shader_clock = 0;
+    uint64_t realtime_clock = 0;
+};
+
 SpmData loadSpmJson(const std::string& path);
-bool alignSpmClock(SpmData& spm, const std::map<int, std::vector<realtime_record_t>>& realtime_by_se);
+bool alignSpmClock(SpmData& spm, const std::vector<SpmClockAnchor>& anchors);

@@ -19,7 +19,7 @@ add_executable(spm_json_test
     ${DATA_DIR}/spm_json.cpp)
 target_compile_definitions(
     spm_json_test PRIVATE
-    SPM_TEST_DATA="${CMAKE_CURRENT_SOURCE_DIR}/../data/spmjson/1491457_results.json")
+    SPM_TEST_DATA="${CMAKE_CURRENT_SOURCE_DIR}/data/spm_results.json")
 target_include_directories(spm_json_test PRIVATE ${SRC_DIR})
 target_link_libraries(spm_json_test GTest::gtest_main)
 add_test(NAME spm_json_test COMMAND spm_json_test)

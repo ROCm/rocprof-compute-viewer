@@ -276,30 +276,26 @@ SpmData loadSpmJson(const std::string& path)
     return result;
 }
 
-bool alignSpmClock(SpmData& spm, const std::map<int, std::vector<realtime_record_t>>& realtime_by_se)
+bool alignSpmClock(SpmData& spm, const std::vector<SpmClockAnchor>& anchors)
 {
-    if (spm.empty() || spm.sample_count == 0 || realtime_by_se.empty()) return false;
+    if (spm.empty() || spm.sample_count == 0 || anchors.empty()) return false;
 
     int anchor_se = -1;
-    const realtime_record_t* first = nullptr;
-    for (const auto& [se, records] : realtime_by_se)
-        for (const auto& record : records)
-            if (!first || record.realtime_clock < first->realtime_clock)
-            {
-                first = &record;
-                anchor_se = se;
-            }
+    const SpmClockAnchor* first = nullptr;
+    for (const auto& anchor : anchors)
+        if (!first || anchor.realtime_clock < first->realtime_clock)
+        {
+            first = &anchor;
+            anchor_se = anchor.se;
+        }
     if (!first) return false;
 
-    const realtime_record_t* last = first;
-    auto anchor_se_it = realtime_by_se.find(anchor_se);
-    if (anchor_se_it != realtime_by_se.end())
-        for (const auto& record : anchor_se_it->second)
-            if (record.realtime_clock > last->realtime_clock) last = &record;
+    const SpmClockAnchor* last = first;
+    for (const auto& anchor : anchors)
+        if (anchor.se == anchor_se && anchor.realtime_clock > last->realtime_clock) last = &anchor;
     if (last == first)
-        for (const auto& [_, records] : realtime_by_se)
-            for (const auto& record : records)
-                if (record.realtime_clock > last->realtime_clock) last = &record;
+        for (const auto& anchor : anchors)
+            if (anchor.realtime_clock > last->realtime_clock) last = &anchor;
 
     const bool has_linear_range =
         last->realtime_clock > first->realtime_clock && last->shader_clock > first->shader_clock;
