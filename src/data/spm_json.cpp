@@ -23,6 +23,7 @@
 #include "spm_json.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <fstream>
 #include <limits>
@@ -92,6 +93,43 @@ size_t flattenedIndex(
 )
 {
     return ((xcc * counter.se_count + se) * counter.instance_count + instance) * sample_count + sample;
+}
+
+long double timestampDelta(uint64_t lhs, uint64_t rhs)
+{
+    return lhs >= rhs ? static_cast<long double>(lhs - rhs) : -static_cast<long double>(rhs - lhs);
+}
+
+double counterValue(const SpmCounterData& counter, size_t xcc, size_t se, size_t sample, size_t sample_count)
+{
+    auto averageAtSe = [&](size_t selected_se)
+    {
+        double total = 0;
+        size_t count = 0;
+        for (size_t instance = 0; instance < counter.instance_count; ++instance)
+        {
+            const float value =
+                counter.values.at(flattenedIndex(xcc, selected_se, instance, sample, counter, sample_count));
+            if (value <= 0 || !std::isfinite(value)) continue;
+            total += value;
+            count++;
+        }
+        return count ? total / count : 0.0;
+    };
+
+    if (se < counter.se_count)
+        if (double value = averageAtSe(se); value > 0) return value;
+
+    double total = 0;
+    size_t count = 0;
+    for (size_t selected_se = 0; selected_se < counter.se_count; ++selected_se)
+    {
+        double value = averageAtSe(selected_se);
+        if (value <= 0) continue;
+        total += value;
+        count++;
+    }
+    return count ? total / count : 0.0;
 }
 } // namespace
 
@@ -178,6 +216,7 @@ SpmData loadSpmJson(const std::string& path)
     SpmData result;
     for (const auto& [xcc, values] : timestamps) result.sample_count = std::max(result.sample_count, values.size());
     result.sample_counts.resize(xcc_count, 0);
+    result.timestamps.resize(xcc_count * result.sample_count, 0);
     result.clock.resize(xcc_count * result.sample_count, 0);
 
     std::vector<std::unordered_map<uint64_t, size_t>> sample_indices(xcc_count);
@@ -188,14 +227,21 @@ SpmData loadSpmJson(const std::string& path)
 
         size_t sample = 0;
         float last_clock = 0;
+        uint64_t last_timestamp = 0;
         for (uint64_t timestamp : timestamp_it->second)
         {
             sample_indices[xcc].emplace(timestamp, sample);
             last_clock = static_cast<float>(timestamp - minimum_timestamp);
+            last_timestamp = timestamp;
+            result.timestamps[xcc * result.sample_count + sample] = timestamp;
             result.clock[xcc * result.sample_count + sample++] = last_clock;
         }
         result.sample_counts[xcc] = sample;
-        while (sample < result.sample_count) result.clock[xcc * result.sample_count + sample++] = last_clock;
+        while (sample < result.sample_count)
+        {
+            result.timestamps[xcc * result.sample_count + sample] = last_timestamp;
+            result.clock[xcc * result.sample_count + sample++] = last_clock;
+        }
     }
 
     std::unordered_map<uint64_t, size_t> counter_indices;
@@ -228,4 +274,129 @@ SpmData loadSpmJson(const std::string& path)
     }
 
     return result;
+}
+
+bool alignSpmClock(SpmData& spm, const std::map<int, std::vector<realtime_record_t>>& realtime_by_se)
+{
+    if (spm.empty() || spm.sample_count == 0 || realtime_by_se.empty()) return false;
+
+    int anchor_se = -1;
+    const realtime_record_t* first = nullptr;
+    for (const auto& [se, records] : realtime_by_se)
+        for (const auto& record : records)
+            if (!first || record.realtime_clock < first->realtime_clock)
+            {
+                first = &record;
+                anchor_se = se;
+            }
+    if (!first) return false;
+
+    const realtime_record_t* last = first;
+    auto anchor_se_it = realtime_by_se.find(anchor_se);
+    if (anchor_se_it != realtime_by_se.end())
+        for (const auto& record : anchor_se_it->second)
+            if (record.realtime_clock > last->realtime_clock) last = &record;
+    if (last == first)
+        for (const auto& [_, records] : realtime_by_se)
+            for (const auto& record : records)
+                if (record.realtime_clock > last->realtime_clock) last = &record;
+
+    const bool has_linear_range =
+        last->realtime_clock > first->realtime_clock && last->shader_clock > first->shader_clock;
+    const long double linear_slope = has_linear_range
+                                       ? static_cast<long double>(last->shader_clock - first->shader_clock) /
+                                             static_cast<long double>(last->realtime_clock - first->realtime_clock)
+                                       : 0.0L;
+
+    const SpmCounterData* sq_cycles = nullptr;
+    for (const auto& counter : spm.counters)
+        if (counter.name == "SQ_CYCLES")
+        {
+            sq_cycles = &counter;
+            break;
+        }
+
+    std::vector<float> aligned_clock = spm.clock;
+    for (size_t xcc = 0; xcc < spm.sample_counts.size(); ++xcc)
+    {
+        const size_t count = spm.sample_counts[xcc];
+        if (count == 0) continue;
+
+        auto timestampAt = [&](size_t sample) { return spm.timestamps.at(xcc * spm.sample_count + sample); };
+        std::vector<double> interval_cycles(count, std::numeric_limits<double>::quiet_NaN());
+        double local_rate_sum = 0;
+        size_t local_rate_count = 0;
+
+        for (size_t sample = 1; sample < count; ++sample)
+        {
+            const uint64_t delta_timestamp = timestampAt(sample) - timestampAt(sample - 1);
+            // SQ_CYCLES at a sample measures the interval ending at that sample.
+            double cycles = sq_cycles ? counterValue(*sq_cycles, xcc, anchor_se, sample, spm.sample_count) : 0.0;
+            if (cycles > 0)
+            {
+                interval_cycles[sample] = cycles;
+                if (delta_timestamp > 0)
+                {
+                    local_rate_sum += cycles / delta_timestamp;
+                    local_rate_count++;
+                }
+            }
+            else if (has_linear_range)
+                interval_cycles[sample] = static_cast<double>(linear_slope * delta_timestamp);
+        }
+
+        const double local_rate = local_rate_count ? local_rate_sum / local_rate_count : 0.0;
+        for (size_t sample = 1; sample < count; ++sample)
+        {
+            if (std::isfinite(interval_cycles[sample])) continue;
+            const uint64_t delta_timestamp = timestampAt(sample) - timestampAt(sample - 1);
+            if (local_rate > 0)
+                interval_cycles[sample] = local_rate * delta_timestamp;
+            else
+                return false;
+        }
+
+        const uint64_t* timestamps = spm.timestamps.data() + xcc * spm.sample_count;
+        size_t upper = std::lower_bound(timestamps, timestamps + count, first->realtime_clock) - timestamps;
+        size_t pivot = 0;
+        double pivot_clock = 0;
+
+        if (upper < count && timestamps[upper] == first->realtime_clock)
+        {
+            pivot = upper;
+            pivot_clock = first->shader_clock;
+        }
+        else if (upper > 0 && upper < count)
+        {
+            const uint64_t lower_timestamp = timestamps[upper - 1];
+            const uint64_t upper_timestamp = timestamps[upper];
+            const long double fraction = static_cast<long double>(upper_timestamp - first->realtime_clock) /
+                                         static_cast<long double>(upper_timestamp - lower_timestamp);
+            pivot = upper;
+            pivot_clock = first->shader_clock + static_cast<double>(fraction * interval_cycles[upper]);
+        }
+        else
+        {
+            pivot = upper == 0 ? 0 : count - 1;
+            long double rate = has_linear_range ? linear_slope : local_rate;
+            if (rate <= 0) return false;
+            pivot_clock = first->shader_clock +
+                          static_cast<double>(timestampDelta(timestamps[pivot], first->realtime_clock) * rate);
+        }
+
+        std::vector<double> xcc_clock(count);
+        xcc_clock[pivot] = pivot_clock;
+        for (size_t sample = pivot; sample > 0; --sample)
+            xcc_clock[sample - 1] = xcc_clock[sample] - interval_cycles[sample];
+        for (size_t sample = pivot + 1; sample < count; ++sample)
+            xcc_clock[sample] = xcc_clock[sample - 1] + interval_cycles[sample];
+
+        for (size_t sample = 0; sample < count; ++sample)
+            aligned_clock[xcc * spm.sample_count + sample] = static_cast<float>(xcc_clock[sample]);
+        for (size_t sample = count; sample < spm.sample_count; ++sample)
+            aligned_clock[xcc * spm.sample_count + sample] = static_cast<float>(xcc_clock.back());
+    }
+
+    spm.clock = std::move(aligned_clock);
+    return true;
 }

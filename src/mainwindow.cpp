@@ -85,6 +85,17 @@
 
 namespace fs = std::filesystem;
 
+namespace
+{
+SpmData loadSpmForTrace(const std::string& path, const DataStore* trace)
+{
+    SpmData spm = loadSpmJson(path);
+    if (trace && !trace->realtime_by_se.empty() && !alignSpmClock(spm, trace->realtime_by_se))
+        std::cerr << "Warning: Unable to align SPM timestamps to the thread-trace shader clock\n";
+    return spm;
+}
+} // namespace
+
 #if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
 #    include "util/accordionwidget.h"
 #endif
@@ -815,7 +826,7 @@ void MainWindow::OpenSpmJson()
     {
         try
         {
-            SpmData spm = loadSpmJson(path);
+            SpmData spm = loadSpmForTrace(path, data_store.get());
             data_store->spm = std::move(spm);
             current_spm_path = path;
             counter_values_tableitem.clear();
@@ -1101,7 +1112,7 @@ MainWindow::LoadResult MainWindow::LoadInputImpl(InputInfo input_info, const std
             {
                 try
                 {
-                    data_store->spm = loadSpmJson(input_info.spm_json_path);
+                    data_store->spm = loadSpmForTrace(input_info.spm_json_path, data_store.get());
                     data_store->has_thread_trace = false;
                     data_store->ui_dir = ui_dir;
                     current_spm_path = input_info.spm_json_path;
@@ -1150,7 +1161,7 @@ MainWindow::LoadResult MainWindow::LoadInputImpl(InputInfo input_info, const std
         {
             try
             {
-                data_store->spm = loadSpmJson(current_spm_path);
+                data_store->spm = loadSpmForTrace(current_spm_path, data_store.get());
             }
             catch (const std::exception& e)
             {

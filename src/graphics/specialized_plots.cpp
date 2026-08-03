@@ -52,6 +52,24 @@ namespace
 {
 using OccupancyBySE = std::map<int, std::vector<occupancy_data>>;
 
+size_t sampledPlotSamples(const std::vector<size_t>& sample_counts)
+{
+    return sample_counts.empty() ? 0 : *std::max_element(sample_counts.begin(), sample_counts.end());
+}
+
+float sampledPlotClock(const DerivedCounter::Tensor& clock, const std::vector<size_t>& sample_counts, size_t sample)
+{
+    double total = 0;
+    size_t count = 0;
+    for (size_t xcc = 0; xcc < sample_counts.size(); ++xcc)
+    {
+        if (sample >= sample_counts[xcc]) continue;
+        total += clock.at(xcc, 0, 0, sample);
+        count++;
+    }
+    return count ? static_cast<float>(total / count) : 0.0f;
+}
+
 bool parseSEKey(const std::string& key, int& se)
 {
     try
@@ -346,20 +364,12 @@ void CounterPlotView::UpdateDataSelection(
                                                                           : "UNK_" + std::to_string(counter_index);
 
             std::vector<WeightedPoint> datapoints;
-            datapoints.reserve(summed.shape().getSamples());
-            for (size_t sample = 0; sample < summed.shape().getSamples(); ++sample)
-            {
-                double clock = 0;
-                size_t clock_count = 0;
-                for (size_t xcc = 0; xcc < sampled_counts.size(); ++xcc)
-                {
-                    if (sample >= sampled_counts[xcc]) continue;
-                    clock += sampled_clock->at(xcc, 0, 0, sample);
-                    clock_count++;
-                }
-                if (clock_count == 0) continue;
-                datapoints.push_back({static_cast<float>(clock / clock_count), summed.at(0, 0, 0, sample)});
-            }
+            const size_t samples = std::min(sampledPlotSamples(sampled_counts), summed.shape().getSamples());
+            datapoints.reserve(samples);
+            for (size_t sample = 0; sample < samples; ++sample)
+                datapoints.push_back(
+                    {sampledPlotClock(*sampled_clock, sampled_counts, sample), summed.at(0, 0, 0, sample)}
+                );
             AddData(name, Config::PlotColors(counter_index), std::move(datapoints));
             raw_curve_sources.push_back(name);
         }
@@ -456,10 +466,15 @@ void CounterPlotView::UpdateDerivedCounters(const std::string& derivedDefinition
         // If result is already [1,1,1,time], just plot it directly
         if (num_xcc == 1 && num_se == 1 && num_cu == 1)
         {
-            if (!sampled_counts.empty()) num_samples = std::min(num_samples, sampled_counts.front());
+            if (!sampled_counts.empty()) num_samples = std::min(num_samples, sampledPlotSamples(sampled_counts));
             std::vector<WeightedPoint> datapoints;
             datapoints.reserve(num_samples);
-            for (size_t i = 0; i < num_samples; i++) datapoints.push_back({time_data->at(0, 0, 0, i), (*result)[i]});
+            for (size_t i = 0; i < num_samples; i++)
+            {
+                const float clock = sampled_counts.empty() ? time_data->at(0, 0, 0, i)
+                                                           : sampledPlotClock(*time_data, sampled_counts, i);
+                datapoints.push_back({clock, (*result)[i]});
+            }
             AddData(derived_name, Config::PlotColors(derived_index++), std::move(datapoints));
             continue;
         }

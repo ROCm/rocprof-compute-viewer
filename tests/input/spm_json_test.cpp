@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <filesystem>
 #include <stdexcept>
 #include <string>
@@ -32,6 +33,8 @@ TEST(SpmJson, LoadsPerXccClocksAndCounterDimensions)
 
     EXPECT_FLOAT_EQ(data.clock.at(0 * data.sample_count), 86.0f);
     EXPECT_FLOAT_EQ(data.clock.at(1 * data.sample_count), 0.0f);
+    EXPECT_EQ(data.timestamps.at(0 * data.sample_count), 25079783077210u);
+    EXPECT_EQ(data.timestamps.at(1 * data.sample_count), 25079783077124u);
 
     const auto& sq_cycles = findCounter(data, "SQ_CYCLES");
     EXPECT_EQ(sq_cycles.xcc_count, 8u);
@@ -48,4 +51,50 @@ TEST(SpmJson, LoadsPerXccClocksAndCounterDimensions)
     EXPECT_EQ(tcc_hit.xcc_count, 8u);
     EXPECT_EQ(tcc_hit.se_count, 1u);
     EXPECT_EQ(tcc_hit.instance_count, 16u);
+}
+
+TEST(SpmJson, AlignsClockWithSqCyclesAndFirstRealtimeRecord)
+{
+    SpmData data = loadSpmJson(SPM_TEST_DATA);
+    std::map<int, std::vector<realtime_record_t>> realtime{
+        {0, {{12680, 25079783078590, 0}}}
+    };
+
+    ASSERT_TRUE(alignSpmClock(data, realtime));
+
+    const size_t xcc = 6;
+    const size_t before = 1;
+    const size_t after = 2;
+    const uint64_t before_timestamp = data.timestamps.at(xcc * data.sample_count + before);
+    const uint64_t after_timestamp = data.timestamps.at(xcc * data.sample_count + after);
+    const float before_clock = data.clock.at(xcc * data.sample_count + before);
+    const float after_clock = data.clock.at(xcc * data.sample_count + after);
+    const double fraction = double(25079783078590u - before_timestamp) / double(after_timestamp - before_timestamp);
+
+    EXPECT_NEAR(before_clock + fraction * (after_clock - before_clock), 12680.0, 0.5);
+    EXPECT_NEAR(after_clock - before_clock, 16385.0, 0.5);
+}
+
+TEST(SpmJson, UsesRealtimeInterpolationWithoutSqCycles)
+{
+    SpmData data = loadSpmJson(SPM_TEST_DATA);
+    data.counters.erase(
+        std::remove_if(
+            data.counters.begin(),
+            data.counters.end(),
+            [](const SpmCounterData& counter) { return counter.name == "SQ_CYCLES"; }
+        ),
+        data.counters.end()
+    );
+    std::map<int, std::vector<realtime_record_t>> realtime{
+        {0, {{12680, 25079783078590, 0}}  },
+        {1, {{4077640, 25079783274738, 0}}}
+    };
+
+    ASSERT_TRUE(alignSpmClock(data, realtime));
+
+    const long double slope =
+        static_cast<long double>(4077640 - 12680) / static_cast<long double>(25079783274738u - 25079783078590u);
+    const long double expected = 12680.0L - static_cast<long double>(25079783078590u - 25079783077210u) * slope;
+    EXPECT_NEAR(data.clock.at(0), static_cast<double>(expected), 0.5);
 }

@@ -23,8 +23,12 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
+#include <map>
 #include <string>
 #include <vector>
+
+#include "data/records.h"
 
 struct SpmCounterData
 {
@@ -40,7 +44,11 @@ struct SpmData
 {
     size_t sample_count = 0;
     std::vector<size_t> sample_counts;
-    // Row-major [XCC][sample], padded with the final valid timestamp.
+    // Row-major [XCC][sample], retaining the absolute SPM timestamp.
+    std::vector<uint64_t> timestamps;
+    // Row-major [XCC][sample], padded with the final valid clock value.
+    // Contains shader-clock values after alignment, or relative SPM timestamp
+    // values when no thread-trace realtime records are available.
     std::vector<float> clock;
     std::vector<SpmCounterData> counters;
 
@@ -48,3 +56,4 @@ struct SpmData
 };
 
 SpmData loadSpmJson(const std::string& path);
+bool alignSpmClock(SpmData& spm, const std::map<int, std::vector<realtime_record_t>>& realtime_by_se);
