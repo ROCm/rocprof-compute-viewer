@@ -19,6 +19,8 @@ ROCprof Compute Viewer (RCV) interprets the output of `ui_output_agent_{agent_id
 
 For a description of each view and its controls, see the :ref:`Views and shortcuts <rcv-views-reference>` topic.
 
+.. _using-compute-viewer-requirements:
+
 Requirements
 =============
 
@@ -27,8 +29,6 @@ To ensure that ``rocprofv3`` generates the thread trace data correctly, install 
 * AQL profile:
 
   * Available with ROCm 7.0 or later, or `build from source <https://github.com/ROCm/rocm-systems/tree/develop/projects/aqlprofile>`_.
-
-  * If ``rocprofv3`` throws INVALID_SHADER_DATA error, the AQL profile and Trace Decoder versions are incompatible.
 
 * ROCprofiler-SDK:
 
@@ -47,6 +47,8 @@ RCV accepts two kinds of input:
 
 - A ``rocprofv3`` UI output directory (JSON), produced when ``rocprofv3`` converts the thread trace for you.
 - A directory of raw ``.att`` and ``.out`` thread-trace files captured directly through the rocprofiler-sdk API. These require a decoder-enabled build.
+
+.. _importing-rocprofv3-ui-output:
 
 Import a rocprofv3 UI output directory
 ----------------------------------------

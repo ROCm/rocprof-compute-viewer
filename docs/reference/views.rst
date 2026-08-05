@@ -97,6 +97,8 @@ The settings as shown in the preceding image are explained here:
 
 - The History box contains the history (token + cycle) of previously selected tokens. It can be used to go back to a previous location.
 
+.. _hotspot-view:
+
 Hotspot view
 =============
 
@@ -144,6 +146,8 @@ Here are the user controls for Compute Unit and Utilization views:
 
 - Use WaveView zoom box on the left panel or CTRL + MouseWheel to control the zoom level.
 
+.. _instructions-view:
+
 Instructions view
 ==================
 
@@ -179,6 +183,8 @@ The Global View tab presents a comprehensive trace of all waves across the enabl
 - The Global view can be compared with the Kernel dispatch plot.
 
 - Right-click and drag to measure number of cycles.
+
+.. _summary-view:
 
 Summary view
 =============
@@ -254,6 +260,8 @@ Kernel dispatch view
 
 The Kernel Dispatches tab shows occupancy per kernel. This tab is usually relevant when there are multiple kernels running on different streams.
 
+.. _counters-view:
+
 Counters view
 ==============
 
@@ -318,6 +326,8 @@ In addition to the raw SQ counters, RCV lets you define derived counters that ar
 - If multiple files are present, the currently selected widget tab defines which derived counter list is shown.
 
 The left list shows the raw (basic) counters collected with SQTT, along with their shapes ``(XCC, SE, CU, Time)``.
+
+.. _flamegraph-view:
 
 Flamegraph view
 ================
