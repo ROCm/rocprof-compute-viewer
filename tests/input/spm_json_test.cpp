@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <stdexcept>
 #include <string>
+#include <utility>
 
 #include "data/spm_json.h"
 
@@ -49,7 +50,7 @@ TEST(SpmJson, LoadsPerXccClocksAndCounterDimensions)
     EXPECT_FLOAT_EQ(test_counter.values.at(index(test_counter, data.sample_count, 1, 0, 1, 1)), 10.0f);
 }
 
-TEST(SpmJson, AlignsClockWithSqCyclesAndFirstRealtimeRecord)
+TEST(SpmJson, AlignsNearestSampleWithSqCyclesAndFirstRealtimeRecord)
 {
     SpmData data = loadSpmJson(SPM_TEST_DATA);
     std::vector<SpmClockAnchor> realtime{
@@ -58,17 +59,47 @@ TEST(SpmJson, AlignsClockWithSqCyclesAndFirstRealtimeRecord)
 
     ASSERT_TRUE(alignSpmClock(data, realtime));
 
-    const size_t xcc = 0;
-    const size_t before = 0;
-    const size_t after = 1;
-    const uint64_t before_timestamp = data.timestamps.at(xcc * data.sample_count + before);
-    const uint64_t after_timestamp = data.timestamps.at(xcc * data.sample_count + after);
-    const float before_clock = data.clock.at(xcc * data.sample_count + before);
-    const float after_clock = data.clock.at(xcc * data.sample_count + after);
-    const double fraction = double(108u - before_timestamp) / double(after_timestamp - before_timestamp);
+    // 110 and 112 are nearest to 108, then corrected using the local rate.
+    EXPECT_NEAR(data.clock.at(0 * data.sample_count + 1), 1002.0, 0.01);
+    EXPECT_NEAR(data.clock.at(1 * data.sample_count + 1), 1004.0, 0.01);
+    EXPECT_NEAR(data.clock.at(0 * data.sample_count + 0), 992.0, 0.01);
+}
 
-    EXPECT_NEAR(before_clock + fraction * (after_clock - before_clock), 1000.0, 0.01);
-    EXPECT_NEAR(after_clock - before_clock, 10.0, 0.01);
+TEST(SpmJson, ChoosesPreviousSampleWhenItIsNearest)
+{
+    SpmData data = loadSpmJson(SPM_TEST_DATA);
+    std::vector<SpmClockAnchor> realtime{
+        {0, 1000, 104}
+    };
+
+    ASSERT_TRUE(alignSpmClock(data, realtime));
+
+    EXPECT_NEAR(data.clock.at(0 * data.sample_count + 0), 996.0, 0.01);
+    EXPECT_NEAR(data.clock.at(1 * data.sample_count + 0), 998.0, 0.01);
+}
+
+TEST(SpmJson, UsesNearestSamplesSqCyclesRate)
+{
+    SpmData data;
+    data.sample_count = 3;
+    data.sample_counts = {3};
+    data.timestamps = {100, 200, 300};
+    data.clock = {0, 0, 0};
+
+    SpmCounterData sq_cycles;
+    sq_cycles.name = "SQ_CYCLES";
+    sq_cycles.values = {0, 10'000, 50'000};
+    data.counters.push_back(std::move(sq_cycles));
+
+    std::vector<SpmClockAnchor> realtime{
+        {0, 1000, 249}
+    };
+    ASSERT_TRUE(alignSpmClock(data, realtime));
+
+    // Timestamp 200 is nearest. Its own interval rate is 100 cycles/tick;
+    // using the following sample's rate would introduce a 19,600-cycle error.
+    EXPECT_NEAR(data.clock.at(1), -3900.0, 0.01);
+    EXPECT_NEAR(data.clock.at(2), 46'100.0, 0.01);
 }
 
 TEST(SpmJson, DetectsRealtimeRangeOverlap)

@@ -95,7 +95,18 @@ size_t flattenedIndex(
     return ((xcc * counter.se_count + se) * counter.instance_count + instance) * sample_count + sample;
 }
 
-long double timestampDelta(uint64_t lhs, uint64_t rhs)
+size_t nearestTimestamp(const uint64_t* timestamps, size_t count, uint64_t target)
+{
+    const size_t upper = std::lower_bound(timestamps, timestamps + count, target) - timestamps;
+    if (upper == 0) return 0;
+    if (upper == count) return count - 1;
+
+    const uint64_t before = target - timestamps[upper - 1];
+    const uint64_t after = timestamps[upper] - target;
+    return before <= after ? upper - 1 : upper;
+}
+
+long double signedTimestampDelta(uint64_t lhs, uint64_t rhs)
 {
     return lhs >= rhs ? static_cast<long double>(lhs - rhs) : -static_cast<long double>(rhs - lhs);
 }
@@ -323,12 +334,12 @@ bool alignSpmClock(SpmData& spm, const std::vector<SpmClockAnchor>& anchors)
     for (const auto& anchor : anchors)
         if (anchor.se == anchor_se && anchor.realtime_clock > last->realtime_clock) last = &anchor;
 
-    const bool has_linear_range =
+    const bool has_fallback_slope =
         last->realtime_clock > first->realtime_clock && last->shader_clock > first->shader_clock;
-    const long double linear_slope = has_linear_range
-                                       ? static_cast<long double>(last->shader_clock - first->shader_clock) /
-                                             static_cast<long double>(last->realtime_clock - first->realtime_clock)
-                                       : 0.0L;
+    const double fallback_slope = has_fallback_slope
+                                    ? static_cast<double>(last->shader_clock - first->shader_clock) /
+                                          static_cast<double>(last->realtime_clock - first->realtime_clock)
+                                    : 0.0;
 
     const SpmCounterData* sq_cycles = nullptr;
     for (const auto& counter : spm.counters)
@@ -345,65 +356,37 @@ bool alignSpmClock(SpmData& spm, const std::vector<SpmClockAnchor>& anchors)
         if (count == 0) continue;
 
         auto timestampAt = [&](size_t sample) { return spm.timestamps.at(xcc * spm.sample_count + sample); };
-        std::vector<double> interval_cycles(count, std::numeric_limits<double>::quiet_NaN());
-        double local_rate_sum = 0;
-        size_t local_rate_count = 0;
+        std::vector<double> interval_cycles(count, 0.0);
 
         for (size_t sample = 1; sample < count; ++sample)
         {
             const uint64_t delta_timestamp = timestampAt(sample) - timestampAt(sample - 1);
             // SQ_CYCLES at a sample measures the interval ending at that sample.
             double cycles = sq_cycles ? counterValue(*sq_cycles, xcc, anchor_se, sample, spm.sample_count) : 0.0;
-            if (cycles > 0)
+            if (cycles <= 0)
             {
-                interval_cycles[sample] = cycles;
-                if (delta_timestamp > 0)
-                {
-                    local_rate_sum += cycles / delta_timestamp;
-                    local_rate_count++;
-                }
+                if (!has_fallback_slope) return false;
+                cycles = fallback_slope * delta_timestamp;
             }
-            else if (has_linear_range)
-                interval_cycles[sample] = static_cast<double>(linear_slope * delta_timestamp);
-        }
-
-        const double local_rate = local_rate_count ? local_rate_sum / local_rate_count : 0.0;
-        for (size_t sample = 1; sample < count; ++sample)
-        {
-            if (std::isfinite(interval_cycles[sample])) continue;
-            const uint64_t delta_timestamp = timestampAt(sample) - timestampAt(sample - 1);
-            if (local_rate > 0)
-                interval_cycles[sample] = local_rate * delta_timestamp;
-            else
-                return false;
+            interval_cycles[sample] = cycles;
         }
 
         const uint64_t* timestamps = spm.timestamps.data() + xcc * spm.sample_count;
-        size_t upper = std::lower_bound(timestamps, timestamps + count, first->realtime_clock) - timestamps;
-        size_t pivot = 0;
-        double pivot_clock = 0;
-
-        if (upper < count && timestamps[upper] == first->realtime_clock)
+        const size_t pivot = nearestTimestamp(timestamps, count, first->realtime_clock);
+        double pivot_clock = first->shader_clock;
+        if (timestamps[pivot] != first->realtime_clock)
         {
-            pivot = upper;
-            pivot_clock = first->shader_clock;
-        }
-        else if (upper > 0 && upper < count)
-        {
-            const uint64_t lower_timestamp = timestamps[upper - 1];
-            const uint64_t upper_timestamp = timestamps[upper];
-            const long double fraction = static_cast<long double>(upper_timestamp - first->realtime_clock) /
-                                         static_cast<long double>(upper_timestamp - lower_timestamp);
-            pivot = upper;
-            pivot_clock = first->shader_clock + static_cast<double>(fraction * interval_cycles[upper]);
-        }
-        else
-        {
-            pivot = upper == 0 ? 0 : count - 1;
-            long double rate = has_linear_range ? linear_slope : local_rate;
+            double rate = fallback_slope;
+            if (count > 1)
+            {
+                // SQ_CYCLES belongs to the selected SPM sample. The first
+                // sample has no preceding interval, so use the next sample.
+                const size_t interval = pivot > 0 ? pivot : 1;
+                const uint64_t duration = timestamps[interval] - timestamps[interval - 1];
+                if (duration > 0) rate = interval_cycles[interval] / duration;
+            }
             if (rate <= 0) return false;
-            pivot_clock = first->shader_clock +
-                          static_cast<double>(timestampDelta(timestamps[pivot], first->realtime_clock) * rate);
+            pivot_clock += static_cast<double>(signedTimestampDelta(timestamps[pivot], first->realtime_clock) * rate);
         }
 
         std::vector<double> xcc_clock(count);
