@@ -120,6 +120,7 @@ public:
     Shape shape() const { return m_shape; }
     const std::vector<float>& data() const { return m_data; }
     std::vector<float>& data() { return m_data; }
+    const std::vector<size_t>& xccIndices() const { return m_xcc_indices; }
     size_t size() const { return m_data.size(); }
     bool isScalar() const { return m_shape.isScalar(); }
     float scalar() const;
@@ -229,6 +230,7 @@ public:
 private:
     Shape m_shape;
     std::vector<float> m_data;
+    std::vector<size_t> m_xcc_indices;
 
     // Helper for reduction operations
     template <typename ReduceOp> Tensor reduceAxes(const std::vector<Axis>& axes, ReduceOp op, float identity) const;

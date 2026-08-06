@@ -121,14 +121,20 @@ std::string Shape::toString() const
 // Tensor implementation
 // ============================================================================
 
-Tensor::Tensor() : m_shape(), m_data(1, 0.0) {}
+Tensor::Tensor() : m_shape(), m_data(1, 0.0), m_xcc_indices{0} {}
 
-Tensor::Tensor(float scalar) : m_shape(1, 1, 1, 1), m_data(1, scalar) {}
+Tensor::Tensor(float scalar) : m_shape(1, 1, 1, 1), m_data(1, scalar), m_xcc_indices{0} {}
 
-Tensor::Tensor(const Shape& shape, float fillValue) : m_shape(shape), m_data(shape.totalSize(), fillValue) {}
-
-Tensor::Tensor(const Shape& shape, const std::vector<float>& data) : m_shape(shape), m_data(data)
+Tensor::Tensor(const Shape& shape, float fillValue) :
+m_shape(shape), m_data(shape.totalSize(), fillValue), m_xcc_indices(shape.getXCC())
 {
+    std::iota(m_xcc_indices.begin(), m_xcc_indices.end(), 0);
+}
+
+Tensor::Tensor(const Shape& shape, const std::vector<float>& data) :
+m_shape(shape), m_data(data), m_xcc_indices(shape.getXCC())
+{
+    std::iota(m_xcc_indices.begin(), m_xcc_indices.end(), 0);
     if (m_data.size() != m_shape.totalSize())
     {
         throw std::runtime_error(
@@ -194,7 +200,9 @@ template <typename ReduceOp> Tensor Tensor::reduceAxes(const std::vector<Axis>& 
             result = op(result, v, count);
             count++;
         }
-        return Tensor(result);
+        Tensor reduced(result);
+        reduced.m_xcc_indices = m_shape.getXCC() == 1 ? m_xcc_indices : std::vector<size_t>{};
+        return reduced;
     }
 
     Shape newShape = m_shape.reducedShape(axes);
@@ -214,6 +222,7 @@ template <typename ReduceOp> Tensor Tensor::reduceAxes(const std::vector<Axis>& 
         else
             reduce[static_cast<size_t>(axis)] = true;
     }
+    result.m_xcc_indices = reduce[0] && m_shape.getXCC() > 1 ? std::vector<size_t>{} : m_xcc_indices;
 
     // Iterate over all elements
     for (size_t xcc = 0; xcc < m_shape[0]; ++xcc)
@@ -317,6 +326,10 @@ Tensor Tensor::select(int64_t index, Axis axis) const
     resultShape.dim[axisIdx] = 1;
 
     Tensor result(resultShape);
+    if (axisIdx == 0 && static_cast<size_t>(index) < m_xcc_indices.size())
+        result.m_xcc_indices = {m_xcc_indices[static_cast<size_t>(index)]};
+    else
+        result.m_xcc_indices = m_xcc_indices;
 
     for (size_t xcc = 0; xcc < resultShape[0]; ++xcc)
     {
@@ -375,6 +388,13 @@ Tensor Tensor::selectRange(size_t start, size_t stop, size_t step, Axis axis) co
     resultShape.dim[axisIdx] = numSelected;
 
     Tensor result(resultShape);
+    if (axisIdx == 0 && m_xcc_indices.size() == m_shape.getXCC())
+    {
+        result.m_xcc_indices.clear();
+        for (size_t i = start; i < stop; i += step) result.m_xcc_indices.push_back(m_xcc_indices[i]);
+    }
+    else
+        result.m_xcc_indices = m_xcc_indices;
 
     // Iterate over all indices in the result tensor
     for (size_t xcc = 0; xcc < resultShape[0]; ++xcc)
@@ -454,6 +474,13 @@ Tensor Tensor::remove(int index, Axis axis) const
     resultShape.dim[axisIdx] = axisSize - 1;
 
     Tensor result(resultShape);
+    if (axisIdx == 0 && m_xcc_indices.size() == m_shape.getXCC())
+    {
+        result.m_xcc_indices = m_xcc_indices;
+        result.m_xcc_indices.erase(result.m_xcc_indices.begin() + actualIndex);
+    }
+    else
+        result.m_xcc_indices = m_xcc_indices;
 
     for (size_t xcc = 0; xcc < resultShape[0]; ++xcc)
     {
@@ -505,6 +532,7 @@ Tensor Tensor::delta(Axis axis) const
     resultShape.dim[axisIdx] = axisSize - 1;
 
     Tensor result(resultShape);
+    result.m_xcc_indices = axisIdx == 0 ? std::vector<size_t>{} : m_xcc_indices;
 
     for (size_t xcc = 0; xcc < resultShape[0]; ++xcc)
     {
@@ -553,16 +581,32 @@ Tensor Tensor::delta(Axis axis) const
 // Template helper for broadcasting operations
 template <typename BinaryOp> Tensor Tensor::broadcastOp(const Tensor& other, BinaryOp op) const
 {
+    auto xcc_indices = [&](size_t result_xcc)
+    {
+        if (result_xcc > 1)
+        {
+            if (m_shape.getXCC() == result_xcc && m_xcc_indices.size() == result_xcc) return m_xcc_indices;
+            if (other.m_shape.getXCC() == result_xcc && other.m_xcc_indices.size() == result_xcc)
+                return other.m_xcc_indices;
+            return std::vector<size_t>{};
+        }
+        if (isScalar() && !other.isScalar()) return other.m_xcc_indices;
+        if (other.isScalar() && !isScalar()) return m_xcc_indices;
+        return m_xcc_indices == other.m_xcc_indices ? m_xcc_indices : std::vector<size_t>{};
+    };
+
     // Fast path for same-shape tensors (no broadcasting needed)
     if (m_shape == other.m_shape)
     {
         Tensor result(m_shape);
+        result.m_xcc_indices = xcc_indices(m_shape.getXCC());
         for (size_t i = 0; i < m_data.size(); ++i) result[i] = op(m_data[i], other.m_data[i]);
         return result;
     }
 
     Shape resultShape = Shape::broadcastShape(m_shape, other.m_shape);
     Tensor result(resultShape);
+    result.m_xcc_indices = xcc_indices(resultShape.getXCC());
 
     for (size_t xcc = 0; xcc < resultShape[0]; ++xcc)
     {
@@ -617,6 +661,7 @@ Tensor Tensor::operator/(const Tensor& other) const
 Tensor Tensor::operator+(float scalar) const
 {
     Tensor result(m_shape);
+    result.m_xcc_indices = m_xcc_indices;
     for (size_t i = 0; i < m_data.size(); ++i) result[i] = m_data[i] + scalar;
     return result;
 }
@@ -624,6 +669,7 @@ Tensor Tensor::operator+(float scalar) const
 Tensor Tensor::operator-(float scalar) const
 {
     Tensor result(m_shape);
+    result.m_xcc_indices = m_xcc_indices;
     for (size_t i = 0; i < m_data.size(); ++i) result[i] = m_data[i] - scalar;
     return result;
 }
@@ -631,6 +677,7 @@ Tensor Tensor::operator-(float scalar) const
 Tensor Tensor::operator*(float scalar) const
 {
     Tensor result(m_shape);
+    result.m_xcc_indices = m_xcc_indices;
     for (size_t i = 0; i < m_data.size(); ++i) result[i] = m_data[i] * scalar;
     return result;
 }
@@ -638,6 +685,7 @@ Tensor Tensor::operator*(float scalar) const
 Tensor Tensor::operator/(float scalar) const
 {
     Tensor result(m_shape);
+    result.m_xcc_indices = m_xcc_indices;
     for (size_t i = 0; i < m_data.size(); ++i) result[i] = m_data[i] / scalar;
     return result;
 }
@@ -645,6 +693,7 @@ Tensor Tensor::operator/(float scalar) const
 Tensor Tensor::operator-() const
 {
     Tensor result(m_shape);
+    result.m_xcc_indices = m_xcc_indices;
     for (size_t i = 0; i < m_data.size(); ++i) result[i] = -m_data.at(i);
     return result;
 }
@@ -813,6 +862,7 @@ Tensor Tensor::operator>=(const Tensor& other) const
 Tensor Tensor::operator==(float scalar) const
 {
     Tensor result(m_shape);
+    result.m_xcc_indices = m_xcc_indices;
     for (size_t i = 0; i < m_data.size(); ++i) result[i] = (m_data[i] == scalar) ? 1.0f : 0.0f;
     return result;
 }
@@ -820,6 +870,7 @@ Tensor Tensor::operator==(float scalar) const
 Tensor Tensor::operator<(float scalar) const
 {
     Tensor result(m_shape);
+    result.m_xcc_indices = m_xcc_indices;
     for (size_t i = 0; i < m_data.size(); ++i) result[i] = (m_data[i] < scalar) ? 1.0f : 0.0f;
     return result;
 }
@@ -827,6 +878,7 @@ Tensor Tensor::operator<(float scalar) const
 Tensor Tensor::operator>(float scalar) const
 {
     Tensor result(m_shape);
+    result.m_xcc_indices = m_xcc_indices;
     for (size_t i = 0; i < m_data.size(); ++i) result[i] = (m_data[i] > scalar) ? 1.0f : 0.0f;
     return result;
 }
@@ -834,6 +886,7 @@ Tensor Tensor::operator>(float scalar) const
 Tensor Tensor::operator<=(float scalar) const
 {
     Tensor result(m_shape);
+    result.m_xcc_indices = m_xcc_indices;
     for (size_t i = 0; i < m_data.size(); ++i) result[i] = (m_data[i] <= scalar) ? 1.0f : 0.0f;
     return result;
 }
@@ -841,6 +894,7 @@ Tensor Tensor::operator<=(float scalar) const
 Tensor Tensor::operator>=(float scalar) const
 {
     Tensor result(m_shape);
+    result.m_xcc_indices = m_xcc_indices;
     for (size_t i = 0; i < m_data.size(); ++i) result[i] = (m_data[i] >= scalar) ? 1.0f : 0.0f;
     return result;
 }
@@ -859,6 +913,7 @@ Tensor Tensor::operator&(const Tensor& other) const
 Tensor Tensor::operator|(float scalar) const
 {
     Tensor result(m_shape);
+    result.m_xcc_indices = m_xcc_indices;
     bool scalarTrue = (scalar != 0.0f);
     for (size_t i = 0; i < m_data.size(); ++i) result[i] = (m_data[i] != 0.0f || scalarTrue) ? 1.0f : 0.0f;
     return result;
@@ -867,6 +922,7 @@ Tensor Tensor::operator|(float scalar) const
 Tensor Tensor::operator&(float scalar) const
 {
     Tensor result(m_shape);
+    result.m_xcc_indices = m_xcc_indices;
     bool scalarTrue = (scalar != 0.0f);
     for (size_t i = 0; i < m_data.size(); ++i) result[i] = (m_data[i] != 0.0f && scalarTrue) ? 1.0f : 0.0f;
     return result;

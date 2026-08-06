@@ -1,5 +1,8 @@
 #include <gtest/gtest.h>
 
+#include <algorithm>
+#include <memory>
+
 #include "analysis/spm_series.h"
 
 using DerivedCounter::Shape;
@@ -80,4 +83,34 @@ TEST(SpmSeries, CoalescesSimultaneousXccUpdates)
     EXPECT_EQ(points[1].value, 11);
     EXPECT_EQ(points[2].time, 20);
     EXPECT_EQ(points[2].value, 11);
+}
+
+TEST(SpmSeries, SelectedXccUsesItsOriginalClock)
+{
+    Tensor values(
+        Shape(3, 1, 1, 3),
+        std::vector<float>{0, 10, 10, 0, 20, 20, 0, 30, 30}
+    );
+    Tensor clock(
+        Shape(3, 1, 1, 3),
+        std::vector<float>{0, 10, 20, 5, 15, 25, 7, 17, 27}
+    );
+
+    DerivedCounter::DerivedCounterManager manager;
+    manager.context().setCounter("TCP", std::make_shared<Tensor>(values));
+    manager.loadDefinitions("TCP_XCC2 := select[TCP, 2, axis=XCC]");
+    const Tensor selected = SpmSeries::sumSpatialForPlot(*manager.evaluate("TCP_XCC2"));
+    ASSERT_EQ(selected.xccIndices(), (std::vector<size_t>{2}));
+
+    const auto selected_points = SpmSeries::interval(selected, clock, 0, 0, 0, 3);
+    const auto all_points = SpmSeries::mergeXcc(values, clock, {3, 3, 3}, 3, 0, 0);
+
+    ASSERT_GE(selected_points.size(), 2u);
+    EXPECT_EQ(selected_points[0].time, 7);
+    EXPECT_EQ(selected_points[0].value, 30);
+
+    const auto all_at_xcc2_update =
+        std::find_if(all_points.begin(), all_points.end(), [](const auto& point) { return point.time == 7; });
+    ASSERT_NE(all_at_xcc2_update, all_points.end());
+    EXPECT_GE(all_at_xcc2_update->value, selected_points[0].value);
 }

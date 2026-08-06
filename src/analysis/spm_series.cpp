@@ -28,6 +28,15 @@
 
 namespace SpmSeries
 {
+namespace
+{
+size_t clockXcc(const DerivedCounter::Tensor& values, size_t xcc)
+{
+    const auto& indices = values.xccIndices();
+    return indices.size() == values.shape().getXCC() ? indices[xcc] : xcc;
+}
+} // namespace
+
 std::vector<float> timestampDeltas(const SpmData& spm)
 {
     std::vector<float> result(spm.timestamps.size(), 0);
@@ -72,10 +81,11 @@ std::vector<Point> interval(
     std::vector<Point> result;
     if (samples < 2) return result;
 
+    const size_t clock_xcc = clockXcc(values, xcc);
     result.reserve(samples);
     for (size_t sample = 1; sample < samples; ++sample)
-        result.push_back({clock.at(xcc, 0, 0, sample - 1), values.at(xcc, se, cu, sample)});
-    result.push_back({clock.at(xcc, 0, 0, samples - 1), values.at(xcc, se, cu, samples - 1)});
+        result.push_back({clock.at(clock_xcc, 0, 0, sample - 1), values.at(xcc, se, cu, sample)});
+    result.push_back({clock.at(clock_xcc, 0, 0, samples - 1), values.at(xcc, se, cu, samples - 1)});
     return result;
 }
 
@@ -89,8 +99,7 @@ std::vector<Point> mergeXcc(
 )
 {
     using Event = std::tuple<float, size_t, size_t>;
-    const size_t xcc_count =
-        std::min({values.shape().getXCC(), clock.shape().getXCC(), sample_counts.size()});
+    const size_t xcc_count = values.shape().getXCC();
     std::priority_queue<Event, std::vector<Event>, std::greater<Event>> events;
     std::vector<float> current(xcc_count, 0);
     std::vector<size_t> counts(xcc_count, 0);
@@ -98,10 +107,12 @@ std::vector<Point> mergeXcc(
 
     for (size_t xcc = 0; xcc < xcc_count; ++xcc)
     {
-        counts[xcc] = std::min(samples, sample_counts[xcc]);
+        const size_t clock_xcc = clockXcc(values, xcc);
+        if (clock_xcc >= clock.shape().getXCC() || clock_xcc >= sample_counts.size()) continue;
+        counts[xcc] = std::min(samples, sample_counts[clock_xcc]);
         if (counts[xcc] < 2) continue;
-        events.emplace(clock.at(xcc, 0, 0, 0), xcc, 1);
-        final_time = std::max(final_time, clock.at(xcc, 0, 0, counts[xcc] - 1));
+        events.emplace(clock.at(clock_xcc, 0, 0, 0), xcc, 1);
+        final_time = std::max(final_time, clock.at(clock_xcc, 0, 0, counts[xcc] - 1));
     }
     if (events.empty()) return {};
 
@@ -112,15 +123,15 @@ std::vector<Point> mergeXcc(
     while (!events.empty())
     {
         const float time = std::get<0>(events.top());
-        do
-        {
+        do {
             const auto event = events.top();
             events.pop();
             const size_t xcc = std::get<1>(event);
             size_t sample = std::get<2>(event);
             current[xcc] = values.at(xcc, se, cu, sample);
-            if (++sample < counts[xcc]) events.emplace(clock.at(xcc, 0, 0, sample - 1), xcc, sample);
-        } while (!events.empty() && std::get<0>(events.top()) == time);
+            if (++sample < counts[xcc]) events.emplace(clock.at(clockXcc(values, xcc), 0, 0, sample - 1), xcc, sample);
+        }
+        while (!events.empty() && std::get<0>(events.top()) == time);
 
         float total = 0;
         for (float value : current) total += value;

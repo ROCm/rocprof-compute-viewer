@@ -360,9 +360,7 @@ void CounterPlotView::UpdateDataSelection(
                                                                           : "UNK_" + std::to_string(counter_index);
 
             auto datapoints = weightedPoints(
-                SpmSeries::mergeXcc(
-                    summed, *sampled_clock, sampled_counts, summed.shape().getSamples(), 0, 0
-                )
+                SpmSeries::mergeXcc(summed, *sampled_clock, sampled_counts, summed.shape().getSamples(), 0, 0)
             );
             AddData(name, Config::PlotColors(counter_index), std::move(datapoints));
             raw_curve_sources.push_back(name);
@@ -523,14 +521,11 @@ void CounterPlotView::UpdateDerivedCounters(const std::string& derivedDefinition
                     {
                         datapoints.reserve(plot_samples);
                         for (size_t t = 0; t < plot_samples; ++t)
-                            datapoints.push_back(
-                                {time_data->at(clock_xcc, 0, 0, t), plot_result->at(xcc, se, cu, t)}
-                            );
+                            datapoints.push_back({time_data->at(clock_xcc, 0, 0, t), plot_result->at(xcc, se, cu, t)});
                     }
                     else
-                        datapoints = weightedPoints(
-                            SpmSeries::interval(*plot_result, *time_data, xcc, se, cu, plot_samples)
-                        );
+                        datapoints =
+                            weightedPoints(SpmSeries::interval(*plot_result, *time_data, xcc, se, cu, plot_samples));
                     AddData(plot_name, Config::PlotColors(derived_index++), std::move(datapoints));
                     plot_count++;
                 }
