@@ -54,6 +54,7 @@ public:
     void UpdateDerivedCounters(const std::string& derivedDefinitions, bool suppress);
 
     std::shared_ptr<DerivedCounter::DerivedCounterManager> getDerivedManager() { return derivedmanager; };
+    size_t getRawCurveCount() const { return raw_curve_count; }
 
     virtual void UpdateGraphTable(float timepos) override;
     // TODO(SPM): Return an SPM summary when its summary semantics are defined.

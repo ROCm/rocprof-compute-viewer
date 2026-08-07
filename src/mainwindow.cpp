@@ -1641,11 +1641,11 @@ void MainWindow::UpdateCountersPlotSelection()
     if (!this->counters_plot) return;
 
     auto perfcounter_names = this->counters_plot->getDisabled();
-    std::sort(
-        perfcounter_names.begin(),
-        perfcounter_names.end(),
-        [](const auto& a, const auto& b) { return a.first.size() < b.first.size(); }
-    );
+    const size_t raw_count = std::min(counters_plot->getRawCurveCount(), perfcounter_names.size());
+    const auto by_name = [](const auto& a, const auto& b) { return a.first < b.first; };
+    std::sort(perfcounter_names.begin(), perfcounter_names.begin() + raw_count, by_name);
+    std::sort(perfcounter_names.begin() + raw_count, perfcounter_names.end(), by_name);
+    std::rotate(perfcounter_names.begin(), perfcounter_names.begin() + raw_count, perfcounter_names.end());
     graph_info_table->setRowCount(perfcounter_names.size());
 
     int i = 0;
