@@ -87,10 +87,16 @@ namespace fs = std::filesystem;
 
 namespace
 {
-SpmData loadSpmForTrace(const std::string& path, const DataStore* trace, bool* clocks_out_of_range = nullptr)
+struct LoadedSpm
 {
-    SpmData spm = loadSpmJson(path);
-    if (!trace) return spm;
+    SpmData data;
+    bool clocks_out_of_range = false;
+};
+
+LoadedSpm loadSpmForTrace(const std::string& path, const DataStore* trace)
+{
+    LoadedSpm result{loadSpmJson(path)};
+    if (!trace) return result;
 
     std::vector<SpmClockAnchor> anchors;
     for (const auto& [se, records] : trace->realtime_by_se)
@@ -98,9 +104,9 @@ SpmData loadSpmForTrace(const std::string& path, const DataStore* trace, bool* c
 
     if (anchors.empty())
         throw std::runtime_error("SPM clock alignment failed: the loaded trace has no REALTIME records.");
-    if (clocks_out_of_range) *clocks_out_of_range = !spmClockRangesOverlap(spm, anchors);
-    if (!alignSpmClock(spm, anchors)) throw std::runtime_error("SPM clock alignment failed.");
-    return spm;
+    result.clocks_out_of_range = !spmClockRangesOverlap(result.data, anchors);
+    if (!alignSpmClock(result.data, anchors)) throw std::runtime_error("SPM clock alignment failed.");
+    return result;
 }
 } // namespace
 
@@ -815,7 +821,7 @@ void MainWindow::SetJsonsFolder()
 {
     std::string jsons_dir = QFileDialog::getExistingDirectory(this, "Select Dir", ui_dir.c_str()).toStdString();
     if (jsons_dir.empty()) return;
-    LoadReplacementInput(detectInput(jsons_dir), jsons_dir);
+    LoadInput(detectInput(jsons_dir), jsons_dir, LoadMode::Replace);
 }
 
 void MainWindow::OpenSpmJson()
@@ -832,18 +838,19 @@ void MainWindow::OpenSpmJson()
     {
         try
         {
-            bool clocks_out_of_range = false;
-            SpmData spm = loadSpmForTrace(path, data_store.get(), &clocks_out_of_range);
-            if (clocks_out_of_range)
+            LoadedSpm spm = loadSpmForTrace(path, data_store.get());
+            if (spm.clocks_out_of_range)
                 QMessageBox::warning(this, "SPM JSON", "SPM and SQTT realtime clocks are out of range.");
-            data_store->spm = std::move(spm);
+            data_store->spm = std::move(spm.data);
             current_spm_path = path;
             counter_values_tableitem.clear();
             CreateCountersPlot();
         }
         catch (const std::exception& e)
         {
-            QMessageBox::warning(this, "SPM JSON", QString("Unable to load SPM JSON: %1").arg(e.what()));
+            QMessageBox::warning(
+                this, "SPM JSON", QString("No SPM data was found in the selected JSON.\n\n%1").arg(e.what())
+            );
         }
         return;
     }
@@ -896,7 +903,7 @@ void MainWindow::OpenAttFiles()
     // unspecified, so reading info.att_files.front() after std::move(info) on
     // the same call is undefined behaviour (and segfaulted in practice).
     std::string display = info.att_files.front();
-    LoadReplacementInput(std::move(info), display);
+    LoadInput(std::move(info), display, LoadMode::Replace);
 #endif
 }
 
@@ -921,7 +928,7 @@ void MainWindow::OpenRocpd()
     info.rocpd_path = picked.toStdString();
     info.base_path = picked.toStdString();
     std::string display = info.rocpd_path;
-    LoadReplacementInput(std::move(info), display);
+    LoadInput(std::move(info), display, LoadMode::Replace);
 #endif
 }
 
@@ -972,18 +979,23 @@ MainWindow::LoadResult MainWindow::LoadInputForTests(InputInfo input_info, const
     return LoadInputImpl(std::move(input_info), input_path, false);
 }
 
-MainWindow::LoadResult MainWindow::LoadInput(InputInfo input_info, const std::string& input_path)
+MainWindow::LoadResult MainWindow::LoadInput(InputInfo input_info, const std::string& input_path, LoadMode mode)
 {
-    return LoadInputImpl(std::move(input_info), input_path, true);
-}
+    if (mode == LoadMode::Reload) return LoadInputImpl(std::move(input_info), input_path, true);
 
-MainWindow::LoadResult MainWindow::LoadReplacementInput(InputInfo input_info, const std::string& input_path)
-{
+    auto previous_data_store = std::move(data_store);
+    auto* previous_shaderdata_manager = shaderdata_manager;
+    std::string previous_current_path = current_path;
+    std::string previous_ui_dir = ui_dir;
     std::string previous_spm_path = std::exchange(current_spm_path, {});
     std::string previous_last_path = std::exchange(lastPath, {});
     LoadResult result = LoadInput(std::move(input_info), input_path);
     if (result.status != LoadStatus::Success)
     {
+        data_store = std::move(previous_data_store);
+        shaderdata_manager = previous_shaderdata_manager;
+        current_path = std::move(previous_current_path);
+        ui_dir = std::move(previous_ui_dir);
         current_spm_path = std::move(previous_spm_path);
         lastPath = std::move(previous_last_path);
     }
@@ -1132,7 +1144,7 @@ MainWindow::LoadResult MainWindow::LoadInputImpl(InputInfo input_info, const std
             {
                 try
                 {
-                    data_store->spm = loadSpmForTrace(input_info.spm_json_path, nullptr);
+                    data_store->spm = std::move(loadSpmForTrace(input_info.spm_json_path, nullptr).data);
                     data_store->has_thread_trace = false;
                     data_store->ui_dir = ui_dir;
                     current_spm_path = input_info.spm_json_path;
@@ -1140,7 +1152,7 @@ MainWindow::LoadResult MainWindow::LoadInputImpl(InputInfo input_info, const std
                 catch (const std::exception& e)
                 {
                     load_result.status = LoadStatus::LoadFailed;
-                    load_result.message = QString("Unable to load SPM JSON: %1").arg(e.what());
+                    load_result.message = QString("No SPM data was found in the selected JSON.\n\n%1").arg(e.what());
                     if (show_dialogs) QMessageBox::warning(this, "SPM JSON", load_result.message);
                     return load_result;
                 }
@@ -1181,9 +1193,9 @@ MainWindow::LoadResult MainWindow::LoadInputImpl(InputInfo input_info, const std
         {
             try
             {
-                bool clocks_out_of_range = false;
-                data_store->spm = loadSpmForTrace(current_spm_path, data_store.get(), &clocks_out_of_range);
-                if (clocks_out_of_range && show_dialogs)
+                LoadedSpm spm = loadSpmForTrace(current_spm_path, data_store.get());
+                data_store->spm = std::move(spm.data);
+                if (spm.clocks_out_of_range && show_dialogs)
                     QMessageBox::warning(this, "SPM JSON", "SPM and SQTT realtime clocks are out of range.");
             }
             catch (const std::exception& e)
@@ -1527,6 +1539,7 @@ void MainWindow::CreateCountersPlot()
     ui->tabWidget_2->setTabEnabled(2, false);
 
     const bool load_spm = data_store && !data_store->spm.empty();
+    // TODO: Move source-specific counter naming into the concrete plot views.
     std::vector<std::string> perfcounter_names;
     if (load_spm)
     {
@@ -1543,14 +1556,23 @@ void MainWindow::CreateCountersPlot()
     bool load_perf_counters =
         data_store && !perfcounter_names.empty() && (!data_store->counters_by_se.empty() || load_spm);
 
+    if (this->counters_plot)
+    {
+        delete this->counters_plot;
+        this->counters_plot = nullptr;
+    }
+    if (this->counters_plot_layout)
+    {
+        delete this->counters_plot_layout;
+        this->counters_plot_layout = nullptr;
+    }
+
     if (load_spm)
         this->counters_plot = new SPMCounterPlotView(this);
     else
         this->counters_plot = new TraceCounterPlotView(this);
 
     if (load_perf_counters) counters_plot->LoadCounterData(*data_store);
-
-    if (this->counters_plot_layout) delete this->counters_plot_layout;
 
     this->counters_plot_layout = new QBox();
     ui->wv_counters_tab->setLayout(this->counters_plot_layout);
@@ -1569,13 +1591,13 @@ void MainWindow::CreateCountersPlot()
 
     this->counters_plot->setAutoLod(ui->lod_checkBox->isChecked());
     this->counters_plot->setGeometry(0, 0, 300, this->counters_plot->size().width());
-    this->counters_plot->UpdateDataSelection(perfcounter_names, ~0ULL, ~0ULL, derived_definitions);
+    this->counters_plot->UpdateDataSelection(perfcounter_names, derived_definitions);
     UpdateCountersPlotSelection();
 
-    if (load_spm) return;
-
-    auto peak_rates = counters_plot->GetPeakRates();
-    auto accumulated = counters_plot->GetAvgRates();
+    auto summary = counters_plot->GetSummary();
+    if (!summary) return;
+    auto& peak_rates = summary->peak_rates;
+    auto& accumulated = summary->accumulated;
 
     if (peak_rates.empty() || accumulated.shape().totalSize() <= 1) return;
     if (peak_rates.size() != accumulated.shape().getSamples()) peak_rates.resize(accumulated.shape().getSamples());

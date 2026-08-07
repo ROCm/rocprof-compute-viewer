@@ -245,7 +245,7 @@ static double GetUtilScale(const std::string& counter_name)
     return 1.0;
 }
 
-std::vector<double> TraceCounterPlotView::GetPeakRates()
+std::vector<double> TraceCounterPlotView::getPeakRates()
 {
     std::vector<double> result{};
 
@@ -267,7 +267,7 @@ std::vector<double> TraceCounterPlotView::GetPeakRates()
     return result;
 }
 
-DerivedCounter::Tensor TraceCounterPlotView::GetAvgRates()
+DerivedCounter::Tensor TraceCounterPlotView::getAvgRates()
 {
     size_t num_se = 0;
     for (auto& node : rootnodes)
@@ -299,11 +299,13 @@ DerivedCounter::Tensor TraceCounterPlotView::GetAvgRates()
     return result;
 }
 
+std::optional<CounterSummary> TraceCounterPlotView::GetSummary()
+{
+    return CounterSummary{getPeakRates(), getAvgRates()};
+}
+
 void CounterPlotView::UpdateDataSelection(
-    const std::vector<std::string>& _counter_names,
-    uint64_t se_mask,
-    uint64_t cu_mask,
-    const std::string& derivedDefinitions
+    const std::vector<std::string>& _counter_names, const std::string& derivedDefinitions
 )
 {
     this->counter_names = _counter_names;
@@ -315,16 +317,17 @@ void CounterPlotView::UpdateDataSelection(
     raw_curve_sources.clear();
     raw_curve_count = 0;
 
-    addRawCounters(se_mask, cu_mask);
+    addRawCounters();
     raw_curve_count = curves.size();
 
     // Add derived counters
     UpdateDerivedCounters(derivedDefinitions, true);
 }
 
-void TraceCounterPlotView::addRawCounters(uint64_t se_mask, uint64_t cu_mask)
+void TraceCounterPlotView::addRawCounters()
 {
     QWARNING(rootnodes.size(), "no root node", return );
+    constexpr uint64_t all_mask = ~uint64_t{0};
 
     this->delta = INT64_MAX;
     for (auto& node : rootnodes) delta = verify_skew(delta, node->getDelta());
@@ -334,7 +337,7 @@ void TraceCounterPlotView::addRawCounters(uint64_t se_mask, uint64_t cu_mask)
         auto& node = rootnodes.at(b);
         node->fillDelta(delta);
 
-        std::vector<CounterData> counters_loaded = node->AccumFromMask(se_mask, cu_mask);
+        std::vector<CounterData> counters_loaded = node->AccumFromMask(all_mask, all_mask);
         if (counters_loaded.empty()) continue;
 
         for (int c = 0; c < CNT_BANK; c++)
@@ -530,11 +533,15 @@ std::vector<std::shared_ptr<DerivedCounter::Tensor>> buildCounterTensors(
 
 } // anonymous namespace
 
-void TraceCounterPlotView::buildDerivedManager()
+void CounterPlotView::buildDerivedManager()
+{
+    derivedmanager = std::make_shared<DerivedCounter::DerivedCounterManager>();
+    registerCounters(derivedmanager->context());
+}
+
+void TraceCounterPlotView::registerCounters(DerivedCounter::CounterContext& context)
 {
     using namespace DerivedCounter;
-
-    derivedmanager = std::make_shared<DerivedCounter::DerivedCounterManager>();
 
     // Tensor shape is (num_banks/XCC, num_SEs, NUM_CU, num_time_samples).
     // Phase 1: scan raw nodes to derive that shape + the SCLOCK time axis.
@@ -558,7 +565,7 @@ void TraceCounterPlotView::buildDerivedManager()
         {
             int index = c + static_cast<int>(b) * CNT_BANK;
             auto name = index < (int) counter_names.size() ? counter_names.at(index) : ("UNK_" + std::to_string(c));
-            derivedmanager->context().setCounter(name, counter_tensors[index]);
+            context.setCounter(name, counter_tensors[index]);
         }
     }
 
@@ -566,9 +573,7 @@ void TraceCounterPlotView::buildDerivedManager()
     // derived expression can divide events by elapsed time without rank
     // gymnastics.
     DerivedCounter::Shape sclockShape(1, 1, 1, grid.num_time_samples);
-    derivedmanager->context().setCounter(
-        "SCLOCK", std::make_shared<DerivedCounter::Tensor>(sclockShape, grid.time_data)
-    );
+    context.setCounter("SCLOCK", std::make_shared<DerivedCounter::Tensor>(sclockShape, grid.time_data));
 
     if (rclock.empty()) return;
 
@@ -598,7 +603,7 @@ void TraceCounterPlotView::buildDerivedManager()
         }
     }
 
-    derivedmanager->context().setCounter("RCLOCK", tensor);
+    context.setCounter("RCLOCK", tensor);
 }
 
 std::vector<std::pair<std::string, std::shared_ptr<const DerivedCounter::Tensor>>> CounterPlotView::getDerived(

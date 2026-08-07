@@ -128,7 +128,7 @@ TEST(InputDetector, SpmJsonFileDetected)
     EXPECT_EQ(info.spm_json_path, file.string());
 }
 
-TEST(InputDetector, OtherJsonFileIsUnknown)
+TEST(InputDetector, AnyJsonFileUsesSpmLoader)
 {
     TempDir dir("rcv_input_other_json_dir");
     fs::path file = dir.path / "other.json";
@@ -137,7 +137,8 @@ TEST(InputDetector, OtherJsonFileIsUnknown)
     out.close();
 
     auto info = detectInput(file.string());
-    EXPECT_EQ(info.type, InputType::UNKNOWN);
+    EXPECT_EQ(info.type, InputType::SPM_JSON);
+    EXPECT_EQ(info.spm_json_path, file.string());
 }
 
 TEST(InputDetector, AttFileDetectedDirectly)

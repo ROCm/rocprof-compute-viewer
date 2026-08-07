@@ -43,35 +43,33 @@ void SPMCounterPlotView::LoadCounterData(const DataStore& store)
     sampled_counters.clear();
     sampled_clock.reset();
     sampled_spm_clock.reset();
-    sampled_counts.clear();
 
     if (store.spm.empty()) return;
 
-    sampled_counts = store.spm.sample_counts;
-    const DerivedCounter::Shape clock_shape(sampled_counts.size(), 1, 1, store.spm.sample_count);
-    sampled_clock = std::make_shared<DerivedCounter::Tensor>(clock_shape, store.spm.clock);
-    sampled_spm_clock = std::make_shared<DerivedCounter::Tensor>(clock_shape, SpmSeries::timestampDeltas(store.spm));
+    const DerivedCounter::Shape clock_shape(store.spm.xccCount(), 1, 1, store.spm.sample_count);
+    sampled_clock = std::make_shared<DerivedCounter::Tensor>(clock_shape, store.spm.clock, store.spm.sample_valid);
+    sampled_spm_clock = std::make_shared<DerivedCounter::Tensor>(
+        clock_shape, SpmSeries::timestampDeltas(store.spm), store.spm.sample_valid
+    );
 
     sampled_counters.reserve(store.spm.counters.size());
     for (const auto& counter : store.spm.counters)
         sampled_counters.push_back(std::make_shared<DerivedCounter::Tensor>(
             DerivedCounter::Shape(counter.xcc_count, counter.se_count, counter.instance_count, store.spm.sample_count),
-            counter.values
+            counter.values,
+            counter.valid
         ));
 }
 
-void SPMCounterPlotView::addRawCounters(uint64_t, uint64_t)
+void SPMCounterPlotView::addRawCounters()
 {
     if (!sampled_clock) return;
 
     for (size_t counter_index = 0; counter_index < sampled_counters.size(); ++counter_index)
     {
-        const auto summed = SpmSeries::sumSpatialForPlot(*sampled_counters[counter_index]);
         const std::string name = counter_index < counter_names.size() ? counter_names[counter_index]
                                                                       : "UNK_" + std::to_string(counter_index);
-        auto datapoints = weightedPoints(
-            SpmSeries::mergeXcc(summed, *sampled_clock, sampled_counts, summed.shape().getSamples(), 0, 0)
-        );
+        auto datapoints = weightedPoints(SpmSeries::makePlotSeries(*sampled_counters[counter_index], *sampled_clock));
         AddData(name, Config::PlotColors(counter_index), std::move(datapoints));
         raw_curve_sources.push_back(name);
     }
@@ -81,32 +79,16 @@ void SPMCounterPlotView::addDerivedSeries(
     const std::string& name, const DerivedCounter::Tensor& values, const DerivedCounter::Tensor& clock, int& color_index
 )
 {
-    const auto plot_values = SpmSeries::sumSpatialForPlot(values);
-    const size_t num_samples = std::min(plot_values.shape().getSamples(), clock.shape().getSamples());
-    if (num_samples < 2) return;
-
-    std::vector<WeightedPoint> datapoints;
-    if (plot_values.shape().getXCC() > 1)
-    {
-        datapoints = weightedPoints(SpmSeries::mergeXcc(plot_values, clock, sampled_counts, num_samples, 0, 0));
-    }
-    else
-    {
-        const size_t plot_samples = SpmSeries::validSampleCount(plot_values, sampled_counts, 0, num_samples);
-        datapoints = weightedPoints(SpmSeries::interval(plot_values, clock, 0, 0, 0, plot_samples));
-    }
-
-    AddData(name, Config::PlotColors(color_index++), std::move(datapoints));
+    AddData(name, Config::PlotColors(color_index++), weightedPoints(SpmSeries::makePlotSeries(values, clock)));
 }
 
-void SPMCounterPlotView::buildDerivedManager()
+void SPMCounterPlotView::registerCounters(DerivedCounter::CounterContext& context)
 {
-    derivedmanager = std::make_shared<DerivedCounter::DerivedCounterManager>();
     if (!sampled_clock) return;
 
     for (size_t i = 0; i < sampled_counters.size() && i < counter_names.size(); ++i)
-        derivedmanager->context().setCounter(counter_names[i], sampled_counters[i]);
+        context.setCounter(counter_names[i], sampled_counters[i]);
 
-    derivedmanager->context().setCounter("SCLOCK", sampled_clock);
-    if (sampled_spm_clock) derivedmanager->context().setCounter("SPM_CLOCK", sampled_spm_clock);
+    context.setCounter("SCLOCK", sampled_clock);
+    if (sampled_spm_clock) context.setCounter("SPM_CLOCK", sampled_spm_clock);
 }

@@ -25,6 +25,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <numeric>
@@ -40,6 +41,8 @@
 
 namespace DerivedCounter
 {
+
+using ValidityMask = std::vector<uint64_t>;
 
 // Axis enumeration for the tensor dimensions
 // Order: counter[NUM_XCC][NUM_SE][NUM_CU][NUM_SAMPLES]
@@ -107,6 +110,7 @@ public:
     explicit Tensor(float scalar);
     Tensor(const Shape& shape, float fillValue = 0.0);
     Tensor(const Shape& shape, const std::vector<float>& data);
+    Tensor(const Shape& shape, const std::vector<float>& data, const ValidityMask& validity);
 
     // Move semantics
     Tensor(Tensor&& other) noexcept = default;
@@ -121,6 +125,7 @@ public:
     const std::vector<float>& data() const { return m_data; }
     std::vector<float>& data() { return m_data; }
     const std::vector<size_t>& xccIndices() const { return m_xcc_indices; }
+    bool isValid(size_t index) const;
     size_t size() const { return m_data.size(); }
     bool isScalar() const { return m_shape.isScalar(); }
     float scalar() const;
@@ -177,6 +182,8 @@ public:
     Tensor operator-(const Tensor& other) const;
     Tensor operator*(const Tensor& other) const;
     Tensor operator/(const Tensor& other) const;
+    Tensor elementwiseMax(const Tensor& other) const;
+    Tensor elementwiseMin(const Tensor& other) const;
 
     // Scalar operations
     Tensor operator+(float scalar) const;
@@ -231,6 +238,12 @@ private:
     Shape m_shape;
     std::vector<float> m_data;
     std::vector<size_t> m_xcc_indices;
+    // One bit per value. Empty means every value is valid.
+    ValidityMask m_validity;
+
+    void allocateValidity();
+    void setValid(size_t index);
+    template <typename BinaryOp> Tensor& inPlaceOp(const Tensor& other, BinaryOp op);
 
     // Helper for reduction operations
     template <typename ReduceOp> Tensor reduceAxes(const std::vector<Axis>& axes, ReduceOp op, float identity) const;

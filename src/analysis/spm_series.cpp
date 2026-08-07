@@ -35,14 +35,28 @@ size_t clockXcc(const DerivedCounter::Tensor& values, size_t xcc)
     const auto& indices = values.xccIndices();
     return indices.size() == values.shape().getXCC() ? indices[xcc] : xcc;
 }
+
+float firstWindowStart(const DerivedCounter::Tensor& clock, size_t xcc, size_t samples)
+{
+    const float endpoint = clock.at(xcc, 0, 0, 0);
+    return samples > 1 ? endpoint - (clock.at(xcc, 0, 0, 1) - endpoint) : endpoint;
+}
+
+size_t validSamples(const DerivedCounter::Tensor& values, const DerivedCounter::Tensor& clock, size_t xcc)
+{
+    const size_t clock_xcc = clockXcc(values, xcc);
+    size_t count = std::min(values.shape().getSamples(), clock.shape().getSamples());
+    while (count > 0 && !clock.isValid(clock.linearIndex(clock_xcc, 0, 0, count - 1))) --count;
+    return count;
+}
 } // namespace
 
 std::vector<float> timestampDeltas(const SpmData& spm)
 {
     std::vector<float> result(spm.timestamps.size(), 0);
-    for (size_t xcc = 0; xcc < spm.sample_counts.size(); ++xcc)
+    for (size_t xcc = 0; xcc < spm.xccCount(); ++xcc)
     {
-        const size_t count = spm.sample_counts[xcc];
+        const size_t count = spm.validSamples(xcc);
         if (count == 0) continue;
 
         const size_t base = xcc * spm.sample_count;
@@ -61,7 +75,7 @@ std::vector<float> timestampDeltas(const SpmData& spm)
     return result;
 }
 
-DerivedCounter::Tensor sumSpatialForPlot(const DerivedCounter::Tensor& values)
+static DerivedCounter::Tensor sumSpatial(const DerivedCounter::Tensor& values)
 {
     std::vector<DerivedCounter::Axis> axes;
     if (values.shape().getSE() > 1) axes.push_back(DerivedCounter::Axis::SE);
@@ -69,45 +83,33 @@ DerivedCounter::Tensor sumSpatialForPlot(const DerivedCounter::Tensor& values)
     return axes.empty() ? values : values.sum(axes);
 }
 
-size_t validSampleCount(
-    const DerivedCounter::Tensor& values, const std::vector<size_t>& sample_counts, size_t xcc, size_t requested
-)
-{
-    const size_t source_xcc = clockXcc(values, xcc);
-    return source_xcc < sample_counts.size() ? std::min(requested, sample_counts[source_xcc]) : 0;
-}
-
-std::vector<Point> interval(
-    const DerivedCounter::Tensor& values,
-    const DerivedCounter::Tensor& clock,
-    size_t xcc,
-    size_t se,
-    size_t cu,
-    size_t samples
+static std::vector<Point> interval(
+    const DerivedCounter::Tensor& values, const DerivedCounter::Tensor& clock, size_t xcc
 )
 {
     std::vector<Point> result;
-    if (samples < 2) return result;
+    const size_t samples = validSamples(values, clock, xcc);
+    if (samples == 0) return result;
 
     const size_t clock_xcc = clockXcc(values, xcc);
-    result.reserve(samples);
-    for (size_t sample = 1; sample < samples; ++sample)
-        result.push_back({clock.at(clock_xcc, 0, 0, sample - 1), values.at(xcc, se, cu, sample)});
-    result.push_back({clock.at(clock_xcc, 0, 0, samples - 1), values.at(xcc, se, cu, samples - 1)});
+    result.reserve(samples + 1);
+    for (size_t sample = 0; sample < samples; ++sample)
+    {
+        const size_t index = values.linearIndex(xcc, 0, 0, sample);
+        if (!values.isValid(index)) continue;
+        const float time =
+            sample == 0 ? firstWindowStart(clock, clock_xcc, samples) : clock.at(clock_xcc, 0, 0, sample - 1);
+        result.push_back({time, values[index]});
+    }
+    if (!result.empty()) result.push_back({clock.at(clock_xcc, 0, 0, samples - 1), result.back().value});
     return result;
 }
 
-std::vector<Point> mergeXcc(
-    const DerivedCounter::Tensor& values,
-    const DerivedCounter::Tensor& clock,
-    const std::vector<size_t>& sample_counts,
-    size_t samples,
-    size_t se,
-    size_t cu
-)
+static std::vector<Point> mergeXcc(const DerivedCounter::Tensor& values, const DerivedCounter::Tensor& clock)
 {
     using Event = std::tuple<float, size_t, size_t>;
     const size_t xcc_count = values.shape().getXCC();
+    const size_t samples = values.shape().getSamples();
     std::priority_queue<Event, std::vector<Event>, std::greater<Event>> events;
     std::vector<float> current(xcc_count, 0);
     std::vector<size_t> counts(xcc_count, 0);
@@ -116,10 +118,10 @@ std::vector<Point> mergeXcc(
     for (size_t xcc = 0; xcc < xcc_count; ++xcc)
     {
         const size_t clock_xcc = clockXcc(values, xcc);
-        if (clock_xcc >= clock.shape().getXCC() || clock_xcc >= sample_counts.size()) continue;
-        counts[xcc] = validSampleCount(values, sample_counts, xcc, samples);
-        if (counts[xcc] < 2) continue;
-        events.emplace(clock.at(clock_xcc, 0, 0, 0), xcc, 1);
+        if (clock_xcc >= clock.shape().getXCC()) continue;
+        counts[xcc] = validSamples(values, clock, xcc);
+        if (counts[xcc] == 0) continue;
+        events.emplace(firstWindowStart(clock, clock_xcc, counts[xcc]), xcc, 0);
         final_time = std::max(final_time, clock.at(clock_xcc, 0, 0, counts[xcc] - 1));
     }
     if (events.empty()) return {};
@@ -131,22 +133,37 @@ std::vector<Point> mergeXcc(
     while (!events.empty())
     {
         const float time = std::get<0>(events.top());
+        bool changed = false;
         do {
             const auto event = events.top();
             events.pop();
             const size_t xcc = std::get<1>(event);
             size_t sample = std::get<2>(event);
-            current[xcc] = values.at(xcc, se, cu, sample);
+            const size_t index = values.linearIndex(xcc, 0, 0, sample);
+            if (values.isValid(index))
+            {
+                current[xcc] = values[index];
+                changed = true;
+            }
             if (++sample < counts[xcc]) events.emplace(clock.at(clockXcc(values, xcc), 0, 0, sample - 1), xcc, sample);
         }
         while (!events.empty() && std::get<0>(events.top()) == time);
 
-        float total = 0;
-        for (float value : current) total += value;
-        result.push_back({time, total});
+        if (changed)
+        {
+            float total = 0;
+            for (float value : current) total += value;
+            result.push_back({time, total});
+        }
     }
 
     if (result.back().time < final_time) result.push_back({final_time, result.back().value});
     return result;
+}
+
+std::vector<Point> makePlotSeries(const DerivedCounter::Tensor& values, const DerivedCounter::Tensor& clock)
+{
+    const auto plot_values = sumSpatial(values);
+    return plot_values.shape().getXCC() > 1 ? mergeXcc(plot_values, clock) : interval(plot_values, clock, 0);
 }
 } // namespace SpmSeries

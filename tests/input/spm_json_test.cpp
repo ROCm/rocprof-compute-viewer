@@ -21,6 +21,11 @@ size_t index(const SpmCounterData& counter, size_t sample_count, size_t xcc, siz
 {
     return ((xcc * counter.se_count + se) * counter.instance_count + instance) * sample_count + sample;
 }
+
+bool valid(const std::vector<uint64_t>& mask, size_t index)
+{
+    return mask.empty() || (mask.at(index / 64) & (uint64_t{1} << (index % 64)));
+}
 } // namespace
 
 TEST(SpmJson, LoadsPerXccClocksAndCounterDimensions)
@@ -30,12 +35,15 @@ TEST(SpmJson, LoadsPerXccClocksAndCounterDimensions)
 
     EXPECT_EQ(data.counters.size(), 2u);
     EXPECT_EQ(data.sample_count, 3u);
-    EXPECT_EQ(data.sample_counts, (std::vector<size_t>{3, 2}));
+    EXPECT_EQ(data.validSamples(0), 3u);
+    EXPECT_EQ(data.validSamples(1), 2u);
 
     EXPECT_FLOAT_EQ(data.clock.at(0 * data.sample_count), 0.0f);
     EXPECT_FLOAT_EQ(data.clock.at(1 * data.sample_count), 2.0f);
     EXPECT_EQ(data.timestamps.at(0 * data.sample_count), 100u);
     EXPECT_EQ(data.timestamps.at(1 * data.sample_count), 102u);
+    EXPECT_TRUE(valid(data.sample_valid, 1 * data.sample_count + 1));
+    EXPECT_FALSE(valid(data.sample_valid, 1 * data.sample_count + 2));
 
     const auto& sq_cycles = findCounter(data, "SQ_CYCLES");
     EXPECT_EQ(sq_cycles.xcc_count, 2u);
@@ -48,6 +56,25 @@ TEST(SpmJson, LoadsPerXccClocksAndCounterDimensions)
     EXPECT_EQ(test_counter.se_count, 1u);
     EXPECT_EQ(test_counter.instance_count, 2u);
     EXPECT_FLOAT_EQ(test_counter.values.at(index(test_counter, data.sample_count, 1, 0, 1, 1)), 10.0f);
+    EXPECT_FALSE(valid(test_counter.valid, index(test_counter, data.sample_count, 1, 0, 1, 2)));
+}
+
+TEST(SpmJson, ExpandsAccumulatedMissingWindows)
+{
+    SpmData data = loadSpmJson(SPM_GAP_TEST_DATA);
+
+    ASSERT_EQ(data.sample_count, 5u);
+    EXPECT_EQ(data.timestamps, (std::vector<uint64_t>{100, 110, 120, 130, 140}));
+
+    const auto& sq_cycles = findCounter(data, "SQ_CYCLES");
+    const auto& counter = findCounter(data, "TEST_COUNTER");
+    EXPECT_TRUE(valid(counter.valid, index(counter, data.sample_count, 0, 0, 0, 0)));
+    EXPECT_FLOAT_EQ(counter.values.at(index(counter, data.sample_count, 0, 0, 0, 0)), 0);
+    for (size_t sample = 2; sample < 5; ++sample)
+    {
+        EXPECT_FLOAT_EQ(sq_cycles.values.at(index(sq_cycles, data.sample_count, 0, 0, 0, sample)), 10);
+        EXPECT_FLOAT_EQ(counter.values.at(index(counter, data.sample_count, 0, 0, 0, sample)), 9);
+    }
 }
 
 TEST(SpmJson, AlignsNearestSampleWithSqCyclesAndFirstRealtimeRecord)
@@ -82,7 +109,6 @@ TEST(SpmJson, UsesNearestSamplesSqCyclesRate)
 {
     SpmData data;
     data.sample_count = 3;
-    data.sample_counts = {3};
     data.timestamps = {100, 200, 300};
     data.clock = {0, 0, 0};
 
@@ -96,10 +122,32 @@ TEST(SpmJson, UsesNearestSamplesSqCyclesRate)
     };
     ASSERT_TRUE(alignSpmClock(data, realtime));
 
-    // Timestamp 200 is nearest. Its own interval rate is 100 cycles/tick;
-    // using the following sample's rate would introduce a 19,600-cycle error.
-    EXPECT_NEAR(data.clock.at(1), -3900.0, 0.01);
-    EXPECT_NEAR(data.clock.at(2), 46'100.0, 0.01);
+    // Timestamp 200 is before the anchor, so the partial interval uses the
+    // following sample's 500 cycles/tick rate.
+    EXPECT_NEAR(data.clock.at(1), -23'500.0, 0.01);
+    EXPECT_NEAR(data.clock.at(2), 26'500.0, 0.01);
+}
+
+TEST(SpmJson, UsesPivotSamplesRateWhenPivotIsAfterAnchor)
+{
+    SpmData data;
+    data.sample_count = 3;
+    data.timestamps = {100, 200, 300};
+    data.clock = {0, 0, 0};
+
+    SpmCounterData sq_cycles;
+    sq_cycles.name = "SQ_CYCLES";
+    sq_cycles.values = {0, 10'000, 50'000};
+    data.counters.push_back(std::move(sq_cycles));
+
+    ASSERT_TRUE(alignSpmClock(
+        data,
+        {
+            {0, 1000, 151}
+    }
+    ));
+
+    EXPECT_NEAR(data.clock.at(1), 5'900.0, 0.01);
 }
 
 TEST(SpmJson, DetectsRealtimeRangeOverlap)

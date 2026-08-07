@@ -24,35 +24,12 @@
 
 #include <algorithm>
 #include <filesystem>
-#include <fstream>
 #include <string>
 #include <system_error>
 
-#include "json/include/nlohmann/json.hpp"
 #include "util/diagnostic_log.h"
 
 namespace fs = std::filesystem;
-
-namespace
-{
-bool isSpmJson(const fs::path& path)
-{
-    try
-    {
-        std::ifstream input(path);
-        nlohmann::json root;
-        input >> root;
-        if (!root.contains("rocprofiler-sdk-tool") || !root["rocprofiler-sdk-tool"].is_array()) return false;
-        for (const auto& tool : root["rocprofiler-sdk-tool"])
-            if (tool.contains("callback_records") && tool["callback_records"].is_object() &&
-                tool["callback_records"].contains("spm_counter_collection"))
-                return true;
-    }
-    catch (...)
-    {}
-    return false;
-}
-} // namespace
 
 /// Parse "<pid>_<agent>_shader_engine_<SE>_<dispatch>.att" filename into AttFileInfo.
 /// Falls back gracefully if any component is missing — leaves fields at -1.
@@ -156,7 +133,7 @@ InputInfo detectInput(const std::string& path)
             info.rocpd_path = path;
             return info;
         }
-        if (p.extension() == ".json" && isSpmJson(p))
+        if (p.extension() == ".json")
         {
             info.type = InputType::SPM_JSON;
             info.spm_json_path = path;

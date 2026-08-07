@@ -142,6 +142,106 @@ double counterValue(const SpmCounterData& counter, size_t xcc, size_t se, size_t
     }
     return count ? total / count : 0.0;
 }
+
+size_t validityWords(size_t size) { return (size + 63) / 64; }
+
+void setValid(SpmValidityMask& valid, size_t index) { valid[index / 64] |= uint64_t{1} << (index % 64); }
+
+void expandMissedWindows(
+    std::vector<Sample>& samples,
+    std::map<size_t, std::set<uint64_t>>& timestamps,
+    const std::map<uint64_t, CounterMetadata>& metadata
+)
+{
+    struct SampleGroup
+    {
+        std::vector<size_t> indices;
+        double cycles = 0;
+        size_t cycle_count = 0;
+    };
+
+    std::set<uint64_t> sq_cycles_ids;
+    for (const auto& [id, info] : metadata)
+        if (info.name == "SQ_CYCLES") sq_cycles_ids.insert(id);
+
+    using SampleGroups = std::map<uint64_t, SampleGroup>;
+    std::map<size_t, SampleGroups> groups;
+    for (size_t i = 0; i < samples.size(); ++i)
+    {
+        const auto& sample = samples[i];
+        auto& group = groups[sample.coordinate.xcc][sample.timestamp];
+        group.indices.push_back(i);
+        if (sq_cycles_ids.count(sample.counter) && sample.value > 0)
+        {
+            group.cycles += sample.value;
+            ++group.cycle_count;
+        }
+    }
+
+    std::vector<Sample> expanded;
+    expanded.reserve(samples.size());
+    timestamps.clear();
+
+    for (auto& [xcc, xcc_groups] : groups)
+    {
+        std::vector<double> cycle_values;
+        for (const auto& [timestamp, group] : xcc_groups)
+        {
+            (void) timestamp;
+            if (group.cycle_count) cycle_values.push_back(group.cycles / group.cycle_count);
+        }
+        if (cycle_values.empty())
+        {
+            for (auto& [timestamp, group] : xcc_groups)
+            {
+                timestamps[xcc].insert(timestamp);
+                for (size_t index : group.indices) expanded.push_back(samples[index]);
+            }
+            continue;
+        }
+
+        const auto middle = cycle_values.begin() + cycle_values.size() / 2;
+        std::nth_element(cycle_values.begin(), middle, cycle_values.end());
+        const double nominal_cycles = *middle;
+
+        uint64_t previous_timestamp = 0;
+        bool has_previous = false;
+        for (auto& [timestamp, group] : xcc_groups)
+        {
+            size_t windows = 1;
+            if (has_previous && group.cycle_count)
+            {
+                const double sample_cycles = group.cycles / group.cycle_count;
+                const double ratio = sample_cycles / nominal_cycles;
+                const size_t rounded = static_cast<size_t>(std::llround(ratio));
+                if (rounded > 1 && std::abs(ratio - rounded) < 0.2) windows = rounded;
+            }
+
+            for (size_t window = 1; window <= windows; ++window)
+            {
+                const uint64_t expanded_timestamp =
+                    windows == 1
+                        ? timestamp
+                        : previous_timestamp +
+                              static_cast<uint64_t>(
+                                  std::llround(static_cast<double>(timestamp - previous_timestamp) * window / windows)
+                              );
+                timestamps[xcc].insert(expanded_timestamp);
+                for (size_t index : group.indices)
+                {
+                    Sample expanded_record = samples[index];
+                    expanded_record.timestamp = expanded_timestamp;
+                    expanded_record.value /= windows;
+                    expanded.push_back(std::move(expanded_record));
+                }
+            }
+            previous_timestamp = timestamp;
+            has_previous = true;
+        }
+    }
+
+    samples = std::move(expanded);
+}
 } // namespace
 
 SpmData loadSpmJson(const std::string& path)
@@ -221,18 +321,19 @@ SpmData loadSpmJson(const std::string& path)
             xcc_count = std::max(xcc_count, coordinate.xcc + 1);
             metadata_it->second.se_count = std::max(metadata_it->second.se_count, coordinate.se + 1);
             metadata_it->second.instance_count = std::max(metadata_it->second.instance_count, coordinate.instance + 1);
-            timestamps[coordinate.xcc].insert(timestamp);
             active_counters.insert(counter_id);
             samples.push_back({counter_id, timestamp, coordinate, record.at("value").get<float>()});
         }
     }
     if (samples.empty()) throw std::runtime_error("SPM JSON has no counter values");
 
+    expandMissedWindows(samples, timestamps, metadata);
+
     SpmData result;
     for (const auto& [xcc, values] : timestamps) result.sample_count = std::max(result.sample_count, values.size());
-    result.sample_counts.resize(xcc_count, 0);
     result.timestamps.resize(xcc_count * result.sample_count, 0);
     result.clock.resize(xcc_count * result.sample_count, 0);
+    result.sample_valid.resize(validityWords(result.timestamps.size()), 0);
 
     std::vector<std::unordered_map<uint64_t, size_t>> sample_indices(xcc_count);
     for (size_t xcc = 0; xcc < xcc_count; ++xcc)
@@ -250,8 +351,8 @@ SpmData loadSpmJson(const std::string& path)
             last_timestamp = timestamp;
             result.timestamps[xcc * result.sample_count + sample] = timestamp;
             result.clock[xcc * result.sample_count + sample++] = last_clock;
+            setValid(result.sample_valid, xcc * result.sample_count + sample - 1);
         }
-        result.sample_counts[xcc] = sample;
         while (sample < result.sample_count)
         {
             result.timestamps[xcc * result.sample_count + sample] = last_timestamp;
@@ -270,6 +371,7 @@ SpmData loadSpmJson(const std::string& path)
         counter.se_count = info.se_count;
         counter.instance_count = info.instance_count;
         counter.values.resize(counter.xcc_count * counter.se_count * counter.instance_count * result.sample_count, 0);
+        counter.valid.resize(validityWords(counter.values.size()), 0);
         counter_indices.emplace(counter_id, result.counters.size());
         result.counters.push_back(std::move(counter));
     }
@@ -278,14 +380,16 @@ SpmData loadSpmJson(const std::string& path)
     {
         auto& counter = result.counters.at(counter_indices.at(sample.counter));
         const size_t sample_index = sample_indices.at(sample.coordinate.xcc).at(sample.timestamp);
-        counter.values.at(flattenedIndex(
+        const size_t value_index = flattenedIndex(
             sample.coordinate.xcc,
             sample.coordinate.se,
             sample.coordinate.instance,
             sample_index,
             counter,
             result.sample_count
-        )) += sample.value;
+        );
+        counter.values.at(value_index) += sample.value;
+        setValid(counter.valid, value_index);
     }
 
     return result;
@@ -297,8 +401,8 @@ bool spmClockRangesOverlap(const SpmData& spm, const std::vector<SpmClockAnchor>
 
     uint64_t spm_min = std::numeric_limits<uint64_t>::max();
     uint64_t spm_max = 0;
-    for (size_t xcc = 0; xcc < spm.sample_counts.size(); ++xcc)
-        for (size_t sample = 0; sample < spm.sample_counts[xcc]; ++sample)
+    for (size_t xcc = 0; xcc < spm.xccCount(); ++xcc)
+        for (size_t sample = 0; sample < spm.validSamples(xcc); ++sample)
         {
             const uint64_t timestamp = spm.timestamps.at(xcc * spm.sample_count + sample);
             spm_min = std::min(spm_min, timestamp);
@@ -350,9 +454,9 @@ bool alignSpmClock(SpmData& spm, const std::vector<SpmClockAnchor>& anchors)
         }
 
     std::vector<float> aligned_clock = spm.clock;
-    for (size_t xcc = 0; xcc < spm.sample_counts.size(); ++xcc)
+    for (size_t xcc = 0; xcc < spm.xccCount(); ++xcc)
     {
-        const size_t count = spm.sample_counts[xcc];
+        const size_t count = spm.validSamples(xcc);
         if (count == 0) continue;
 
         auto timestampAt = [&](size_t sample) { return spm.timestamps.at(xcc * spm.sample_count + sample); };
@@ -379,9 +483,8 @@ bool alignSpmClock(SpmData& spm, const std::vector<SpmClockAnchor>& anchors)
             double rate = fallback_slope;
             if (count > 1)
             {
-                // SQ_CYCLES belongs to the selected SPM sample. The first
-                // sample has no preceding interval, so use the next sample.
-                const size_t interval = pivot > 0 ? pivot : 1;
+                const size_t interval =
+                    timestamps[pivot] < first->realtime_clock && pivot + 1 < count ? pivot + 1 : (pivot ? pivot : 1);
                 const uint64_t duration = timestamps[interval] - timestamps[interval - 1];
                 if (duration > 0) rate = interval_cycles[interval] / duration;
             }

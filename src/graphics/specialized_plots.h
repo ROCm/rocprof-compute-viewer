@@ -23,11 +23,18 @@
 #pragma once
 #include <array>
 #include <memory>
+#include <optional>
 #include <unordered_set>
 #include "analysis/derived_counter.h"
 #include "container/datanode.h"
 #include "data/datastore.h"
 #include "plot.h"
+
+struct CounterSummary
+{
+    std::vector<double> peak_rates;
+    DerivedCounter::Tensor accumulated;
+};
 
 //! Class for visualizing performance counters
 class CounterPlotView : public PlotGraph
@@ -40,45 +47,42 @@ public:
     virtual void LoadCounterData(const DataStore& store) = 0;
 
     void UpdateDataSelection(
-        const std::vector<std::string>& counters_names,
-        uint64_t se_mask,
-        uint64_t cu_mask,
-        const std::string& derivedDefinitions = ""
+        const std::vector<std::string>& counters_names, const std::string& derivedDefinitions = ""
     );
 
     //! Update only the derived counters without reloading raw counter data
     void UpdateDerivedCounters(const std::string& derivedDefinitions, bool suppress);
 
     std::shared_ptr<DerivedCounter::DerivedCounterManager> getDerivedManager() { return derivedmanager; };
-    std::vector<std::pair<std::string, std::shared_ptr<const DerivedCounter::Tensor>>> getDerived(
-        const std::string& derived, bool suppress
-    );
-
-    void setDisablesCounters(const std::vector<std::pair<std::string, bool>>& names);
 
     virtual void UpdateGraphTable(float timepos) override;
-    virtual std::vector<double> GetPeakRates() { return {}; }
-    // XCC vs SE vs CU vs CounterID
-    virtual DerivedCounter::Tensor GetAvgRates() { return {}; }
+    // TODO(SPM): Return an SPM summary when its summary semantics are defined.
+    virtual std::optional<CounterSummary> GetSummary() { return std::nullopt; }
 
     virtual std::string getBuiltin() const = 0;
     virtual bool isBuiltin(const std::string& name) const = 0;
 
 protected:
-    virtual void addRawCounters(uint64_t se_mask, uint64_t cu_mask) = 0;
+    virtual void addRawCounters() = 0;
     virtual void addDerivedSeries(
         const std::string& name,
         const DerivedCounter::Tensor& values,
         const DerivedCounter::Tensor& clock,
         int& color_index
     ) = 0;
-    virtual void buildDerivedManager() = 0;
+    void buildDerivedManager();
+    virtual void registerCounters(DerivedCounter::CounterContext& context) = 0;
 
     std::shared_ptr<DerivedCounter::DerivedCounterManager> derivedmanager{nullptr};
 
     std::vector<std::string> counter_names{};
     std::vector<std::string> raw_curve_sources{};
     size_t raw_curve_count = 0;
+
+private:
+    std::vector<std::pair<std::string, std::shared_ptr<const DerivedCounter::Tensor>>> getDerived(
+        const std::string& derived, bool suppress
+    );
 };
 
 //! Class for visualizing GPU occupancy
@@ -118,23 +122,25 @@ public:
     virtual ~TraceCounterPlotView() = default;
 
     virtual void LoadCounterData(const DataStore& store) override;
-    virtual std::vector<double> GetPeakRates() override;
-    virtual DerivedCounter::Tensor GetAvgRates() override;
+    virtual std::optional<CounterSummary> GetSummary() override;
 
     virtual std::string getBuiltin() const override;
     virtual bool isBuiltin(const std::string& name) const override;
 
 protected:
-    virtual void addRawCounters(uint64_t se_mask, uint64_t cu_mask) override;
+    virtual void addRawCounters() override;
     virtual void addDerivedSeries(
         const std::string& name,
         const DerivedCounter::Tensor& values,
         const DerivedCounter::Tensor& clock,
         int& color_index
     ) override;
-    virtual void buildDerivedManager() override;
+    virtual void registerCounters(DerivedCounter::CounterContext& context) override;
 
 private:
+    std::vector<double> getPeakRates();
+    // XCC vs SE vs CU vs CounterID
+    DerivedCounter::Tensor getAvgRates();
     std::vector<std::unique_ptr<class GPUCounterNode>> rootnodes{};
     // Maps SE to rclock samples
     std::unordered_map<int, std::vector<std::pair<int64_t, int64_t>>> rclock{};
@@ -155,18 +161,17 @@ public:
     virtual bool isBuiltin(const std::string&) const override { return false; }
 
 protected:
-    virtual void addRawCounters(uint64_t se_mask, uint64_t cu_mask) override;
+    virtual void addRawCounters() override;
     virtual void addDerivedSeries(
         const std::string& name,
         const DerivedCounter::Tensor& values,
         const DerivedCounter::Tensor& clock,
         int& color_index
     ) override;
-    virtual void buildDerivedManager() override;
+    virtual void registerCounters(DerivedCounter::CounterContext& context) override;
 
 private:
     std::vector<std::shared_ptr<DerivedCounter::Tensor>> sampled_counters{};
     std::shared_ptr<DerivedCounter::Tensor> sampled_clock{};
     std::shared_ptr<DerivedCounter::Tensor> sampled_spm_clock{};
-    std::vector<size_t> sampled_counts{};
 };

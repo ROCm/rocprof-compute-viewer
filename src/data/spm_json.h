@@ -27,6 +27,8 @@
 #include <string>
 #include <vector>
 
+using SpmValidityMask = std::vector<uint64_t>;
+
 struct SpmCounterData
 {
     std::string name;
@@ -35,23 +37,35 @@ struct SpmCounterData
     size_t instance_count = 1;
     // Row-major [XCC][SHADER_ENGINE][INSTANCE][sample].
     std::vector<float> values;
+    // One bit per value. Empty means every value is valid.
+    SpmValidityMask valid;
 };
 
 struct SpmData
 {
     size_t sample_count = 0;
-    std::vector<size_t> sample_counts;
-    // TODO(SPM): Add a per-XCC/sample validity mask. Counter tensors currently
-    // use zero for padded samples, which is indistinguishable from a real zero.
     // Row-major [XCC][sample], retaining the absolute SPM timestamp.
     std::vector<uint64_t> timestamps;
     // Row-major [XCC][sample], padded with the final valid clock value.
     // Contains shader-clock values after alignment, or relative SPM timestamp
     // values when no thread-trace realtime records are available.
     std::vector<float> clock;
+    // One bit per [XCC][sample]. Empty means every sample is valid.
+    SpmValidityMask sample_valid;
     std::vector<SpmCounterData> counters;
 
     bool empty() const { return counters.empty(); }
+    size_t xccCount() const { return sample_count ? timestamps.size() / sample_count : 0; }
+    bool sampleValid(size_t index) const
+    {
+        return sample_valid.empty() || (sample_valid.at(index / 64) & (uint64_t{1} << (index % 64)));
+    }
+    size_t validSamples(size_t xcc) const
+    {
+        size_t count = sample_count;
+        while (count > 0 && !sampleValid(xcc * sample_count + count - 1)) --count;
+        return count;
+    }
 };
 
 struct SpmClockAnchor
