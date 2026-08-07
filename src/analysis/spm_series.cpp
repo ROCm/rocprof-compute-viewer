@@ -69,6 +69,14 @@ DerivedCounter::Tensor sumSpatialForPlot(const DerivedCounter::Tensor& values)
     return axes.empty() ? values : values.sum(axes);
 }
 
+size_t validSampleCount(
+    const DerivedCounter::Tensor& values, const std::vector<size_t>& sample_counts, size_t xcc, size_t requested
+)
+{
+    const size_t source_xcc = clockXcc(values, xcc);
+    return source_xcc < sample_counts.size() ? std::min(requested, sample_counts[source_xcc]) : 0;
+}
+
 std::vector<Point> interval(
     const DerivedCounter::Tensor& values,
     const DerivedCounter::Tensor& clock,
@@ -109,7 +117,7 @@ std::vector<Point> mergeXcc(
     {
         const size_t clock_xcc = clockXcc(values, xcc);
         if (clock_xcc >= clock.shape().getXCC() || clock_xcc >= sample_counts.size()) continue;
-        counts[xcc] = std::min(samples, sample_counts[clock_xcc]);
+        counts[xcc] = validSampleCount(values, sample_counts, xcc, samples);
         if (counts[xcc] < 2) continue;
         events.emplace(clock.at(clock_xcc, 0, 0, 0), xcc, 1);
         final_time = std::max(final_time, clock.at(clock_xcc, 0, 0, counts[xcc] - 1));

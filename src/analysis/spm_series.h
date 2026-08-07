@@ -40,6 +40,10 @@ std::vector<float> timestampDeltas(const SpmData& spm);
 
 DerivedCounter::Tensor sumSpatialForPlot(const DerivedCounter::Tensor& values);
 
+size_t validSampleCount(
+    const DerivedCounter::Tensor& values, const std::vector<size_t>& sample_counts, size_t xcc, size_t requested
+);
+
 std::vector<Point> interval(
     const DerivedCounter::Tensor& values,
     const DerivedCounter::Tensor& clock,

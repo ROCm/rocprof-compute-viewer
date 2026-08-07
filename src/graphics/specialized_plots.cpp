@@ -25,7 +25,6 @@
 #include <cstdint>
 #include <fstream>
 #include <set>
-#include "analysis/spm_series.h"
 #include "container/datanode.h"
 #include "data/dispatch_resolver.h"
 #include "data/wavedata.h"
@@ -52,14 +51,6 @@ static QColor& DispatchColor(int id) { return MainWindow::dispatchcolors[id % Ma
 namespace
 {
 using OccupancyBySE = std::map<int, std::vector<occupancy_data>>;
-
-std::vector<WeightedPoint> weightedPoints(std::vector<SpmSeries::Point>&& points)
-{
-    std::vector<WeightedPoint> result;
-    result.reserve(points.size());
-    for (const auto& point : points) result.push_back({point.time, point.value});
-    return result;
-}
 
 bool parseSEKey(const std::string& key, int& se)
 {
@@ -199,34 +190,7 @@ void addDispatchSeries(PlotGraph& plot, std::vector<occupancy_data> occupancy, i
 void TraceCounterPlotView::LoadCounterData(const DataStore& store)
 {
     rootnodes.clear();
-    sampled_counters.clear();
-    sampled_clock.reset();
-    sampled_spm_clock.reset();
-    sampled_counts.clear();
     rclock.clear();
-    rclock_frequency = store.realtime_frequency > 0 ? static_cast<double>(store.realtime_frequency) : 1E8;
-
-    if (!store.spm.empty())
-    {
-        sampled_counts = store.spm.sample_counts;
-        sampled_clock = std::make_shared<DerivedCounter::Tensor>(
-            DerivedCounter::Shape(store.spm.sample_counts.size(), 1, 1, store.spm.sample_count), store.spm.clock
-        );
-
-        sampled_spm_clock = std::make_shared<DerivedCounter::Tensor>(
-            DerivedCounter::Shape(store.spm.sample_counts.size(), 1, 1, store.spm.sample_count),
-            SpmSeries::timestampDeltas(store.spm)
-        );
-
-        for (const auto& counter : store.spm.counters)
-            sampled_counters.push_back(std::make_shared<DerivedCounter::Tensor>(
-                DerivedCounter::Shape(
-                    counter.xcc_count, counter.se_count, counter.instance_count, store.spm.sample_count
-                ),
-                counter.values
-            ));
-        return;
-    }
 
     for (const auto& [se, banks] : store.counters_by_se)
     {
@@ -281,7 +245,7 @@ static double GetUtilScale(const std::string& counter_name)
     return 1.0;
 }
 
-std::vector<double> CounterPlotView::GetPeakRates()
+std::vector<double> TraceCounterPlotView::GetPeakRates()
 {
     std::vector<double> result{};
 
@@ -303,7 +267,7 @@ std::vector<double> CounterPlotView::GetPeakRates()
     return result;
 }
 
-DerivedCounter::Tensor CounterPlotView::GetAvgRates()
+DerivedCounter::Tensor TraceCounterPlotView::GetAvgRates()
 {
     size_t num_se = 0;
     for (auto& node : rootnodes)
@@ -351,31 +315,20 @@ void CounterPlotView::UpdateDataSelection(
     raw_curve_sources.clear();
     raw_curve_count = 0;
 
-    if (!sampled_counters.empty() && sampled_clock)
-    {
-        for (size_t counter_index = 0; counter_index < sampled_counters.size(); ++counter_index)
-        {
-            auto summed = sampled_counters[counter_index]->sum({DerivedCounter::Axis::SE, DerivedCounter::Axis::CU});
-            const std::string name = counter_index < counter_names.size() ? counter_names[counter_index]
-                                                                          : "UNK_" + std::to_string(counter_index);
+    addRawCounters(se_mask, cu_mask);
+    raw_curve_count = curves.size();
 
-            auto datapoints = weightedPoints(
-                SpmSeries::mergeXcc(summed, *sampled_clock, sampled_counts, summed.shape().getSamples(), 0, 0)
-            );
-            AddData(name, Config::PlotColors(counter_index), std::move(datapoints));
-            raw_curve_sources.push_back(name);
-        }
-        raw_curve_count = curves.size();
-        UpdateDerivedCounters(derivedDefinitions, true);
-        return;
-    }
+    // Add derived counters
+    UpdateDerivedCounters(derivedDefinitions, true);
+}
 
+void TraceCounterPlotView::addRawCounters(uint64_t se_mask, uint64_t cu_mask)
+{
     QWARNING(rootnodes.size(), "no root node", return );
 
     this->delta = INT64_MAX;
     for (auto& node : rootnodes) delta = verify_skew(delta, node->getDelta());
 
-    size_t num_samples = 0;
     for (int b = 0; b < rootnodes.size(); b++)
     {
         auto& node = rootnodes.at(b);
@@ -383,8 +336,6 @@ void CounterPlotView::UpdateDataSelection(
 
         std::vector<CounterData> counters_loaded = node->AccumFromMask(se_mask, cu_mask);
         if (counters_loaded.empty()) continue;
-
-        num_samples = std::max(num_samples, counters_loaded.size());
 
         for (int c = 0; c < CNT_BANK; c++)
         {
@@ -400,11 +351,6 @@ void CounterPlotView::UpdateDataSelection(
             raw_curve_sources.push_back(name);
         }
     }
-
-    raw_curve_count = curves.size();
-
-    // Add derived counters
-    UpdateDerivedCounters(derivedDefinitions, true);
 }
 
 void CounterPlotView::UpdateDerivedCounters(const std::string& derivedDefinitions, bool suppress)
@@ -447,93 +393,41 @@ void CounterPlotView::UpdateDerivedCounters(const std::string& derivedDefinition
     {
         if (derived_name.empty() || derived_name.at(0) == '_') continue;
         if (!result || !time_data) continue;
-
-        std::shared_ptr<const DerivedCounter::Tensor> plot_result = result;
-        if (!sampled_counts.empty() && (result->shape().getSE() > 1 || result->shape().getCU() > 1))
-            plot_result = std::make_shared<DerivedCounter::Tensor>(SpmSeries::sumSpatialForPlot(*result));
-
-        size_t num_samples = plot_result->shape().getSamples();
-        if (time_data->shape().getSamples() < num_samples) continue;
-
-        size_t num_xcc = plot_result->shape().getXCC();
-        size_t num_se = plot_result->shape().getSE();
-        size_t num_cu = plot_result->shape().getCU();
-
-        // If result is already [1,1,1,time], just plot it directly
-        if (num_xcc == 1 && num_se == 1 && num_cu == 1)
-        {
-            if (!sampled_counts.empty()) num_samples = std::min(num_samples, sampled_counts.front());
-            std::vector<WeightedPoint> datapoints;
-            if (sampled_counts.empty())
-            {
-                datapoints.reserve(num_samples);
-                for (size_t i = 0; i < num_samples; ++i)
-                    datapoints.push_back({time_data->at(0, 0, 0, i), (*plot_result)[i]});
-            }
-            else
-                datapoints = weightedPoints(SpmSeries::interval(*plot_result, *time_data, 0, 0, 0, num_samples));
-            AddData(derived_name, Config::PlotColors(derived_index++), std::move(datapoints));
-            continue;
-        }
-
-        if (!sampled_counts.empty() && num_xcc > 1)
-        {
-            size_t plot_count = 0;
-            for (size_t se = 0; se < num_se && plot_count < kMaxPlotsPerDerived; ++se)
-                for (size_t cu = 0; cu < num_cu && plot_count < kMaxPlotsPerDerived; ++cu)
-                {
-                    std::string plot_name = derived_name;
-                    if (num_se > 1) plot_name += "_SE" + std::to_string(se);
-                    if (num_cu > 1) plot_name += "_INSTANCE" + std::to_string(cu);
-
-                    auto datapoints = weightedPoints(
-                        SpmSeries::mergeXcc(*plot_result, *time_data, sampled_counts, num_samples, se, cu)
-                    );
-                    AddData(plot_name, Config::PlotColors(derived_index++), std::move(datapoints));
-                    plot_count++;
-                }
-            continue;
-        }
-
-        // For multi-dimensional results, create separate plots for each combination
-        // Limit total plots to kMaxPlotsPerDerived
-        size_t plot_count = 0;
-        const size_t plotted_xccs = sampled_counts.empty() ? num_xcc : std::min<size_t>(num_xcc, 1);
-        for (size_t xcc = 0; xcc < plotted_xccs && plot_count < kMaxPlotsPerDerived; xcc++)
-        {
-            for (size_t se = 0; se < num_se && plot_count < kMaxPlotsPerDerived; se++)
-            {
-                for (size_t cu = 0; cu < num_cu && plot_count < kMaxPlotsPerDerived; cu++)
-                {
-                    // Build plot name with non-trivial indices
-                    std::string plot_name = derived_name;
-                    if (num_xcc > 1) plot_name += "_XCC" + std::to_string(xcc);
-                    if (num_se > 1) plot_name += "_SE" + std::to_string(se);
-                    if (num_cu > 1) plot_name += "_CU" + std::to_string(cu);
-
-                    size_t plot_samples = num_samples;
-                    if (!sampled_counts.empty() && xcc < sampled_counts.size())
-                        plot_samples = std::min(plot_samples, sampled_counts[xcc]);
-                    const size_t clock_xcc =
-                        time_data->shape().getXCC() == 1 ? 0 : std::min(xcc, time_data->shape().getXCC() - 1);
-                    std::vector<WeightedPoint> datapoints;
-                    if (sampled_counts.empty())
-                    {
-                        datapoints.reserve(plot_samples);
-                        for (size_t t = 0; t < plot_samples; ++t)
-                            datapoints.push_back({time_data->at(clock_xcc, 0, 0, t), plot_result->at(xcc, se, cu, t)});
-                    }
-                    else
-                        datapoints =
-                            weightedPoints(SpmSeries::interval(*plot_result, *time_data, xcc, se, cu, plot_samples));
-                    AddData(plot_name, Config::PlotColors(derived_index++), std::move(datapoints));
-                    plot_count++;
-                }
-            }
-        }
+        addDerivedSeries(derived_name, *result, *time_data, derived_index);
     }
 
     update();
+}
+
+void TraceCounterPlotView::addDerivedSeries(
+    const std::string& name, const DerivedCounter::Tensor& values, const DerivedCounter::Tensor& clock, int& color_index
+)
+{
+    const size_t num_samples = values.shape().getSamples();
+    if (clock.shape().getSamples() < num_samples) return;
+
+    const size_t num_xcc = values.shape().getXCC();
+    const size_t num_se = values.shape().getSE();
+    const size_t num_cu = values.shape().getCU();
+    size_t plot_count = 0;
+
+    for (size_t xcc = 0; xcc < num_xcc && plot_count < kMaxPlotsPerDerived; ++xcc)
+        for (size_t se = 0; se < num_se && plot_count < kMaxPlotsPerDerived; ++se)
+            for (size_t cu = 0; cu < num_cu && plot_count < kMaxPlotsPerDerived; ++cu)
+            {
+                std::string plot_name = name;
+                if (num_xcc > 1) plot_name += "_XCC" + std::to_string(xcc);
+                if (num_se > 1) plot_name += "_SE" + std::to_string(se);
+                if (num_cu > 1) plot_name += "_CU" + std::to_string(cu);
+
+                const size_t clock_xcc = clock.shape().getXCC() == 1 ? 0 : xcc;
+                std::vector<WeightedPoint> datapoints;
+                datapoints.reserve(num_samples);
+                for (size_t sample = 0; sample < num_samples; ++sample)
+                    datapoints.push_back({clock.at(clock_xcc, 0, 0, sample), values.at(xcc, se, cu, sample)});
+                AddData(plot_name, Config::PlotColors(color_index++), std::move(datapoints));
+                ++plot_count;
+            }
 }
 
 namespace
@@ -636,18 +530,11 @@ std::vector<std::shared_ptr<DerivedCounter::Tensor>> buildCounterTensors(
 
 } // anonymous namespace
 
-void CounterPlotView::buildDerivedManager()
+void TraceCounterPlotView::buildDerivedManager()
 {
-    derivedmanager = std::make_shared<DerivedCounter::DerivedCounterManager>();
+    using namespace DerivedCounter;
 
-    if (!sampled_counters.empty() && sampled_clock)
-    {
-        for (size_t i = 0; i < sampled_counters.size() && i < counter_names.size(); ++i)
-            derivedmanager->context().setCounter(counter_names[i], sampled_counters[i]);
-        if (sampled_spm_clock) derivedmanager->context().setCounter("SPM_CLOCK", sampled_spm_clock);
-        derivedmanager->context().setCounter("SCLOCK", sampled_clock);
-        return;
-    }
+    derivedmanager = std::make_shared<DerivedCounter::DerivedCounterManager>();
 
     // Tensor shape is (num_banks/XCC, num_SEs, NUM_CU, num_time_samples).
     // Phase 1: scan raw nodes to derive that shape + the SCLOCK time axis.
@@ -682,15 +569,8 @@ void CounterPlotView::buildDerivedManager()
     derivedmanager->context().setCounter(
         "SCLOCK", std::make_shared<DerivedCounter::Tensor>(sclockShape, grid.time_data)
     );
-}
 
-void TraceCounterPlotView::buildDerivedManager()
-{
-    using namespace DerivedCounter;
-
-    CounterPlotView::buildDerivedManager();
-
-    if (rclock.empty() || !derivedmanager) return;
+    if (rclock.empty()) return;
 
     int64_t initial_rclock = INT64_MAX;
     size_t num_samples = 0;
@@ -793,7 +673,7 @@ bool TraceCounterPlotView::isBuiltin(const std::string& name) const
     return false;
 }
 
-TraceCounterPlotView::TraceCounterPlotView(QWidget* parent) {}
+TraceCounterPlotView::TraceCounterPlotView(QWidget* parent) : CounterPlotView(parent) {}
 
 void CounterPlotView::UpdateGraphTable(float mousepos)
 {
@@ -864,8 +744,6 @@ void DispatchPlotView::LoadOccupancyData(DataStore& store)
 
 std::string TraceCounterPlotView::getBuiltin() const
 {
-    if (!sampled_counters.empty()) return {};
-
     std::string derived = "_reduce_busy := sum[max[BUSY_CU_CYCLES, axis=TIME], axis=[XCC,SE,CU]] + 1E-6";
 
     for (auto& [name, mult] : UtilTypes)

@@ -1543,10 +1543,12 @@ void MainWindow::CreateCountersPlot()
     bool load_perf_counters =
         data_store && !perfcounter_names.empty() && (!data_store->counters_by_se.empty() || load_spm);
 
-    auto* traceplot = new TraceCounterPlotView(this);
-    this->counters_plot = traceplot;
+    if (load_spm)
+        this->counters_plot = new SPMCounterPlotView(this);
+    else
+        this->counters_plot = new TraceCounterPlotView(this);
 
-    if (load_perf_counters) traceplot->LoadCounterData(*data_store);
+    if (load_perf_counters) counters_plot->LoadCounterData(*data_store);
 
     if (this->counters_plot_layout) delete this->counters_plot_layout;
 

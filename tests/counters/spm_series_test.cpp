@@ -36,10 +36,7 @@ TEST(SpmSeries, PlacesValuesAtIntervalStarts)
 
 TEST(SpmSeries, SumsSeAndCuAxesForPlotting)
 {
-    Tensor values(
-        Shape(1, 2, 2, 3),
-        std::vector<float>{1, 2, 3, 10, 20, 30, 100, 200, 300, 1000, 2000, 3000}
-    );
+    Tensor values(Shape(1, 2, 2, 3), std::vector<float>{1, 2, 3, 10, 20, 30, 100, 200, 300, 1000, 2000, 3000});
 
     const Tensor summed = SpmSeries::sumSpatialForPlot(values);
 
@@ -87,14 +84,8 @@ TEST(SpmSeries, CoalescesSimultaneousXccUpdates)
 
 TEST(SpmSeries, SelectedXccUsesItsOriginalClock)
 {
-    Tensor values(
-        Shape(3, 1, 1, 3),
-        std::vector<float>{0, 10, 10, 0, 20, 20, 0, 30, 30}
-    );
-    Tensor clock(
-        Shape(3, 1, 1, 3),
-        std::vector<float>{0, 10, 20, 5, 15, 25, 7, 17, 27}
-    );
+    Tensor values(Shape(3, 1, 1, 3), std::vector<float>{0, 10, 10, 0, 20, 20, 0, 30, 30});
+    Tensor clock(Shape(3, 1, 1, 3), std::vector<float>{0, 10, 20, 5, 15, 25, 7, 17, 27});
 
     DerivedCounter::DerivedCounterManager manager;
     manager.context().setCounter("TCP", std::make_shared<Tensor>(values));
@@ -113,4 +104,12 @@ TEST(SpmSeries, SelectedXccUsesItsOriginalClock)
         std::find_if(all_points.begin(), all_points.end(), [](const auto& point) { return point.time == 7; });
     ASSERT_NE(all_at_xcc2_update, all_points.end());
     EXPECT_GE(all_at_xcc2_update->value, selected_points[0].value);
+}
+
+TEST(SpmSeries, SelectedXccUsesItsOriginalSampleCount)
+{
+    Tensor values(Shape(3, 1, 1, 4), 0);
+    const Tensor selected = values.select(2, DerivedCounter::Axis::XCC);
+
+    EXPECT_EQ(SpmSeries::validSampleCount(selected, {4, 3, 2}, 0, 4), 2u);
 }
