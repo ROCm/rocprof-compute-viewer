@@ -1812,6 +1812,7 @@ void MainWindow::SetWaveViewMipmap(int value)
     value = std::min(std::max(10 - value, -2), 10);
     Token::mipmap_level = value;
 
+    cuwaves_h_scrollarea->view->range = Token::PosToClock(cuwaves_h_scrollarea->width());
     cuwaves_h_scrollarea->updatebar(true);
     utilization_h_scrollarea->updatebar(true);
 }

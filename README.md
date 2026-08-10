@@ -423,15 +423,14 @@ SPM timestamps into the SQTT shader-clock timeline.
 
 ```bash
 rocprofv3 --spm-beta-enabled \
-  --spm SQ_CYCLES SQ_WAVES \
+  --spm SQ_CYCLES TCC_HIT TCC_MISS TCC_BUBBLE TCC_EA0_RDREQ TA_TA_BUSY TCP_TOTAL_CACHE_ACCESSES \
   --spm-sample-interval-unit sclk_cycles \
   --spm-sample-interval 4096 \
   --output-format json -- ./application
 ```
 
 Load the SQTT trace first, then use **Import > SPM JSON...** to attach the
-matching results file. An SPM JSON can also be opened by itself. See
-[`docs/how-to/using_spm.rst`](docs/how-to/using_spm.rst) for details.
+matching results file. An SPM JSON can also be opened by itself.
 
 ## Hidden Latency
 
