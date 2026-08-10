@@ -1,0 +1,481 @@
+// MIT License
+//
+// Copyright (c) 2024-2026 Advanced Micro Devices, Inc. All rights reserved.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in all
+// copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+#include "spm_json.h"
+
+#include <algorithm>
+#include <cmath>
+#include <cstdint>
+#include <fstream>
+#include <limits>
+#include <map>
+#include <stdexcept>
+#include <unordered_map>
+
+#include "json/include/nlohmann/json.hpp"
+
+namespace
+{
+using json = nlohmann::json;
+
+struct Coordinate
+{
+    size_t xcc = 0;
+    size_t se = 0;
+    size_t instance = 0;
+};
+
+struct ParsedCounter
+{
+    SpmCounterData output;
+    std::unordered_map<uint64_t, Coordinate> instances;
+    size_t output_index = std::numeric_limits<size_t>::max();
+    bool active = false;
+};
+
+struct ParsedRecord
+{
+    ParsedCounter* counter = nullptr;
+    Coordinate coordinate;
+    float value = 0;
+};
+
+struct SampleGroup
+{
+    std::vector<size_t> indices;
+    double cycles = 0;
+    size_t cycle_count = 0;
+};
+
+struct TimelineSample
+{
+    uint64_t timestamp = 0;
+    const SampleGroup* group = nullptr;
+    size_t windows = 1;
+};
+
+using GroupedSamples = std::map<size_t, std::map<uint64_t, SampleGroup>>;
+using Timelines = std::vector<std::vector<TimelineSample>>;
+
+Coordinate parseCoordinate(const json& dimensions)
+{
+    Coordinate result;
+    for (const auto& dimension : dimensions)
+    {
+        const std::string name = dimension.at("dimension_name");
+        const size_t index = dimension.at("index");
+        if (name == "DIMENSION_XCC")
+            result.xcc = index;
+        else if (name == "DIMENSION_SHADER_ENGINE")
+            result.se = index;
+        else if (name == "DIMENSION_INSTANCE")
+            result.instance = index;
+    }
+    return result;
+}
+
+Coordinate decodeCoordinate(uint64_t instance_id)
+{
+    return {
+        static_cast<size_t>(instance_id & 0x3f),
+        static_cast<size_t>((instance_id >> 12) & 0x3f),
+        static_cast<size_t>((instance_id >> 36) & 0x3ff),
+    };
+}
+
+size_t flattenedIndex(
+    size_t xcc, size_t se, size_t instance, size_t sample, const SpmCounterData& counter, size_t sample_count
+)
+{
+    return ((xcc * counter.se_count + se) * counter.instance_count + instance) * sample_count + sample;
+}
+
+size_t nearestTimestamp(const uint64_t* timestamps, size_t count, uint64_t target)
+{
+    const size_t upper = std::lower_bound(timestamps, timestamps + count, target) - timestamps;
+    if (upper == 0) return 0;
+    if (upper == count) return count - 1;
+
+    const uint64_t before = target - timestamps[upper - 1];
+    const uint64_t after = timestamps[upper] - target;
+    return before <= after ? upper - 1 : upper;
+}
+
+long double signedTimestampDelta(uint64_t lhs, uint64_t rhs)
+{
+    return lhs >= rhs ? static_cast<long double>(lhs - rhs) : -static_cast<long double>(rhs - lhs);
+}
+
+double counterValue(const SpmCounterData& counter, size_t xcc, size_t se, size_t sample, size_t sample_count)
+{
+    auto averageAtSe = [&](size_t selected_se)
+    {
+        double total = 0;
+        size_t count = 0;
+        for (size_t instance = 0; instance < counter.instance_count; ++instance)
+        {
+            const float value =
+                counter.values.at(flattenedIndex(xcc, selected_se, instance, sample, counter, sample_count));
+            if (value <= 0 || !std::isfinite(value)) continue;
+            total += value;
+            count++;
+        }
+        return count ? total / count : 0.0;
+    };
+
+    if (se < counter.se_count)
+        if (double value = averageAtSe(se); value > 0) return value;
+
+    double total = 0;
+    size_t count = 0;
+    for (size_t selected_se = 0; selected_se < counter.se_count; ++selected_se)
+    {
+        double value = averageAtSe(selected_se);
+        if (value <= 0) continue;
+        total += value;
+        count++;
+    }
+    return count ? total / count : 0.0;
+}
+
+Timelines buildTimelines(const GroupedSamples& groups, size_t xcc_count)
+{
+    Timelines timelines(xcc_count);
+    for (const auto& [xcc, xcc_groups] : groups)
+    {
+        std::vector<double> cycle_values;
+        for (const auto& [timestamp, group] : xcc_groups)
+        {
+            (void) timestamp;
+            if (group.cycle_count) cycle_values.push_back(group.cycles / group.cycle_count);
+        }
+        double nominal_cycles = 0;
+        if (!cycle_values.empty())
+        {
+            const auto middle = cycle_values.begin() + cycle_values.size() / 2;
+            std::nth_element(cycle_values.begin(), middle, cycle_values.end());
+            nominal_cycles = *middle;
+        }
+
+        uint64_t previous_timestamp = 0;
+        bool has_previous = false;
+        for (const auto& [timestamp, group] : xcc_groups)
+        {
+            size_t windows = 1;
+            if (has_previous && nominal_cycles > 0 && group.cycle_count)
+            {
+                const double sample_cycles = group.cycles / group.cycle_count;
+                const double ratio = sample_cycles / nominal_cycles;
+                const size_t rounded = static_cast<size_t>(std::llround(ratio));
+                if (rounded > 1 && std::abs(ratio - rounded) < 0.2) windows = rounded;
+            }
+
+            for (size_t window = 1; window <= windows; ++window)
+            {
+                const uint64_t expanded_timestamp =
+                    windows == 1
+                        ? timestamp
+                        : previous_timestamp +
+                              static_cast<uint64_t>(
+                                  std::llround(static_cast<double>(timestamp - previous_timestamp) * window / windows)
+                              );
+                timelines[xcc].push_back({expanded_timestamp, &group, windows});
+            }
+            previous_timestamp = timestamp;
+            has_previous = true;
+        }
+    }
+    return timelines;
+}
+} // namespace
+
+SpmData loadSpmJson(const std::string& path)
+{
+    std::ifstream input(path);
+    if (!input) throw std::runtime_error("Unable to open SPM JSON: " + path);
+
+    json root;
+    input >> root;
+    const auto& tools = root.at("rocprofiler-sdk-tool");
+    if (!tools.is_array() || tools.empty()) throw std::runtime_error("SPM JSON has no rocprofiler-sdk-tool data");
+
+    const auto& tool = tools.front();
+    const auto& collections = tool.at("callback_records").at("spm_counter_collection");
+    if (!collections.is_array() || collections.empty()) throw std::runtime_error("SPM JSON has no SPM samples");
+    // TODO(SPM): Partition or select SPM data by dispatch and stream instead of
+    // merging every collection for the selected agent into one tensor.
+
+    const uint64_t agent = collections.front().at("dispatch_data").at("dispatch_info").at("agent_id").at("handle");
+
+    std::map<uint64_t, ParsedCounter> metadata;
+    size_t metadata_xcc_count = 1;
+    for (const auto& counter : tool.at("counters"))
+    {
+        if (counter.at("agent_id").at("handle").get<uint64_t>() != agent) continue;
+
+        ParsedCounter info;
+        info.output.name = counter.at("name");
+        for (const auto& dimension : counter.value("dimensions", json::array()))
+        {
+            const std::string name = dimension.at("name");
+            const size_t size = dimension.at("instance_size");
+            if (name == "DIMENSION_XCC")
+                info.output.xcc_count = size;
+            else if (name == "DIMENSION_SHADER_ENGINE")
+                info.output.se_count = size;
+            else if (name == "DIMENSION_INSTANCE")
+                info.output.instance_count = size;
+        }
+        for (const auto& instance : counter.value("instances", json::array()))
+            info.instances.emplace(
+                instance.at("instance_id").get<uint64_t>(), parseCoordinate(instance.at("dimensions"))
+            );
+
+        metadata_xcc_count = std::max(metadata_xcc_count, info.output.xcc_count);
+        metadata.emplace(counter.at("id").at("handle").get<uint64_t>(), std::move(info));
+    }
+
+    uint64_t minimum_timestamp = std::numeric_limits<uint64_t>::max();
+    size_t xcc_count = metadata_xcc_count;
+    GroupedSamples groups;
+    std::vector<ParsedRecord> records;
+    size_t total_records = 0;
+    for (const auto& collection : collections) total_records += collection.at("records").size();
+    records.reserve(total_records);
+
+    for (const auto& collection : collections)
+    {
+        const uint64_t collection_agent =
+            collection.at("dispatch_data").at("dispatch_info").at("agent_id").at("handle");
+        // TODO(SPM): Support selecting/partitioning multiple sampled agents.
+        // The viewer currently assumes one agent per attached SPM capture.
+        if (collection_agent != agent)
+            throw std::runtime_error("SPM JSON contains samples from more than one GPU agent");
+
+        for (const auto& record : collection.at("records"))
+        {
+            const uint64_t counter_id = record.at("counter_id").at("handle");
+            auto metadata_it = metadata.find(counter_id);
+            if (metadata_it == metadata.end()) throw std::runtime_error("SPM sample references an unknown counter");
+
+            const uint64_t instance_id = record.at("instance_id").get<uint64_t>();
+            auto& counter = metadata_it->second;
+            auto instance_it = counter.instances.find(instance_id);
+            Coordinate coordinate =
+                instance_it == counter.instances.end() ? decodeCoordinate(instance_id) : instance_it->second;
+            const uint64_t timestamp = record.at("timestamp").get<uint64_t>();
+            const float value = record.at("value").get<float>();
+
+            minimum_timestamp = std::min(minimum_timestamp, timestamp);
+            xcc_count = std::max(xcc_count, coordinate.xcc + 1);
+            counter.output.se_count = std::max(counter.output.se_count, coordinate.se + 1);
+            counter.output.instance_count = std::max(counter.output.instance_count, coordinate.instance + 1);
+            counter.active = true;
+
+            auto& group = groups[coordinate.xcc][timestamp];
+            group.indices.push_back(records.size());
+            records.push_back({&counter, coordinate, value});
+            if (counter.output.name == "SQ_CYCLES" && value > 0)
+            {
+                group.cycles += value;
+                ++group.cycle_count;
+            }
+        }
+    }
+    if (records.empty()) throw std::runtime_error("SPM JSON has no counter values");
+
+    const Timelines timelines = buildTimelines(groups, xcc_count);
+    SpmData result;
+    for (const auto& timeline : timelines) result.sample_count = std::max(result.sample_count, timeline.size());
+    result.timestamps.resize(xcc_count * result.sample_count, 0);
+    result.clock.resize(xcc_count * result.sample_count, 0);
+    result.sample_valid.resize(Validity::words(result.timestamps.size()), 0);
+
+    for (size_t xcc = 0; xcc < xcc_count; ++xcc)
+    {
+        size_t sample = 0;
+        float last_clock = 0;
+        uint64_t last_timestamp = 0;
+        for (const auto& timeline_sample : timelines[xcc])
+        {
+            const uint64_t timestamp = timeline_sample.timestamp;
+            last_clock = static_cast<float>(timestamp - minimum_timestamp);
+            last_timestamp = timestamp;
+            result.timestamps[xcc * result.sample_count + sample] = timestamp;
+            result.clock[xcc * result.sample_count + sample++] = last_clock;
+            Validity::set(result.sample_valid, xcc * result.sample_count + sample - 1);
+        }
+        while (sample < result.sample_count)
+        {
+            result.timestamps[xcc * result.sample_count + sample] = last_timestamp;
+            result.clock[xcc * result.sample_count + sample++] = last_clock;
+        }
+    }
+
+    for (auto& [counter_id, info] : metadata)
+    {
+        (void) counter_id;
+        if (!info.active) continue;
+
+        auto& counter = info.output;
+        counter.xcc_count = xcc_count;
+        counter.values.resize(counter.xcc_count * counter.se_count * counter.instance_count * result.sample_count, 0);
+        counter.valid.resize(Validity::words(counter.values.size()), 0);
+        info.output_index = result.counters.size();
+        result.counters.push_back(std::move(counter));
+    }
+
+    for (size_t xcc = 0; xcc < timelines.size(); ++xcc)
+    {
+        size_t sample_index = 0;
+        for (const auto& timeline_sample : timelines[xcc])
+        {
+            for (size_t record_index : timeline_sample.group->indices)
+            {
+                const auto& record = records[record_index];
+                auto& counter = result.counters.at(record.counter->output_index);
+                const size_t value_index = flattenedIndex(
+                    xcc, record.coordinate.se, record.coordinate.instance, sample_index, counter, result.sample_count
+                );
+                counter.values.at(value_index) += record.value / timeline_sample.windows;
+                Validity::set(counter.valid, value_index);
+            }
+            ++sample_index;
+        }
+    }
+
+    return result;
+}
+
+bool spmClockRangesOverlap(const SpmData& spm, const std::vector<SpmClockAnchor>& anchors)
+{
+    if (spm.empty() || anchors.empty()) return false;
+
+    uint64_t spm_min = std::numeric_limits<uint64_t>::max();
+    uint64_t spm_max = 0;
+    for (size_t xcc = 0; xcc < spm.xccCount(); ++xcc)
+        for (size_t sample = 0; sample < spm.validSamples(xcc); ++sample)
+        {
+            const uint64_t timestamp = spm.timestamps.at(xcc * spm.sample_count + sample);
+            spm_min = std::min(spm_min, timestamp);
+            spm_max = std::max(spm_max, timestamp);
+        }
+
+    uint64_t realtime_min = std::numeric_limits<uint64_t>::max();
+    uint64_t realtime_max = 0;
+    for (const auto& anchor : anchors)
+    {
+        realtime_min = std::min(realtime_min, anchor.realtime_clock);
+        realtime_max = std::max(realtime_max, anchor.realtime_clock);
+    }
+
+    return spm_min <= realtime_max && realtime_min <= spm_max;
+}
+
+bool alignSpmClock(SpmData& spm, const std::vector<SpmClockAnchor>& anchors)
+{
+    if (spm.empty() || spm.sample_count == 0 || anchors.empty()) return false;
+
+    int anchor_se = -1;
+    const SpmClockAnchor* first = nullptr;
+    for (const auto& anchor : anchors)
+        if (!first || anchor.realtime_clock < first->realtime_clock)
+        {
+            first = &anchor;
+            anchor_se = anchor.se;
+        }
+    if (!first) return false;
+
+    const SpmClockAnchor* last = first;
+    for (const auto& anchor : anchors)
+        if (anchor.se == anchor_se && anchor.realtime_clock > last->realtime_clock) last = &anchor;
+
+    const bool has_fallback_slope =
+        last->realtime_clock > first->realtime_clock && last->shader_clock > first->shader_clock;
+    const double fallback_slope = has_fallback_slope
+                                    ? static_cast<double>(last->shader_clock - first->shader_clock) /
+                                          static_cast<double>(last->realtime_clock - first->realtime_clock)
+                                    : 0.0;
+
+    const SpmCounterData* sq_cycles = nullptr;
+    for (const auto& counter : spm.counters)
+        if (counter.name == "SQ_CYCLES")
+        {
+            sq_cycles = &counter;
+            break;
+        }
+
+    std::vector<float> aligned_clock = spm.clock;
+    for (size_t xcc = 0; xcc < spm.xccCount(); ++xcc)
+    {
+        const size_t count = spm.validSamples(xcc);
+        if (count == 0) continue;
+
+        auto timestampAt = [&](size_t sample) { return spm.timestamps.at(xcc * spm.sample_count + sample); };
+        std::vector<double> interval_cycles(count, 0.0);
+
+        for (size_t sample = 1; sample < count; ++sample)
+        {
+            const uint64_t delta_timestamp = timestampAt(sample) - timestampAt(sample - 1);
+            // SQ_CYCLES at a sample measures the interval ending at that sample.
+            double cycles = sq_cycles ? counterValue(*sq_cycles, xcc, anchor_se, sample, spm.sample_count) : 0.0;
+            if (cycles <= 0)
+            {
+                if (!has_fallback_slope) return false;
+                cycles = fallback_slope * delta_timestamp;
+            }
+            interval_cycles[sample] = cycles;
+        }
+
+        const uint64_t* timestamps = spm.timestamps.data() + xcc * spm.sample_count;
+        const size_t pivot = nearestTimestamp(timestamps, count, first->realtime_clock);
+        double pivot_clock = first->shader_clock;
+        if (timestamps[pivot] != first->realtime_clock)
+        {
+            double rate = fallback_slope;
+            if (count > 1)
+            {
+                const size_t interval =
+                    timestamps[pivot] < first->realtime_clock && pivot + 1 < count ? pivot + 1 : (pivot ? pivot : 1);
+                const uint64_t duration = timestamps[interval] - timestamps[interval - 1];
+                if (duration > 0) rate = interval_cycles[interval] / duration;
+            }
+            if (rate <= 0) return false;
+            pivot_clock += static_cast<double>(signedTimestampDelta(timestamps[pivot], first->realtime_clock) * rate);
+        }
+
+        std::vector<double> xcc_clock(count);
+        xcc_clock[pivot] = pivot_clock;
+        for (size_t sample = pivot; sample > 0; --sample)
+            xcc_clock[sample - 1] = xcc_clock[sample] - interval_cycles[sample];
+        for (size_t sample = pivot + 1; sample < count; ++sample)
+            xcc_clock[sample] = xcc_clock[sample - 1] + interval_cycles[sample];
+
+        for (size_t sample = 0; sample < count; ++sample)
+            aligned_clock[xcc * spm.sample_count + sample] = static_cast<float>(xcc_clock[sample]);
+        for (size_t sample = count; sample < spm.sample_count; ++sample)
+            aligned_clock[xcc * spm.sample_count + sample] = static_cast<float>(xcc_clock.back());
+    }
+
+    spm.clock = std::move(aligned_clock);
+    return true;
+}

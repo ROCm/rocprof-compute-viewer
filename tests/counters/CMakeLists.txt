@@ -14,6 +14,15 @@ target_include_directories(derived_counter_test PRIVATE ${GRAPHICS_DIR} ${SRC_DI
 target_link_libraries(derived_counter_test GTest::gtest_main)
 add_test(NAME derived_counter_test COMMAND derived_counter_test)
 
+add_executable(
+    spm_series_test
+    spm_series_test.cpp
+    ${SRC_DIR}/analysis/derived_counter.cpp
+    ${SRC_DIR}/analysis/spm_series.cpp)
+target_include_directories(spm_series_test PRIVATE ${SRC_DIR})
+target_link_libraries(spm_series_test GTest::gtest_main)
+add_test(NAME spm_series_test COMMAND spm_series_test)
+
 if(RCV_ENABLE_SANITIZER_TESTS)
     # ============================================================================
     # ASAN build (Address Sanitizer)

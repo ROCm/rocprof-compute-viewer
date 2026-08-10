@@ -373,6 +373,16 @@ TEST_F(ReductionTest, MeanOverTimeAxis)
     EXPECT_NEAR(meanTime.at(1, 1, 0, 0), 11.0f, kEpsilon); // (10+11+12)/3
 }
 
+TEST(ReductionValidityTest, IgnoresInvalidValues)
+{
+    Tensor values(Shape(1, 1, 1, 3), std::vector<float>{2, 100, 4}, std::vector<uint64_t>{0b101});
+
+    EXPECT_FLOAT_EQ(values.sum(Axis::Time).scalar(), 6);
+    EXPECT_FLOAT_EQ(values.mean(Axis::Time).scalar(), 3);
+    EXPECT_FLOAT_EQ(values.min(Axis::Time).scalar(), 2);
+    EXPECT_FLOAT_EQ(values.max(Axis::Time).scalar(), 4);
+}
+
 // ============================================================================
 // Test Select
 // ============================================================================
@@ -2081,6 +2091,18 @@ TEST(ElementWiseFuncTest, MinWithScalarLiteral)
     EXPECT_NEAR(c->at(0, 0, 0, 1), 4.0f, kEpsilon);
     EXPECT_NEAR(c->at(0, 0, 0, 2), 3.0f, kEpsilon);
     EXPECT_NEAR(c->at(0, 0, 0, 3), 4.0f, kEpsilon);
+}
+
+TEST(ElementWiseFuncTest, PreservesSelectedXcc)
+{
+    DerivedCounterManager manager;
+    manager.context().setCounter("A", std::make_shared<Tensor>(Shape(3, 1, 1, 2), 1));
+    manager.loadDefinitions("A2 := select[A, 2, axis=XCC]\n"
+                            "MAX2 := max(A2, 0)\n"
+                            "MIN2 := min(A2, 10)");
+
+    EXPECT_EQ(manager.evaluate("MAX2")->xccIndices(), (std::vector<size_t>{2}));
+    EXPECT_EQ(manager.evaluate("MIN2")->xccIndices(), (std::vector<size_t>{2}));
 }
 
 TEST(ElementWiseFuncTest, MaxReductionStillWorks)

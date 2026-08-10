@@ -36,6 +36,7 @@
 #include "data/dispatch_resolver.h"
 #include "data/hwid.h"
 #include "data/records.h"
+#include "data/spm_json.h"
 #include "json/include/nlohmann/json.hpp"
 #include "wave/othersimd_types.h"
 
@@ -102,6 +103,7 @@ public:
     DispatchResolver dispatch_resolver;
 
     std::map<int, std::array<std::vector<counter_record_t>, 2>> counters_by_se;
+    SpmData spm;
 
     int64_t realtime_frequency = 0;
     std::map<int, std::vector<realtime_record_t>> realtime_by_se;

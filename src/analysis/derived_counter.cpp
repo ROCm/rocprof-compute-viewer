@@ -121,14 +121,20 @@ std::string Shape::toString() const
 // Tensor implementation
 // ============================================================================
 
-Tensor::Tensor() : m_shape(), m_data(1, 0.0) {}
+Tensor::Tensor() : m_shape(), m_data(1, 0.0), m_xcc_indices{0} {}
 
-Tensor::Tensor(float scalar) : m_shape(1, 1, 1, 1), m_data(1, scalar) {}
+Tensor::Tensor(float scalar) : m_shape(1, 1, 1, 1), m_data(1, scalar), m_xcc_indices{0} {}
 
-Tensor::Tensor(const Shape& shape, float fillValue) : m_shape(shape), m_data(shape.totalSize(), fillValue) {}
-
-Tensor::Tensor(const Shape& shape, const std::vector<float>& data) : m_shape(shape), m_data(data)
+Tensor::Tensor(const Shape& shape, float fillValue) :
+m_shape(shape), m_data(shape.totalSize(), fillValue), m_xcc_indices(shape.getXCC())
 {
+    std::iota(m_xcc_indices.begin(), m_xcc_indices.end(), 0);
+}
+
+Tensor::Tensor(const Shape& shape, const std::vector<float>& data) :
+m_shape(shape), m_data(data), m_xcc_indices(shape.getXCC())
+{
+    std::iota(m_xcc_indices.begin(), m_xcc_indices.end(), 0);
     if (m_data.size() != m_shape.totalSize())
     {
         throw std::runtime_error(
@@ -137,6 +143,19 @@ Tensor::Tensor(const Shape& shape, const std::vector<float>& data) : m_shape(sha
         );
     }
 }
+
+Tensor::Tensor(const Shape& shape, const std::vector<float>& data, const ValidityMask& validity) : Tensor(shape, data)
+{
+    if (validity.size() != (size() + 63) / 64)
+        throw std::runtime_error("Validity mask size does not match tensor data");
+    m_validity = validity;
+}
+
+bool Tensor::isValid(size_t index) const { return Validity::test(m_validity, index); }
+
+void Tensor::allocateValidity() { Validity::allocate(m_validity, size()); }
+
+void Tensor::setValid(size_t index) { Validity::set(m_validity, index); }
 
 float Tensor::scalar() const
 {
@@ -189,16 +208,25 @@ template <typename ReduceOp> Tensor Tensor::reduceAxes(const std::vector<Axis>& 
         // Reduce all - return scalar
         float result = identity;
         size_t count = 0;
-        for (float v : m_data)
+        for (size_t i = 0; i < m_data.size(); ++i)
         {
-            result = op(result, v, count);
+            if (!isValid(i)) continue;
+            result = op(result, m_data[i], count);
             count++;
         }
-        return Tensor(result);
+        Tensor reduced(result);
+        reduced.m_xcc_indices = m_xcc_indices;
+        if (!m_validity.empty())
+        {
+            reduced.allocateValidity();
+            if (count) reduced.setValid(0);
+        }
+        return reduced;
     }
 
     Shape newShape = m_shape.reducedShape(axes);
     Tensor result(newShape, identity);
+    if (!m_validity.empty()) result.allocateValidity();
 
     // Count tensor for mean calculation
     std::vector<size_t> counts(result.size(), 0);
@@ -214,6 +242,7 @@ template <typename ReduceOp> Tensor Tensor::reduceAxes(const std::vector<Axis>& 
         else
             reduce[static_cast<size_t>(axis)] = true;
     }
+    result.m_xcc_indices = m_xcc_indices;
 
     // Iterate over all elements
     for (size_t xcc = 0; xcc < m_shape[0]; ++xcc)
@@ -225,6 +254,7 @@ template <typename ReduceOp> Tensor Tensor::reduceAxes(const std::vector<Axis>& 
                 for (size_t sample = 0; sample < m_shape[3]; ++sample)
                 {
                     size_t srcIdx = linearIndex(xcc, se, cu, sample);
+                    if (!isValid(srcIdx)) continue;
 
                     // Compute destination indices (collapse reduced axes to 0)
                     size_t dstXcc = reduce[0] ? 0 : xcc;
@@ -235,6 +265,7 @@ template <typename ReduceOp> Tensor Tensor::reduceAxes(const std::vector<Axis>& 
                     size_t dstIdx = result.linearIndex(dstXcc, dstSE, dstCU, dstSample);
                     result[dstIdx] = op(result[dstIdx], m_data.at(srcIdx), counts.at(dstIdx));
                     counts.at(dstIdx)++;
+                    if (!m_validity.empty()) result.setValid(dstIdx);
                 }
             }
         }
@@ -252,23 +283,28 @@ Tensor Tensor::sum(const std::vector<Axis>& axes) const
 
 Tensor Tensor::mean(const std::vector<Axis>& axes) const
 {
-    // First compute sum
     Tensor sumResult = sum(axes);
-
-    // Compute the count for each reduced element
-    size_t count = 1;
-    for (Axis axis : axes)
+    if (m_validity.empty())
     {
-        if (axis == Axis::All)
+        size_t count = 1;
+        for (Axis axis : axes)
         {
-            count = m_shape.totalSize();
-            break;
+            if (axis == Axis::All)
+            {
+                count = m_shape.totalSize();
+                break;
+            }
+            count *= m_shape.dimSize(axis);
         }
-        count *= m_shape.dimSize(axis);
+        for (float& value : sumResult.data()) value /= count;
+        return sumResult;
     }
 
-    // Divide by count
-    for (float& v : sumResult.data()) v /= static_cast<float>(count);
+    Tensor countSource(m_shape, 1.0f);
+    countSource.m_validity = m_validity;
+    const Tensor counts = countSource.sum(axes);
+    for (size_t i = 0; i < sumResult.size(); ++i)
+        if (sumResult.isValid(i)) sumResult[i] /= counts[i];
 
     return sumResult;
 }
@@ -317,6 +353,11 @@ Tensor Tensor::select(int64_t index, Axis axis) const
     resultShape.dim[axisIdx] = 1;
 
     Tensor result(resultShape);
+    if (!m_validity.empty()) result.allocateValidity();
+    if (axisIdx == 0 && static_cast<size_t>(index) < m_xcc_indices.size())
+        result.m_xcc_indices = {m_xcc_indices[static_cast<size_t>(index)]};
+    else
+        result.m_xcc_indices = m_xcc_indices;
 
     for (size_t xcc = 0; xcc < resultShape[0]; ++xcc)
     {
@@ -332,7 +373,10 @@ Tensor Tensor::select(int64_t index, Axis axis) const
                     size_t srcCU = (axisIdx == 2) ? index : cu;
                     size_t srcSample = (axisIdx == 3) ? index : sample;
 
-                    result.at(xcc, se, cu, sample) = at(srcXcc, srcSE, srcCU, srcSample);
+                    const size_t src = linearIndex(srcXcc, srcSE, srcCU, srcSample);
+                    const size_t dst = result.linearIndex(xcc, se, cu, sample);
+                    result[dst] = m_data[src];
+                    if (!m_validity.empty() && isValid(src)) result.setValid(dst);
                 }
             }
         }
@@ -375,6 +419,14 @@ Tensor Tensor::selectRange(size_t start, size_t stop, size_t step, Axis axis) co
     resultShape.dim[axisIdx] = numSelected;
 
     Tensor result(resultShape);
+    if (!m_validity.empty()) result.allocateValidity();
+    if (axisIdx == 0 && m_xcc_indices.size() == m_shape.getXCC())
+    {
+        result.m_xcc_indices.clear();
+        for (size_t i = start; i < stop; i += step) result.m_xcc_indices.push_back(m_xcc_indices[i]);
+    }
+    else
+        result.m_xcc_indices = m_xcc_indices;
 
     // Iterate over all indices in the result tensor
     for (size_t xcc = 0; xcc < resultShape[0]; ++xcc)
@@ -402,7 +454,10 @@ Tensor Tensor::selectRange(size_t start, size_t stop, size_t step, Axis axis) co
                     size_t srcCU = (axisIdx == 2) ? srcIdx : cu;
                     size_t srcSample = (axisIdx == 3) ? srcIdx : sample;
 
-                    result.at(xcc, se, cu, sample) = at(srcXcc, srcSE, srcCU, srcSample);
+                    const size_t src = linearIndex(srcXcc, srcSE, srcCU, srcSample);
+                    const size_t dst = result.linearIndex(xcc, se, cu, sample);
+                    result[dst] = m_data[src];
+                    if (!m_validity.empty() && isValid(src)) result.setValid(dst);
                 }
             }
         }
@@ -454,6 +509,14 @@ Tensor Tensor::remove(int index, Axis axis) const
     resultShape.dim[axisIdx] = axisSize - 1;
 
     Tensor result(resultShape);
+    if (!m_validity.empty()) result.allocateValidity();
+    if (axisIdx == 0 && m_xcc_indices.size() == m_shape.getXCC())
+    {
+        result.m_xcc_indices = m_xcc_indices;
+        result.m_xcc_indices.erase(result.m_xcc_indices.begin() + actualIndex);
+    }
+    else
+        result.m_xcc_indices = m_xcc_indices;
 
     for (size_t xcc = 0; xcc < resultShape[0]; ++xcc)
     {
@@ -479,7 +542,10 @@ Tensor Tensor::remove(int index, Axis axis) const
                     else if (axisIdx == 3)
                         srcSample = (sample >= actualIndex) ? sample + 1 : sample;
 
-                    result.at(xcc, se, cu, sample) = at(srcXcc, srcSE, srcCU, srcSample);
+                    const size_t src = linearIndex(srcXcc, srcSE, srcCU, srcSample);
+                    const size_t dst = result.linearIndex(xcc, se, cu, sample);
+                    result[dst] = m_data[src];
+                    if (!m_validity.empty() && isValid(src)) result.setValid(dst);
                 }
             }
         }
@@ -505,6 +571,8 @@ Tensor Tensor::delta(Axis axis) const
     resultShape.dim[axisIdx] = axisSize - 1;
 
     Tensor result(resultShape);
+    if (!m_validity.empty()) result.allocateValidity();
+    result.m_xcc_indices = axisIdx == 0 ? std::vector<size_t>{} : m_xcc_indices;
 
     for (size_t xcc = 0; xcc < resultShape[0]; ++xcc)
     {
@@ -540,8 +608,14 @@ Tensor Tensor::delta(Axis axis) const
                         prevSample = sample;
                     }
 
-                    result.at(xcc, se, cu, sample) =
-                        at(currXcc, currSE, currCU, currSample) - at(prevXcc, prevSE, prevCU, prevSample);
+                    const size_t curr = linearIndex(currXcc, currSE, currCU, currSample);
+                    const size_t prev = linearIndex(prevXcc, prevSE, prevCU, prevSample);
+                    const size_t dst = result.linearIndex(xcc, se, cu, sample);
+                    if (isValid(curr) && isValid(prev))
+                    {
+                        result[dst] = m_data[curr] - m_data[prev];
+                        if (!m_validity.empty()) result.setValid(dst);
+                    }
                 }
             }
         }
@@ -553,16 +627,44 @@ Tensor Tensor::delta(Axis axis) const
 // Template helper for broadcasting operations
 template <typename BinaryOp> Tensor Tensor::broadcastOp(const Tensor& other, BinaryOp op) const
 {
+    auto xcc_indices = [&](size_t result_xcc)
+    {
+        if (result_xcc > 1)
+        {
+            if (m_shape.getXCC() == result_xcc && m_xcc_indices.size() == result_xcc) return m_xcc_indices;
+            if (other.m_shape.getXCC() == result_xcc && other.m_xcc_indices.size() == result_xcc)
+                return other.m_xcc_indices;
+            return std::vector<size_t>{};
+        }
+        if (isScalar() && !other.isScalar()) return other.m_xcc_indices;
+        if (other.isScalar() && !isScalar()) return m_xcc_indices;
+        return m_xcc_indices == other.m_xcc_indices ? m_xcc_indices : std::vector<size_t>{};
+    };
+
     // Fast path for same-shape tensors (no broadcasting needed)
     if (m_shape == other.m_shape)
     {
         Tensor result(m_shape);
-        for (size_t i = 0; i < m_data.size(); ++i) result[i] = op(m_data[i], other.m_data[i]);
+        result.m_xcc_indices = xcc_indices(m_shape.getXCC());
+        if (m_validity.empty() && other.m_validity.empty())
+        {
+            for (size_t i = 0; i < m_data.size(); ++i) result[i] = op(m_data[i], other.m_data[i]);
+            return result;
+        }
+        result.allocateValidity();
+        for (size_t i = 0; i < m_data.size(); ++i)
+            if (isValid(i) && other.isValid(i))
+            {
+                result[i] = op(m_data[i], other.m_data[i]);
+                if (!result.m_validity.empty()) result.setValid(i);
+            }
         return result;
     }
 
     Shape resultShape = Shape::broadcastShape(m_shape, other.m_shape);
     Tensor result(resultShape);
+    result.m_xcc_indices = xcc_indices(resultShape.getXCC());
+    if (!m_validity.empty() || !other.m_validity.empty()) result.allocateValidity();
 
     for (size_t xcc = 0; xcc < resultShape[0]; ++xcc)
     {
@@ -583,15 +685,48 @@ template <typename BinaryOp> Tensor Tensor::broadcastOp(const Tensor& other, Bin
                     size_t bCU = other.m_shape[2] == 1 ? 0 : cu;
                     size_t bSample = other.m_shape[3] == 1 ? 0 : sample;
 
-                    float a = at(aXcc, aSE, aCU, aSample);
-                    float b = other.at(bXcc, bSE, bCU, bSample);
-                    result.at(xcc, se, cu, sample) = op(a, b);
+                    const size_t aIndex = linearIndex(aXcc, aSE, aCU, aSample);
+                    const size_t bIndex = other.linearIndex(bXcc, bSE, bCU, bSample);
+                    const size_t dst = result.linearIndex(xcc, se, cu, sample);
+                    if (isValid(aIndex) && other.isValid(bIndex))
+                    {
+                        result[dst] = op(m_data[aIndex], other.m_data[bIndex]);
+                        if (!result.m_validity.empty()) result.setValid(dst);
+                    }
                 }
             }
         }
     }
 
     return result;
+}
+
+template <typename BinaryOp> Tensor& Tensor::inPlaceOp(const Tensor& other, BinaryOp op)
+{
+    if (m_shape != other.m_shape)
+    {
+        *this = broadcastOp(other, op);
+        return *this;
+    }
+    if (m_validity.empty() && other.m_validity.empty())
+    {
+        for (size_t i = 0; i < size(); ++i) m_data[i] = op(m_data[i], other.m_data[i]);
+        return *this;
+    }
+
+    ValidityMask validity(Validity::words(size()), 0);
+    for (size_t i = 0; i < size(); ++i)
+    {
+        if (isValid(i) && other.isValid(i))
+        {
+            m_data[i] = op(m_data[i], other.m_data[i]);
+            Validity::set(validity, i);
+        }
+        else
+            m_data[i] = 0;
+    }
+    m_validity = std::move(validity);
+    return *this;
 }
 
 Tensor Tensor::operator+(const Tensor& other) const
@@ -614,9 +749,21 @@ Tensor Tensor::operator/(const Tensor& other) const
     return broadcastOp(other, [](float a, float b) { return a / b; });
 }
 
+Tensor Tensor::elementwiseMax(const Tensor& other) const
+{
+    return broadcastOp(other, [](float a, float b) { return std::max(a, b); });
+}
+
+Tensor Tensor::elementwiseMin(const Tensor& other) const
+{
+    return broadcastOp(other, [](float a, float b) { return std::min(a, b); });
+}
+
 Tensor Tensor::operator+(float scalar) const
 {
     Tensor result(m_shape);
+    result.m_xcc_indices = m_xcc_indices;
+    result.m_validity = m_validity;
     for (size_t i = 0; i < m_data.size(); ++i) result[i] = m_data[i] + scalar;
     return result;
 }
@@ -624,6 +771,8 @@ Tensor Tensor::operator+(float scalar) const
 Tensor Tensor::operator-(float scalar) const
 {
     Tensor result(m_shape);
+    result.m_xcc_indices = m_xcc_indices;
+    result.m_validity = m_validity;
     for (size_t i = 0; i < m_data.size(); ++i) result[i] = m_data[i] - scalar;
     return result;
 }
@@ -631,6 +780,8 @@ Tensor Tensor::operator-(float scalar) const
 Tensor Tensor::operator*(float scalar) const
 {
     Tensor result(m_shape);
+    result.m_xcc_indices = m_xcc_indices;
+    result.m_validity = m_validity;
     for (size_t i = 0; i < m_data.size(); ++i) result[i] = m_data[i] * scalar;
     return result;
 }
@@ -638,6 +789,8 @@ Tensor Tensor::operator*(float scalar) const
 Tensor Tensor::operator/(float scalar) const
 {
     Tensor result(m_shape);
+    result.m_xcc_indices = m_xcc_indices;
+    result.m_validity = m_validity;
     for (size_t i = 0; i < m_data.size(); ++i) result[i] = m_data[i] / scalar;
     return result;
 }
@@ -645,137 +798,65 @@ Tensor Tensor::operator/(float scalar) const
 Tensor Tensor::operator-() const
 {
     Tensor result(m_shape);
+    result.m_xcc_indices = m_xcc_indices;
+    result.m_validity = m_validity;
     for (size_t i = 0; i < m_data.size(); ++i) result[i] = -m_data.at(i);
     return result;
 }
 
 Tensor& Tensor::operator+=(const Tensor& other)
 {
-    // Fast path for same-shape tensors
-    if (m_shape == other.m_shape)
-    {
-        for (size_t i = 0; i < m_data.size(); ++i) m_data[i] += other.m_data[i];
-        return *this;
-    }
-    *this = *this + other;
-    return *this;
+    return inPlaceOp(other, [](float a, float b) { return a + b; });
 }
 
 Tensor& Tensor::operator-=(const Tensor& other)
 {
-    // Fast path for same-shape tensors
-    if (m_shape == other.m_shape)
-    {
-        for (size_t i = 0; i < m_data.size(); ++i) m_data[i] -= other.m_data[i];
-        return *this;
-    }
-    *this = *this - other;
-    return *this;
+    return inPlaceOp(other, [](float a, float b) { return a - b; });
 }
 
 Tensor& Tensor::operator*=(const Tensor& other)
 {
-    // Fast path for same-shape tensors
-    if (m_shape == other.m_shape)
-    {
-        for (size_t i = 0; i < m_data.size(); ++i) m_data[i] *= other.m_data[i];
-        return *this;
-    }
-    *this = *this * other;
-    return *this;
+    return inPlaceOp(other, [](float a, float b) { return a * b; });
 }
 
 Tensor& Tensor::operator/=(const Tensor& other)
 {
-    // Fast path for same-shape tensors
-    if (m_shape == other.m_shape)
-    {
-        for (size_t i = 0; i < m_data.size(); ++i) m_data[i] /= other.m_data[i];
-        return *this;
-    }
-    *this = *this / other;
-    return *this;
+    return inPlaceOp(other, [](float a, float b) { return a / b; });
 }
 
 Tensor& Tensor::operator|=(const Tensor& other)
 {
-    // Fast path for same-shape tensors
-    if (m_shape == other.m_shape)
-    {
-        for (size_t i = 0; i < m_data.size(); ++i)
-            m_data[i] = (m_data[i] != 0.0f || other.m_data[i] != 0.0f) ? 1.0f : 0.0f;
-        return *this;
-    }
-    *this = *this | other;
-    return *this;
+    return inPlaceOp(other, [](float a, float b) { return (a != 0 || b != 0) ? 1.0f : 0.0f; });
 }
 
 Tensor& Tensor::operator&=(const Tensor& other)
 {
-    // Fast path for same-shape tensors
-    if (m_shape == other.m_shape)
-    {
-        for (size_t i = 0; i < m_data.size(); ++i)
-            m_data[i] = (m_data[i] != 0.0f && other.m_data[i] != 0.0f) ? 1.0f : 0.0f;
-        return *this;
-    }
-    *this = *this & other;
-    return *this;
+    return inPlaceOp(other, [](float a, float b) { return (a != 0 && b != 0) ? 1.0f : 0.0f; });
 }
 
 Tensor& Tensor::eqInPlace(const Tensor& other)
 {
-    if (m_shape == other.m_shape)
-    {
-        for (size_t i = 0; i < m_data.size(); ++i) m_data[i] = (m_data[i] == other.m_data[i]) ? 1.0f : 0.0f;
-        return *this;
-    }
-    *this = *this == other;
-    return *this;
+    return inPlaceOp(other, [](float a, float b) { return a == b ? 1.0f : 0.0f; });
 }
 
 Tensor& Tensor::ltInPlace(const Tensor& other)
 {
-    if (m_shape == other.m_shape)
-    {
-        for (size_t i = 0; i < m_data.size(); ++i) m_data[i] = (m_data[i] < other.m_data[i]) ? 1.0f : 0.0f;
-        return *this;
-    }
-    *this = *this < other;
-    return *this;
+    return inPlaceOp(other, [](float a, float b) { return a < b ? 1.0f : 0.0f; });
 }
 
 Tensor& Tensor::gtInPlace(const Tensor& other)
 {
-    if (m_shape == other.m_shape)
-    {
-        for (size_t i = 0; i < m_data.size(); ++i) m_data[i] = (m_data[i] > other.m_data[i]) ? 1.0f : 0.0f;
-        return *this;
-    }
-    *this = *this > other;
-    return *this;
+    return inPlaceOp(other, [](float a, float b) { return a > b ? 1.0f : 0.0f; });
 }
 
 Tensor& Tensor::leInPlace(const Tensor& other)
 {
-    if (m_shape == other.m_shape)
-    {
-        for (size_t i = 0; i < m_data.size(); ++i) m_data[i] = (m_data[i] <= other.m_data[i]) ? 1.0f : 0.0f;
-        return *this;
-    }
-    *this = *this <= other;
-    return *this;
+    return inPlaceOp(other, [](float a, float b) { return a <= b ? 1.0f : 0.0f; });
 }
 
 Tensor& Tensor::geInPlace(const Tensor& other)
 {
-    if (m_shape == other.m_shape)
-    {
-        for (size_t i = 0; i < m_data.size(); ++i) m_data[i] = (m_data[i] >= other.m_data[i]) ? 1.0f : 0.0f;
-        return *this;
-    }
-    *this = *this >= other;
-    return *this;
+    return inPlaceOp(other, [](float a, float b) { return a >= b ? 1.0f : 0.0f; });
 }
 
 Tensor& Tensor::negateInPlace()
@@ -813,6 +894,8 @@ Tensor Tensor::operator>=(const Tensor& other) const
 Tensor Tensor::operator==(float scalar) const
 {
     Tensor result(m_shape);
+    result.m_xcc_indices = m_xcc_indices;
+    result.m_validity = m_validity;
     for (size_t i = 0; i < m_data.size(); ++i) result[i] = (m_data[i] == scalar) ? 1.0f : 0.0f;
     return result;
 }
@@ -820,6 +903,8 @@ Tensor Tensor::operator==(float scalar) const
 Tensor Tensor::operator<(float scalar) const
 {
     Tensor result(m_shape);
+    result.m_xcc_indices = m_xcc_indices;
+    result.m_validity = m_validity;
     for (size_t i = 0; i < m_data.size(); ++i) result[i] = (m_data[i] < scalar) ? 1.0f : 0.0f;
     return result;
 }
@@ -827,6 +912,8 @@ Tensor Tensor::operator<(float scalar) const
 Tensor Tensor::operator>(float scalar) const
 {
     Tensor result(m_shape);
+    result.m_xcc_indices = m_xcc_indices;
+    result.m_validity = m_validity;
     for (size_t i = 0; i < m_data.size(); ++i) result[i] = (m_data[i] > scalar) ? 1.0f : 0.0f;
     return result;
 }
@@ -834,6 +921,8 @@ Tensor Tensor::operator>(float scalar) const
 Tensor Tensor::operator<=(float scalar) const
 {
     Tensor result(m_shape);
+    result.m_xcc_indices = m_xcc_indices;
+    result.m_validity = m_validity;
     for (size_t i = 0; i < m_data.size(); ++i) result[i] = (m_data[i] <= scalar) ? 1.0f : 0.0f;
     return result;
 }
@@ -841,6 +930,8 @@ Tensor Tensor::operator<=(float scalar) const
 Tensor Tensor::operator>=(float scalar) const
 {
     Tensor result(m_shape);
+    result.m_xcc_indices = m_xcc_indices;
+    result.m_validity = m_validity;
     for (size_t i = 0; i < m_data.size(); ++i) result[i] = (m_data[i] >= scalar) ? 1.0f : 0.0f;
     return result;
 }
@@ -859,6 +950,8 @@ Tensor Tensor::operator&(const Tensor& other) const
 Tensor Tensor::operator|(float scalar) const
 {
     Tensor result(m_shape);
+    result.m_xcc_indices = m_xcc_indices;
+    result.m_validity = m_validity;
     bool scalarTrue = (scalar != 0.0f);
     for (size_t i = 0; i < m_data.size(); ++i) result[i] = (m_data[i] != 0.0f || scalarTrue) ? 1.0f : 0.0f;
     return result;
@@ -867,6 +960,8 @@ Tensor Tensor::operator|(float scalar) const
 Tensor Tensor::operator&(float scalar) const
 {
     Tensor result(m_shape);
+    result.m_xcc_indices = m_xcc_indices;
+    result.m_validity = m_validity;
     bool scalarTrue = (scalar != 0.0f);
     for (size_t i = 0; i < m_data.size(); ++i) result[i] = (m_data[i] != 0.0f && scalarTrue) ? 1.0f : 0.0f;
     return result;
@@ -1158,67 +1253,8 @@ Tensor ElementWiseFuncExpr::evaluate(CounterContext& ctx) const
         Tensor operand = m_operands[i]->evaluate(ctx);
         switch (m_type)
         {
-            case FuncType::Max:
-            {
-                // Element-wise max with broadcasting
-                Shape resultShape = Shape::broadcastShape(result.shape(), operand.shape());
-                Tensor tmp(resultShape);
-                for (size_t xcc = 0; xcc < resultShape[0]; ++xcc)
-                {
-                    for (size_t se = 0; se < resultShape[1]; ++se)
-                    {
-                        for (size_t cu = 0; cu < resultShape[2]; ++cu)
-                        {
-                            for (size_t sample = 0; sample < resultShape[3]; ++sample)
-                            {
-                                size_t aXcc = result.shape()[0] == 1 ? 0 : xcc;
-                                size_t aSe = result.shape()[1] == 1 ? 0 : se;
-                                size_t aCu = result.shape()[2] == 1 ? 0 : cu;
-                                size_t aSample = result.shape()[3] == 1 ? 0 : sample;
-                                size_t bXcc = operand.shape()[0] == 1 ? 0 : xcc;
-                                size_t bSe = operand.shape()[1] == 1 ? 0 : se;
-                                size_t bCu = operand.shape()[2] == 1 ? 0 : cu;
-                                size_t bSample = operand.shape()[3] == 1 ? 0 : sample;
-                                float a = result.at(aXcc, aSe, aCu, aSample);
-                                float b = operand.at(bXcc, bSe, bCu, bSample);
-                                tmp.at(xcc, se, cu, sample) = std::max(a, b);
-                            }
-                        }
-                    }
-                }
-                result = std::move(tmp);
-                break;
-            }
-            case FuncType::Min:
-            {
-                Shape resultShape = Shape::broadcastShape(result.shape(), operand.shape());
-                Tensor tmp(resultShape);
-                for (size_t xcc = 0; xcc < resultShape[0]; ++xcc)
-                {
-                    for (size_t se = 0; se < resultShape[1]; ++se)
-                    {
-                        for (size_t cu = 0; cu < resultShape[2]; ++cu)
-                        {
-                            for (size_t sample = 0; sample < resultShape[3]; ++sample)
-                            {
-                                size_t aXcc = result.shape()[0] == 1 ? 0 : xcc;
-                                size_t aSe = result.shape()[1] == 1 ? 0 : se;
-                                size_t aCu = result.shape()[2] == 1 ? 0 : cu;
-                                size_t aSample = result.shape()[3] == 1 ? 0 : sample;
-                                size_t bXcc = operand.shape()[0] == 1 ? 0 : xcc;
-                                size_t bSe = operand.shape()[1] == 1 ? 0 : se;
-                                size_t bCu = operand.shape()[2] == 1 ? 0 : cu;
-                                size_t bSample = operand.shape()[3] == 1 ? 0 : sample;
-                                float a = result.at(aXcc, aSe, aCu, aSample);
-                                float b = operand.at(bXcc, bSe, bCu, bSample);
-                                tmp.at(xcc, se, cu, sample) = std::min(a, b);
-                            }
-                        }
-                    }
-                }
-                result = std::move(tmp);
-                break;
-            }
+            case FuncType::Max: result = result.elementwiseMax(operand); break;
+            case FuncType::Min: result = result.elementwiseMin(operand); break;
         }
     }
 

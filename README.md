@@ -414,30 +414,23 @@ rocprofv3 normally converts thread trace into a UI output directory (JSON). If i
 ./rocprof-compute-viewer <dir_with_att_and_out_files> /path/to/code.json /path/to/snapshots.json
 ```
 
-`code.json` and `snapshots.json` supply ISA disassembly and source-file snapshots respectively. rocprofv3 emits them automatically, but the SDK API does not — so generate them as described below.
+`code.json` and `snapshots.json` supply ISA disassembly and source-file snapshots respectively. rocprofv3 emits them automatically. Raw SDK captures without that metadata can still be viewed, but the Instructions view and source pane have no ISA/source correlation.
 
-### Generating ISA/source correlation
+### Loading SPM counters
 
-**When:** you captured the trace via the rocprofiler-sdk API, so the raw `.att`/`.out` output has the trace samples but no `code.json`/`snapshots.json`.
-
-**Why:** without this metadata the viewer can still draw the trace, but it cannot map SQTT tokens to ISA instructions or to source lines (the Instructions view and source pane stay empty). `scripts/generate_snapshot.py` recreates that correlation from the kernel code objects so the SDK-API workflow matches the CLI experience.
-
-**How:** point the script at the kernel ELF code objects (`.hsaco`, `.out`, or `.o`):
+Collect SPM as JSON and always include `SQ_CYCLES`; the viewer uses it to map
+SPM timestamps into the SQTT shader-clock timeline.
 
 ```bash
-# Explicit code objects.
-python3 scripts/generate_snapshot.py kernel_code_object_id_1.out kernel_code_object_id_2.out
-
-# Or, with no arguments, every *.hsaco and *.out in the current directory.
-python3 scripts/generate_snapshot.py
+rocprofv3 --spm-beta-enabled \
+  --spm SQ_CYCLES TCC_HIT TCC_MISS TCC_BUBBLE TCC_EA0_RDREQ TA_TA_BUSY TCP_TOTAL_CACHE_ACCESSES \
+  --spm-sample-interval-unit sclk_cycles \
+  --spm-sample-interval 4096 \
+  --output-format json -- ./application
 ```
 
-It writes `code.json`, `snapshots.json`, and copies of the referenced source files into the current directory, which you then pass to the viewer as shown under [Loading raw `.att`/`.out`](#loading-raw-attout) above.
-
-Notes:
-* Each code object is tagged with the **code object id** the trace references, parsed from the trailing number in the filename (e.g. `..._code_object_id_1.out` → `1`, `codeobj_42.out` → `42`). Only `.hsaco` files may use id `0`; a `.out` without a parseable id, or an id that collides with another input, is skipped with a warning.
-* Build the code objects with debug info (`-g`) for source correlation; without it you still get ISA but no source mapping.
-* Requires `llvm-objdump` (from a ROCm/LLVM install or on `PATH`) and the `pyelftools` Python package (`pip install pyelftools`).
+Load the SQTT trace first, then use **Import > SPM JSON...** to attach the
+matching results file. An SPM JSON can also be opened by itself.
 
 ## Hidden Latency
 

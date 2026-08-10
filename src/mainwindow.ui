@@ -1132,6 +1132,7 @@
     </property>
     <addaction name="actionJsons_folder"/>
     <addaction name="actionAttFiles"/>
+    <addaction name="actionSpmJson"/>
    </widget>
    <widget class="QMenu" name="menuEdit">
     <property name="title">
@@ -1168,6 +1169,11 @@
   <action name="actionAttFiles">
    <property name="text">
     <string>ATT Trace Files...</string>
+   </property>
+  </action>
+  <action name="actionSpmJson">
+   <property name="text">
+    <string>SPM JSON...</string>
    </property>
   </action>
   <action name="actionRocpd">

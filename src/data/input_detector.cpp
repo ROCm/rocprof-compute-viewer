@@ -133,6 +133,12 @@ InputInfo detectInput(const std::string& path)
             info.rocpd_path = path;
             return info;
         }
+        if (p.extension() == ".json")
+        {
+            info.type = InputType::SPM_JSON;
+            info.spm_json_path = path;
+            return info;
+        }
         if (p.extension() == ".att")
         {
             const fs::path parent = p.parent_path().empty() ? fs::path(".") : p.parent_path();
