@@ -11,6 +11,7 @@ subtrees:
 - caption: How to
   entries:
   - file: how-to/using_compute_viewer
+  - file: how-to/using_spm
   - file: how-to/troubleshooting
 - caption: Reference
   entries:

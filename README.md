@@ -432,7 +432,8 @@ rocprofv3 --spm-beta-enabled \
 ```
 
 Load the SQTT trace first, then use **Import > SPM JSON...** to attach the
-matching results file. An SPM JSON can also be opened by itself.
+matching results file. An SPM JSON can also be opened by itself. See
+[`docs/how-to/using_spm.rst`](docs/how-to/using_spm.rst) for details.
 
 ## Hidden Latency
 
