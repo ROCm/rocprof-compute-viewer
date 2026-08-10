@@ -26,8 +26,9 @@
 #include <cstdint>
 #include <string>
 #include <vector>
+#include "util/validity_mask.h"
 
-using SpmValidityMask = std::vector<uint64_t>;
+using SpmValidityMask = Validity::Mask;
 
 struct SpmCounterData
 {
@@ -56,10 +57,7 @@ struct SpmData
 
     bool empty() const { return counters.empty(); }
     size_t xccCount() const { return sample_count ? timestamps.size() / sample_count : 0; }
-    bool sampleValid(size_t index) const
-    {
-        return sample_valid.empty() || (sample_valid.at(index / 64) & (uint64_t{1} << (index % 64)));
-    }
+    bool sampleValid(size_t index) const { return Validity::test(sample_valid, index); }
     size_t validSamples(size_t xcc) const
     {
         size_t count = sample_count;

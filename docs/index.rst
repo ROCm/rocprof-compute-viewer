@@ -25,6 +25,7 @@ The documentation is structured as follows:
   .. grid-item-card:: How to
 
     * :ref:`Visualize and analyze GPU thread trace data <using-compute-viewer>`
+    * :ref:`Collect and view SPM counters <using-spm-counters>`
     * :ref:`Troubleshooting <rcv-troubleshooting>`
 
   .. grid-item-card:: Reference

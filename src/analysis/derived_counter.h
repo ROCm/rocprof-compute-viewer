@@ -38,11 +38,12 @@
 #include <unordered_set>
 #include <variant>
 #include <vector>
+#include "util/validity_mask.h"
 
 namespace DerivedCounter
 {
 
-using ValidityMask = std::vector<uint64_t>;
+using ValidityMask = Validity::Mask;
 
 // Axis enumeration for the tensor dimensions
 // Order: counter[NUM_XCC][NUM_SE][NUM_CU][NUM_SAMPLES]

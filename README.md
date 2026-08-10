@@ -416,6 +416,23 @@ rocprofv3 normally converts thread trace into a UI output directory (JSON). If i
 
 `code.json` and `snapshots.json` supply ISA disassembly and source-file snapshots respectively. rocprofv3 emits them automatically. Raw SDK captures without that metadata can still be viewed, but the Instructions view and source pane have no ISA/source correlation.
 
+### Loading SPM counters
+
+Collect SPM as JSON and always include `SQ_CYCLES`; the viewer uses it to map
+SPM timestamps into the SQTT shader-clock timeline.
+
+```bash
+rocprofv3 --spm-beta-enabled \
+  --spm SQ_CYCLES SQ_WAVES \
+  --spm-sample-interval-unit sclk_cycles \
+  --spm-sample-interval 4096 \
+  --output-format json -- ./application
+```
+
+Load the SQTT trace first, then use **Import > SPM JSON...** to attach the
+matching results file. An SPM JSON can also be opened by itself. See
+[`docs/how-to/using_spm.rst`](docs/how-to/using_spm.rst) for details.
+
 ## Hidden Latency
 
 Hidden latency runs automatically for gfx10+ thread traces. It can also be run manually from menu Analyze -> Hidden Latency.

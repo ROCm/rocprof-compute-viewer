@@ -151,21 +151,11 @@ Tensor::Tensor(const Shape& shape, const std::vector<float>& data, const Validit
     m_validity = validity;
 }
 
-bool Tensor::isValid(size_t index) const
-{
-    return m_validity.empty() || (m_validity.at(index / 64) & (uint64_t{1} << (index % 64)));
-}
+bool Tensor::isValid(size_t index) const { return Validity::test(m_validity, index); }
 
-void Tensor::allocateValidity()
-{
-    if (m_validity.empty()) m_validity.resize((size() + 63) / 64, 0);
-}
+void Tensor::allocateValidity() { Validity::allocate(m_validity, size()); }
 
-void Tensor::setValid(size_t index)
-{
-    allocateValidity();
-    m_validity[index / 64] |= uint64_t{1} << (index % 64);
-}
+void Tensor::setValid(size_t index) { Validity::set(m_validity, index); }
 
 float Tensor::scalar() const
 {
@@ -724,13 +714,13 @@ template <typename BinaryOp> Tensor& Tensor::inPlaceOp(const Tensor& other, Bina
         return *this;
     }
 
-    ValidityMask validity((size() + 63) / 64, 0);
+    ValidityMask validity(Validity::words(size()), 0);
     for (size_t i = 0; i < size(); ++i)
     {
         if (isValid(i) && other.isValid(i))
         {
             m_data[i] = op(m_data[i], other.m_data[i]);
-            if (!validity.empty()) validity[i / 64] |= uint64_t{1} << (i % 64);
+            Validity::set(validity, i);
         }
         else
             m_data[i] = 0;
