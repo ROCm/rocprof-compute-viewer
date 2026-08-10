@@ -108,7 +108,7 @@ TEST(SpmSeries, SelectedXccUsesItsOriginalClock)
     const auto all_at_xcc2_update =
         std::find_if(all_points.begin(), all_points.end(), [](const auto& point) { return point.time == 7; });
     ASSERT_NE(all_at_xcc2_update, all_points.end());
-    EXPECT_GE(all_at_xcc2_update->value, selected_points[0].value);
+    EXPECT_GE(all_at_xcc2_update->value, selected_points[1].value);
 }
 
 TEST(SpmSeries, SelectedXccUsesItsOriginalSampleCount)
@@ -122,4 +122,23 @@ TEST(SpmSeries, SelectedXccUsesItsOriginalSampleCount)
 
     ASSERT_EQ(points.size(), 3u);
     EXPECT_EQ(points.back().time, 21);
+}
+
+TEST(SpmSeries, XccReductionUsesAverageClock)
+{
+    Tensor values(Shape(2, 1, 1, 3), std::vector<float>{1, 2, 3, 10, 20, 30});
+    Tensor clock(Shape(2, 1, 1, 3), std::vector<float>{10, 20, 30, 14, 24, 34});
+    const Tensor reduced = values.sum(DerivedCounter::Axis::XCC);
+
+    ASSERT_EQ(reduced.xccIndices(), (std::vector<size_t>{0, 1}));
+    const auto points = SpmSeries::makePlotSeries(reduced, clock);
+
+    ASSERT_EQ(points.size(), 4u);
+    EXPECT_FLOAT_EQ(points[0].time, 2);
+    EXPECT_FLOAT_EQ(points[0].value, 11);
+    EXPECT_FLOAT_EQ(points[1].time, 12);
+    EXPECT_FLOAT_EQ(points[1].value, 22);
+    EXPECT_FLOAT_EQ(points[2].time, 22);
+    EXPECT_FLOAT_EQ(points[2].value, 33);
+    EXPECT_FLOAT_EQ(points[3].time, 32);
 }

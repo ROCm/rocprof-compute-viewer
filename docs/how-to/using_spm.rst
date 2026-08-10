@@ -1,6 +1,6 @@
 .. meta::
   :description: Collect and load SPM counters in ROCprof Compute Viewer.
-  :keywords: SPM, streaming performance monitor, SQ_CYCLES, ROCprof Compute Viewer
+  :keywords: SPM, streaming performance monitor, ROCprof Compute Viewer
 
 .. _using-spm-counters:
 
@@ -69,8 +69,6 @@ Plot behavior
   advances and keep the last value from the other XCCs.
 - Missing hardware windows accumulated into a later sample are divided evenly
   across reconstructed windows.
-- Derived counters are listed before basic counters in the Plot tab; each group
-  is alphabetical.
 
 Derived counters
 ================
@@ -89,14 +87,8 @@ For example:
   XCC2_WAVES := select[SQ_WAVES, 2, axis=XCC]
 
 SE and CU/instance dimensions are automatically summed when a result is
-plotted. Keep XCC as a dimension unless intentionally selecting one XCC; XCC
-reduction clock semantics are still being finalized.
+plotted.
 
-Current limitations
-===================
+.. note::
 
-- JSON loading currently assumes one GPU agent and one relevant
-  dispatch/stream.
-- Loading SPM from ROCpd is not implemented yet.
-- Attach the SPM capture to the SQTT capture from the same profiling run and
-  dispatch.
+  Loading SPM data from ROCpd is not implemented yet.

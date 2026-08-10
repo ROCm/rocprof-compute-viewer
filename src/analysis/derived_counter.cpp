@@ -215,7 +215,7 @@ template <typename ReduceOp> Tensor Tensor::reduceAxes(const std::vector<Axis>& 
             count++;
         }
         Tensor reduced(result);
-        reduced.m_xcc_indices = m_shape.getXCC() == 1 ? m_xcc_indices : std::vector<size_t>{};
+        reduced.m_xcc_indices = m_xcc_indices;
         if (!m_validity.empty())
         {
             reduced.allocateValidity();
@@ -242,7 +242,7 @@ template <typename ReduceOp> Tensor Tensor::reduceAxes(const std::vector<Axis>& 
         else
             reduce[static_cast<size_t>(axis)] = true;
     }
-    result.m_xcc_indices = reduce[0] && m_shape.getXCC() > 1 ? std::vector<size_t>{} : m_xcc_indices;
+    result.m_xcc_indices = m_xcc_indices;
 
     // Iterate over all elements
     for (size_t xcc = 0; xcc < m_shape[0]; ++xcc)

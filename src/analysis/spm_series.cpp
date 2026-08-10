@@ -49,6 +49,29 @@ size_t validSamples(const DerivedCounter::Tensor& values, const DerivedCounter::
     while (count > 0 && !clock.isValid(clock.linearIndex(clock_xcc, 0, 0, count - 1))) --count;
     return count;
 }
+
+DerivedCounter::Tensor averageClock(const DerivedCounter::Tensor& values, const DerivedCounter::Tensor& clock)
+{
+    const size_t samples = clock.shape().getSamples();
+    std::vector<float> data(samples);
+    DerivedCounter::ValidityMask valid(Validity::words(samples), 0);
+    for (size_t sample = 0; sample < samples; ++sample)
+    {
+        size_t count = 0;
+        for (size_t xcc : values.xccIndices())
+            if (xcc < clock.shape().getXCC() && clock.isValid(clock.linearIndex(xcc, 0, 0, sample)))
+            {
+                data[sample] += clock.at(xcc, 0, 0, sample);
+                ++count;
+            }
+        if (count)
+        {
+            data[sample] /= count;
+            Validity::set(valid, sample);
+        }
+    }
+    return DerivedCounter::Tensor({1, 1, 1, samples}, data, valid);
+}
 } // namespace
 
 std::vector<float> timestampDeltas(const SpmData& spm)
@@ -164,6 +187,10 @@ static std::vector<Point> mergeXcc(const DerivedCounter::Tensor& values, const D
 std::vector<Point> makePlotSeries(const DerivedCounter::Tensor& values, const DerivedCounter::Tensor& clock)
 {
     const auto plot_values = sumSpatial(values);
-    return plot_values.shape().getXCC() > 1 ? mergeXcc(plot_values, clock) : interval(plot_values, clock, 0);
+    if (plot_values.shape().getXCC() > 1) return mergeXcc(plot_values, clock);
+    if (plot_values.xccIndices().size() <= 1) return interval(plot_values, clock, 0);
+
+    const auto averaged = averageClock(plot_values, clock);
+    return interval(plot_values, averaged, 0);
 }
 } // namespace SpmSeries
