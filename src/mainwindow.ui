@@ -656,6 +656,19 @@
                   </widget>
                  </item>
                  <item>
+                  <widget class="QCheckBox" name="load_wave_states_box">
+                   <property name="toolTip">
+                    <string>Loads wstates*.json and displays the Wave States tab for eligible single-SE JSON inputs.</string>
+                   </property>
+                   <property name="text">
+                    <string>Load Wave States data</string>
+                   </property>
+                   <property name="checked">
+                    <bool>true</bool>
+                   </property>
+                  </widget>
+                 </item>
+                 <item>
                   <widget class="QLabel" name="label_8">
                    <property name="text">
                     <string>Display counters</string>

@@ -37,6 +37,10 @@ bool AppConfig::getLevelOfDetail() const { return settings.value("GraphOptions/L
 
 void AppConfig::setLevelOfDetail(bool enabled) { settings.setValue("GraphOptions/LevelOfDetail", enabled); }
 
+bool AppConfig::getLoadWaveStates() const { return settings.value("GraphOptions/LoadWaveStates", true).toBool(); }
+
+void AppConfig::setLoadWaveStates(bool enabled) { settings.setValue("GraphOptions/LoadWaveStates", enabled); }
+
 // Source Options
 bool AppConfig::getDisplayLineNumber() const
 {

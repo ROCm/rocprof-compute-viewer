@@ -1143,7 +1143,9 @@ MainWindow::LoadResult MainWindow::LoadInputImpl(InputInfo input_info, const std
         {
             case InputType::JSON_DIR:
             {
-                JsonRecordEmitter emitter(ui_dir, dispatcher, *data_store);
+                JsonRecordEmitter emitter(
+                    ui_dir, dispatcher, *data_store, AppConfig::getInstance().getLoadWaveStates()
+                );
                 emitter.run();
                 break;
             }
@@ -1389,6 +1391,10 @@ MainWindow::LoadResult MainWindow::LoadInputImpl(InputInfo input_info, const std
 
 MainWindow::~MainWindow()
 {
+    // Disabling an expanded accordion section can activate another section.
+    // Detach Wave States while every other section still has live content.
+    ClearWavesPlot();
+
     if (code_scrollarea) delete code_scrollarea;
 
     if (cuwaves_content) delete cuwaves_content;
@@ -1396,8 +1402,6 @@ MainWindow::~MainWindow()
 
     if (counters_plot) delete counters_plot;
     if (counters_plot_layout) delete counters_plot_layout;
-
-    ClearWavesPlot();
 
     if (dispatch_plot) delete dispatch_plot;
     if (occupancy_plot) delete occupancy_plot;
@@ -2395,6 +2399,7 @@ void MainWindow::loadConfigSettings()
 
     // Graph Options
     ui->lod_checkBox->setChecked(config.getLevelOfDetail());
+    ui->load_wave_states_box->setChecked(config.getLoadWaveStates());
 
     // Source Options
     ui->display_line_number->setChecked(config.getDisplayLineNumber());
@@ -2434,6 +2439,7 @@ void MainWindow::setupConfigConnections()
 {
     // Graph Options
     connect(ui->lod_checkBox, &QCheckBox::stateChanged, this, &MainWindow::saveLevelOfDetailSetting);
+    connect(ui->load_wave_states_box, &QCheckBox::stateChanged, this, &MainWindow::saveLoadWaveStatesSetting);
 
     // Source Options
     connect(ui->display_line_number, &QCheckBox::stateChanged, this, &MainWindow::saveDisplayLineNumberSetting);
@@ -2474,6 +2480,15 @@ void MainWindow::setupConfigConnections()
 }
 
 void MainWindow::saveLevelOfDetailSetting(int state) { AppConfig::getInstance().setLevelOfDetail(state != 0); }
+
+void MainWindow::saveLoadWaveStatesSetting(int state)
+{
+    AppConfig::getInstance().setLoadWaveStates(state != 0);
+    if (current_path.empty()) return;
+
+    lastPath.clear();
+    ResetSelector();
+}
 
 void MainWindow::saveDisplayLineNumberSetting(int state) { AppConfig::getInstance().setDisplayLineNumber(state != 0); }
 

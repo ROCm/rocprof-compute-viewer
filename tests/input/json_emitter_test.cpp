@@ -40,6 +40,15 @@ void writeJson(const fs::path& path, const nlohmann::json& data)
     out << data.dump();
 }
 
+void writeWaveHierarchy(const fs::path& dir, int shader_engine_count)
+{
+    nlohmann::json filenames;
+    for (int se = 0; se < shader_engine_count; se++)
+        filenames["wave_filenames"][std::to_string(se)]["0"]["0"]["0"] = {
+            "se" + std::to_string(se) + "_wave.json", 0, 1};
+    writeJson(dir / "filenames.json", filenames);
+}
+
 void loadOccupancyOnly(const fs::path& dir, DataStore& store)
 {
     RecordDispatcher dispatcher;
@@ -51,10 +60,10 @@ void loadOccupancyOnly(const fs::path& dir, DataStore& store)
     dispatcher.signalComplete();
 }
 
-void loadJsonDirectory(const fs::path& dir, DataStore& store)
+void loadJsonDirectory(const fs::path& dir, DataStore& store, bool load_wave_states = true)
 {
     RecordDispatcher dispatcher;
-    JsonRecordEmitter emitter(dir.string() + "/", dispatcher, store);
+    JsonRecordEmitter emitter(dir.string() + "/", dispatcher, store, load_wave_states);
     emitter.run();
 }
 } // namespace
@@ -63,6 +72,7 @@ TEST(JsonRecordEmitterWaveStates, LoadsPrecomputedWaveStateSeries)
 {
     fs::path dir = freshTempDir("wave_states");
     writeJson(dir / "code.json", {{"header", nlohmann::json::array()}, {"code", nlohmann::json::array()}});
+    writeWaveHierarchy(dir, 1);
     writeJson(dir / "wstates2.json", {{"time", {10, 20, 30}}, {"state", {1, 2, 3}}});
     writeJson(dir / "wstates3.json", {{"time", {21795, 21796}}, {"state", {1, 0}}});
     writeJson(dir / "wstates4.json", {{"time", {10, 20, 30}}, {"state", {6, 7, 8}}});
@@ -77,6 +87,46 @@ TEST(JsonRecordEmitterWaveStates, LoadsPrecomputedWaveStateSeries)
     EXPECT_FLOAT_EQ(store.wave_state_series.at(3).at(1).value, 0.0f);
     EXPECT_FLOAT_EQ(store.wave_state_series.at(4).at(2).time, 30.0f);
     EXPECT_FLOAT_EQ(store.wave_state_series.at(4).at(2).value, 8.0f);
+}
+
+TEST(JsonRecordEmitterWaveStates, SkipsWaveStateFilesForMultipleShaderEngines)
+{
+    fs::path dir = freshTempDir("wave_states_multi_se");
+    writeJson(dir / "code.json", {{"header", nlohmann::json::array()}, {"code", nlohmann::json::array()}});
+    writeWaveHierarchy(dir, 2);
+    {
+        std::ofstream malformed(dir / "wstates2.json");
+        malformed << "not valid JSON";
+    }
+
+    DataStore store;
+    testing::internal::CaptureStderr();
+    loadJsonDirectory(dir, store);
+    const std::string diagnostics = testing::internal::GetCapturedStderr();
+
+    ASSERT_EQ(store.wave_hierarchy.size(), 2u);
+    EXPECT_TRUE(store.wave_state_series.empty());
+    EXPECT_EQ(diagnostics.find("wstates2.json"), std::string::npos);
+}
+
+TEST(JsonRecordEmitterWaveStates, SkipsWaveStateFilesWhenDisabled)
+{
+    fs::path dir = freshTempDir("wave_states_disabled");
+    writeJson(dir / "code.json", {{"header", nlohmann::json::array()}, {"code", nlohmann::json::array()}});
+    writeWaveHierarchy(dir, 1);
+    {
+        std::ofstream malformed(dir / "wstates2.json");
+        malformed << "not valid JSON";
+    }
+
+    DataStore store;
+    testing::internal::CaptureStderr();
+    loadJsonDirectory(dir, store, false);
+    const std::string diagnostics = testing::internal::GetCapturedStderr();
+
+    ASSERT_EQ(store.wave_hierarchy.size(), 1u);
+    EXPECT_TRUE(store.wave_state_series.empty());
+    EXPECT_EQ(diagnostics.find("wstates2.json"), std::string::npos);
 }
 
 TEST(JsonRecordEmitterOccupancy, ReadsLegacySixColumnOccupancyJson)

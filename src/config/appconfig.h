@@ -34,6 +34,8 @@ public:
     // Graph Options
     bool getLevelOfDetail() const;
     void setLevelOfDetail(bool enabled);
+    bool getLoadWaveStates() const;
+    void setLoadWaveStates(bool enabled);
 
     // Source Options
     bool getDisplayLineNumber() const;

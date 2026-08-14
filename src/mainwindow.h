@@ -241,6 +241,7 @@ private:
 
     // Config save slots
     void saveLevelOfDetailSetting(int state);
+    void saveLoadWaveStatesSetting(int state);
     void saveDisplayLineNumberSetting(int state);
     void saveSourceHotspotSizeSetting();
     void saveSourceIncludeHiddenLatencySetting(int state);

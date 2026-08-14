@@ -237,7 +237,7 @@ Here are the user controls for Occupancy and Kernel dispatch views:
 Wave States view
 ----------------
 
-The Wave States tab shows the precomputed number of active waves in the EXEC, WAIT, and STALL states. It is available when opening a rocprofv3 JSON output directory containing ``wstates*.json`` data. Raw decoder inputs do not provide this tab.
+The Wave States tab shows the precomputed number of active waves in the EXEC, WAIT, and STALL states. It is available when opening a rocprofv3 JSON output directory containing ``wstates*.json`` data with exactly one enabled Shader Engine. Raw decoder and multi-SE inputs do not provide this tab. Loading can be disabled under **Options** → **Graph Options**, which also hides the tab and avoids reading the wave-state files.
 
 Occupancy view
 --------------

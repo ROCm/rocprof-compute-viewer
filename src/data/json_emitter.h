@@ -29,7 +29,9 @@
 class JsonRecordEmitter
 {
 public:
-    JsonRecordEmitter(const std::string& ui_dir, RecordDispatcher& dispatcher, DataStore& store);
+    JsonRecordEmitter(
+        const std::string& ui_dir, RecordDispatcher& dispatcher, DataStore& store, bool load_wave_states = true
+    );
     void run();
     void runOccupancyOnlyForTests();
 
@@ -49,4 +51,5 @@ private:
     std::string ui_dir;
     RecordDispatcher& dispatcher;
     DataStore& store;
+    bool load_wave_states;
 };
