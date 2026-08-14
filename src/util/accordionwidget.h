@@ -72,6 +72,9 @@ public:
     // Update button enabled state based on content
     void updateButtonState(const QString& title, bool enabled);
 
+    // Show or hide a section and its tab button.
+    void setSectionVisible(const QString& title, bool visible);
+
     // Notify all active PlotGraph widgets to update
     void notifyPlotsUpdate();
 

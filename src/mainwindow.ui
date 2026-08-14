@@ -1013,6 +1013,17 @@
           <string>Counters</string>
          </attribute>
         </widget>
+        <widget class="QWidget" name="wv_states_tab">
+         <property name="maximumSize">
+          <size>
+           <width>16777215</width>
+           <height>16777215</height>
+          </size>
+         </property>
+         <attribute name="title">
+          <string>Wave States</string>
+         </attribute>
+        </widget>
         <widget class="QWidget" name="hotspot_tab">
          <property name="maximumSize">
           <size>

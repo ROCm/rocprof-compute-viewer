@@ -76,6 +76,7 @@ void DataStore::clear()
     hidden_latency_analyzed = false;
     counter_names.clear();
     wave_hierarchy.clear();
+    wave_state_series.clear();
     hidden_latency_by_line.clear();
     code.clear();
     source_snapshots.clear();

@@ -50,7 +50,34 @@ void loadOccupancyOnly(const fs::path& dir, DataStore& store)
     emitter.runOccupancyOnlyForTests();
     dispatcher.signalComplete();
 }
+
+void loadJsonDirectory(const fs::path& dir, DataStore& store)
+{
+    RecordDispatcher dispatcher;
+    JsonRecordEmitter emitter(dir.string() + "/", dispatcher, store);
+    emitter.run();
+}
 } // namespace
+
+TEST(JsonRecordEmitterWaveStates, LoadsPrecomputedWaveStateSeries)
+{
+    fs::path dir = freshTempDir("wave_states");
+    writeJson(dir / "code.json", {{"header", nlohmann::json::array()}, {"code", nlohmann::json::array()}});
+    writeJson(dir / "wstates2.json", {{"time", {10, 20, 30}}, {"state", {1, 2, 3}}});
+    writeJson(dir / "wstates3.json", {{"time", {21795, 21796}}, {"state", {1, 0}}});
+    writeJson(dir / "wstates4.json", {{"time", {10, 20, 30}}, {"state", {6, 7, 8}}});
+
+    DataStore store;
+    loadJsonDirectory(dir, store);
+
+    ASSERT_EQ(store.wave_state_series.size(), 3u);
+    ASSERT_EQ(store.wave_state_series.at(2).size(), 3u);
+    EXPECT_FLOAT_EQ(store.wave_state_series.at(2).at(0).time, 10.0f);
+    EXPECT_FLOAT_EQ(store.wave_state_series.at(2).at(0).value, 1.0f);
+    EXPECT_FLOAT_EQ(store.wave_state_series.at(3).at(1).value, 0.0f);
+    EXPECT_FLOAT_EQ(store.wave_state_series.at(4).at(2).time, 30.0f);
+    EXPECT_FLOAT_EQ(store.wave_state_series.at(4).at(2).value, 8.0f);
+}
 
 TEST(JsonRecordEmitterOccupancy, ReadsLegacySixColumnOccupancyJson)
 {

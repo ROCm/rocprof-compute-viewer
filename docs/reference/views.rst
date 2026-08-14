@@ -234,9 +234,10 @@ Here are the user controls for Occupancy and Kernel dispatch views:
 
 - Clicking on a token in the waveview (trace) adds a blue marker to identify the cycle for that token.
 
-.. note::
+Wave States view
+----------------
 
-   The standalone Wave States tab (a vertical slice of the Compute Unit view showing the number of active waves in each state: IDLE, EXEC, STALL, and WAIT) has been temporarily removed. Its functionality will eventually be absorbed into the Counters view. The wave-state coloring within the Compute Unit view itself is unaffected.
+The Wave States tab shows the precomputed number of active waves in the EXEC, WAIT, and STALL states. It is available when opening a rocprofv3 JSON output directory containing ``wstates*.json`` data. Raw decoder inputs do not provide this tab.
 
 Occupancy view
 --------------

@@ -46,6 +46,16 @@ static std::vector<std::pair<std::string, int>> UtilTypes = {
 };
 static std::vector<std::string> MopsTypes = {"I8", "F8", "F16", "BF16", "F32", "F64", "XF32", "F6F4"};
 
+std::vector<std::string> WavePlotView::state_names = {"Empty", "Idle", "Exec", "Wait", "Stall"};
+
+std::vector<QColor> WavePlotView::colors = {
+    {255, 255, 255},
+    {150, 150, 150},
+    {32,  255, 32 },
+    {255, 255, 0  },
+    {255, 32,  32 }
+};
+
 static QColor& DispatchColor(int id) { return MainWindow::dispatchcolors[id % MainWindow::dispatchcolors.size()]; }
 
 namespace
@@ -186,6 +196,31 @@ void addDispatchSeries(PlotGraph& plot, std::vector<occupancy_data> occupancy, i
             plot.AddData(std::to_string(id) + '-' + name_for(id), DispatchColor(id), std::move(datapoints[id]));
 }
 } // namespace
+
+void WavePlotView::LoadWaveStateData(const DataStore& store)
+{
+    for (int state = 2; state < 5; state++)
+    {
+        auto series = store.wave_state_series.find(state);
+        if (series == store.wave_state_series.end() || series->second.size() < 2) continue;
+
+        std::vector<WeightedPoint> points;
+        points.reserve(series->second.size());
+        for (const auto& sample : series->second) points.push_back({sample.time, sample.value, 1.0f});
+        AddData(state_names.at(state), colors.at(state), std::move(points));
+    }
+}
+
+void WavePlotView::UpdateGraphTable(float timepos)
+{
+    if (!MainWindow::window) return;
+
+    for (const auto& curve : curves)
+    {
+        if (curve.lods.empty()) continue;
+        MainWindow::window->UpdateGraphInfo(curve.fullname, curve.lods.front().search(timepos));
+    }
+}
 
 void TraceCounterPlotView::LoadCounterData(const DataStore& store)
 {

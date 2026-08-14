@@ -349,6 +349,20 @@ void AccordionWidget::updateButtonState(const QString& title, bool enabled)
     }
 }
 
+void AccordionWidget::setSectionVisible(const QString& title, bool visible)
+{
+    CollapsibleSection* section = findSectionByTitle(title);
+    if (!section) return;
+
+    if (!visible && section->isExpanded()) section->expand(false);
+    section->setVisible(visible);
+
+    QPushButton* button = m_sectionButtonMap.value(section, nullptr);
+    if (button) button->setVisible(visible);
+    updateLayoutStretches();
+    updateGeometry();
+}
+
 void AccordionWidget::notifyPlotsUpdate()
 {
     for (int i = 0; i < m_mainLayout->count(); ++i)

@@ -18,7 +18,7 @@ ROCprof Compute Viewer (RCV) is a tool for visualizing and analyzing GPU thread 
 ### Changed
 
 * LDS, VMEM and Flat utilization are multiplied by 2 relative to previous versions.
-* The standalone Wave States tab has been temporarily removed; its functionality is expected to move into the Counters view.
+* The standalone Wave States tab reads precomputed `wstates*.json` data for JSON-directory inputs; raw decoder inputs do not synthesize wave-state plots.
 * Global View event and marker colors have been tuned for readability.
 * Updated the AMD application icon.
 * Updated build documentation, including macOS instructions and trace-decoder build options.

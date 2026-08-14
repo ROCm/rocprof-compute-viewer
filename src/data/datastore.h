@@ -56,6 +56,12 @@ using SlotMap = std::map<int, WaveSlotMap>;
 using SimdMap = std::map<int, SlotMap>;
 using SEWaveMap = std::map<int, SimdMap>;
 
+struct WaveStateSample
+{
+    float time = 0;
+    float value = 0;
+};
+
 class DataStore
 {
 public:
@@ -82,6 +88,7 @@ public:
     std::vector<std::string> counter_names;
 
     SEWaveMap wave_hierarchy;
+    std::map<int, std::vector<WaveStateSample>> wave_state_series;
     std::map<int, HiddenLatencyAnalysis::HiddenLatency> hidden_latency_by_line;
 
     std::shared_ptr<WaveInstance> getWave(const WaveEntry& entry);

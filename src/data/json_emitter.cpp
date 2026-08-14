@@ -287,6 +287,7 @@ void JsonRecordEmitter::run()
     emitCode();
     emitSourceSnapshots();
     emitWaveHierarchy();
+    emitWaveStates();
     emitOccupancy();
     emitCounters();
     emitRealtime();
@@ -373,6 +374,40 @@ void JsonRecordEmitter::emitWaveHierarchy()
     catch (std::exception& e)
     {
         std::cout << "Warning: Failed to load wave hierarchy: " << e.what() << std::endl;
+    }
+}
+
+void JsonRecordEmitter::emitWaveStates()
+{
+    store.wave_state_series.clear();
+    for (int state = 2; state < 5; state++)
+    {
+        try
+        {
+            JsonRequest file(ui_dir + "wstates" + std::to_string(state) + ".json", false);
+            if (!file.bValid || !file.data.contains("time") || !file.data.contains("state")) continue;
+
+            const auto& time = file.data["time"];
+            const auto& values = file.data["state"];
+            if (!time.is_array() || !values.is_array()) continue;
+
+            if (time.size() != values.size())
+                std::cerr << "Warning: Wave states have nonmatching array sizes in wstates" << state << ".json"
+                          << std::endl;
+
+            auto& samples = store.wave_state_series[state];
+            const size_t size = std::min(time.size(), values.size());
+            samples.reserve(size);
+            for (size_t i = 0; i < size; i++)
+                samples.push_back({time.at(i).get<float>(), values.at(i).get<float>()});
+
+            if (samples.size() < 2) store.wave_state_series.erase(state);
+        }
+        catch (const std::exception& e)
+        {
+            store.wave_state_series.erase(state);
+            std::cerr << "Warning: Failed to load wstates" << state << ".json: " << e.what() << std::endl;
+        }
     }
 }
 

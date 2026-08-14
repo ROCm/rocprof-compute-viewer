@@ -36,6 +36,7 @@ public:
 private:
     void emitMetadata();
     void emitWaveHierarchy();
+    void emitWaveStates();
     void emitOccupancy();
     void emitCounters();
     void emitRealtime();
