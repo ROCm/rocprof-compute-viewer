@@ -22,6 +22,7 @@
 
 #pragma once
 
+#include <functional>
 #include <string>
 #include "data/datastore.h"
 #include "data/record_dispatcher.h"
@@ -29,8 +30,13 @@
 class JsonRecordEmitter
 {
 public:
+    using WaveStateLoadPolicy = std::function<bool(const DataStore&)>;
+
     JsonRecordEmitter(
-        const std::string& ui_dir, RecordDispatcher& dispatcher, DataStore& store, bool load_wave_states = true
+        const std::string& ui_dir,
+        RecordDispatcher& dispatcher,
+        DataStore& store,
+        WaveStateLoadPolicy wave_state_load_policy = {}
     );
     void run();
     void runOccupancyOnlyForTests();
@@ -51,5 +57,5 @@ private:
     std::string ui_dir;
     RecordDispatcher& dispatcher;
     DataStore& store;
-    bool load_wave_states;
+    WaveStateLoadPolicy wave_state_load_policy;
 };

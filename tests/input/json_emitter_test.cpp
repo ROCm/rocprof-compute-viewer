@@ -63,7 +63,9 @@ void loadOccupancyOnly(const fs::path& dir, DataStore& store)
 void loadJsonDirectory(const fs::path& dir, DataStore& store, bool load_wave_states = true)
 {
     RecordDispatcher dispatcher;
-    JsonRecordEmitter emitter(dir.string() + "/", dispatcher, store, load_wave_states);
+    JsonRecordEmitter emitter(
+        dir.string() + "/", dispatcher, store, [load_wave_states](const DataStore&) { return load_wave_states; }
+    );
     emitter.run();
 }
 } // namespace

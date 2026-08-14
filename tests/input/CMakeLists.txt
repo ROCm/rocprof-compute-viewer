@@ -14,6 +14,13 @@ target_include_directories(input_detector_test PRIVATE ${SRC_DIR})
 target_link_libraries(input_detector_test GTest::gtest_main)
 add_test(NAME input_detector_test COMMAND input_detector_test)
 
+add_executable(appconfig_test
+    appconfig_test.cpp
+    ${SRC_DIR}/config/appconfig.cpp)
+target_include_directories(appconfig_test PRIVATE ${SRC_DIR})
+target_link_libraries(appconfig_test GTest::gtest Qt6::Core)
+add_test(NAME appconfig_test COMMAND appconfig_test)
+
 add_executable(spm_json_test
     spm_json_test.cpp
     ${DATA_DIR}/spm_json.cpp)

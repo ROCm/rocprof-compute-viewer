@@ -32,6 +32,7 @@
 #include <QMessageBox>
 #include <QPainterPath>
 #include <QScrollArea>
+#include <QSignalBlocker>
 #include <QSpinBox>
 #include <QTextStream>
 #include <algorithm>
@@ -1144,7 +1145,18 @@ MainWindow::LoadResult MainWindow::LoadInputImpl(InputInfo input_info, const std
             case InputType::JSON_DIR:
             {
                 JsonRecordEmitter emitter(
-                    ui_dir, dispatcher, *data_store, AppConfig::getInstance().getLoadWaveStates()
+                    ui_dir,
+                    dispatcher,
+                    *data_store,
+                    [this](const DataStore& trace)
+                    {
+                        const bool enabled = AppConfig::getInstance().resolveLoadWaveStatesForTrace(
+                            trace.gfxip, trace.gfxv
+                        );
+                        const QSignalBlocker blocker(ui->load_wave_states_box);
+                        ui->load_wave_states_box->setChecked(enabled);
+                        return enabled;
+                    }
                 );
                 emitter.run();
                 break;

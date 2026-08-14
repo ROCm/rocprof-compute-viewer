@@ -275,9 +275,9 @@ private:
 } // namespace
 
 JsonRecordEmitter::JsonRecordEmitter(
-    const std::string& dir, RecordDispatcher& disp, DataStore& st, bool should_load_wave_states
+    const std::string& dir, RecordDispatcher& disp, DataStore& st, WaveStateLoadPolicy load_policy
 ) :
-ui_dir(dir), dispatcher(disp), store(st), load_wave_states(should_load_wave_states)
+ui_dir(dir), dispatcher(disp), store(st), wave_state_load_policy(std::move(load_policy))
 {
     if (!ui_dir.empty() && ui_dir.back() != '/') ui_dir.push_back('/');
 }
@@ -382,7 +382,8 @@ void JsonRecordEmitter::emitWaveHierarchy()
 void JsonRecordEmitter::emitWaveStates()
 {
     store.wave_state_series.clear();
-    if (!load_wave_states || store.wave_hierarchy.size() != 1) return;
+    if (wave_state_load_policy && !wave_state_load_policy(store)) return;
+    if (store.wave_hierarchy.size() != 1) return;
 
     for (int state = 2; state < 5; state++)
     {
