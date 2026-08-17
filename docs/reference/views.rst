@@ -234,10 +234,9 @@ Here are the user controls for Occupancy and Kernel dispatch views:
 
 - Clicking on a token in the waveview (trace) adds a blue marker to identify the cycle for that token.
 
-Wave States view
-----------------
+.. note::
 
-The Wave States tab shows the precomputed number of active waves in the EXEC, WAIT, and STALL states. It is available when opening a rocprofv3 JSON output directory containing ``wstates*.json`` data with exactly one enabled Shader Engine. Raw decoder and multi-SE inputs do not provide this tab. Loading is enabled by default for gfx9/MI300 traces and disabled by default for Navi traces. The setting can be overridden under **Options** → **Graph Options** and is reset to the family default when switching between gfx9 and Navi.
+   The standalone Wave States tab (a vertical slice of the Compute Unit view showing the number of active waves in each state: IDLE, EXEC, STALL, and WAIT) has been temporarily removed. Its functionality will eventually be absorbed into the Counters view. The wave-state coloring within the Compute Unit view itself is unaffected.
 
 Occupancy view
 --------------

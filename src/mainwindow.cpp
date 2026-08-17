@@ -295,7 +295,6 @@ MainWindow::MainWindow(std::string uidir) : QMainWindow(nullptr), ui(new Ui::Mai
     accordion->addSection("Counters", nullptr);
     accordion->addSection("Wave States", nullptr);
     accordion->updateButtonState("Wave States", false);
-    accordion->setSectionVisible("Wave States", false);
     accordion->addSection("Hotspot", nullptr);
     accordion->addSection("Occupancy", nullptr);
     accordion->addSection("Kernel Dispatch", nullptr);
@@ -306,7 +305,6 @@ MainWindow::MainWindow(std::string uidir) : QMainWindow(nullptr), ui(new Ui::Mai
 #else
     const int wave_states_index = ui->tabWidget->indexOf(ui->wv_states_tab);
     ui->tabWidget->setTabEnabled(wave_states_index, false);
-    ui->tabWidget->setTabVisible(wave_states_index, false);
 #endif
 
     this->global_view_tab = ui->globalview_tab;
@@ -1715,7 +1713,6 @@ void MainWindow::ClearWavesPlot()
         auto* section = accordion->findSectionByTitle("Wave States");
         QWidget* old_content = section ? section->contentWidget() : nullptr;
         accordion->replaceContentByTitle("Wave States", nullptr);
-        accordion->setSectionVisible("Wave States", false);
         if (old_content) delete old_content;
     }
 #else
@@ -1723,7 +1720,6 @@ void MainWindow::ClearWavesPlot()
     if (waves_plot_layout) delete waves_plot_layout;
     const int wave_states_index = ui->tabWidget->indexOf(ui->wv_states_tab);
     ui->tabWidget->setTabEnabled(wave_states_index, false);
-    ui->tabWidget->setTabVisible(wave_states_index, false);
 #endif
     waves_plot = nullptr;
     waves_plot_layout = nullptr;
@@ -1742,14 +1738,12 @@ void MainWindow::CreateWavesPlot()
 
 #if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
     accordion->replaceContentByTitle("Wave States", waves_plot);
-    accordion->setSectionVisible("Wave States", true);
 #else
     waves_plot_layout = new QBox();
     ui->wv_states_tab->setLayout(waves_plot_layout);
     waves_plot_layout->addWidget(waves_plot);
     const int wave_states_index = ui->tabWidget->indexOf(ui->wv_states_tab);
     ui->tabWidget->setTabEnabled(wave_states_index, true);
-    ui->tabWidget->setTabVisible(wave_states_index, true);
 #endif
 
     const int wave_state_count = static_cast<int>(WavePlotView::state_names.size()) - 2;

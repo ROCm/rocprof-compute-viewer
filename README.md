@@ -121,7 +121,9 @@ If debug symbols are present, rocprofv3 snapshots the related source files, whic
    * Clicking on a token in the waveview (Trace) will add a blue marker to identify the cycle of that token.
 * The Highlighted region shows what is visible from the "CU" and "Utilization" tabs.
 
-* The Wave States tab shows the precomputed number of active waves in the EXEC, WAIT, and STALL states. It is available when opening a rocprofv3 JSON output directory containing `wstates*.json` data with exactly one enabled Shader Engine; raw decoder and multi-SE inputs do not provide this tab. Loading is enabled by default for gfx9/MI300 traces and disabled by default for Navi traces. The setting can be overridden under Options → Graph Options and is reset to the family default when switching between gfx9 and Navi.
+* The Wave States tab shows the precomputed number of active waves in the EXEC, WAIT, and STALL states. It is enabled when the following conditions are met:
+    * Exactly one Shader Engine is enabled.
+    * Loading gfx9/MI300 traces unless overridden under Options → Graph Options
 
 * Occupancy tab shows occupancy per Shader Engine, in number of waves.
 

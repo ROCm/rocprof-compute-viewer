@@ -242,7 +242,7 @@ void PlotGraph::paintEvent(QPaintEvent* ev)
     if (auto view = MainWindow::getCUScroll())
     {
         Color viewcolor = bkgcolor;
-        viewcolor += Color(24, 32, 40);
+        viewcolor += Color(14, 18, 24);
 
         int pos_start = posToPixel(QCustomScroll::clock_cutoff_start + view->start);
         int pos_end = posToPixel(QCustomScroll::clock_cutoff_start + view->start + view->range);
