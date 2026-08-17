@@ -38,6 +38,7 @@ m_initalHeight(120)
 
     // Add content directly to layout
     m_internalLayout->addWidget(m_contentWidget);
+    watchContentDestruction();
 
     // Set size policies
     setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Expanding);
@@ -63,6 +64,7 @@ QWidget* CollapsibleSection::replaceContentWidget(QWidget* newContentWidget)
     if (oldWidget) m_internalLayout->removeWidget(oldWidget);
 
     m_contentWidget = newContentWidget;
+    watchContentDestruction();
 
     if (m_contentWidget)
     {
@@ -73,6 +75,22 @@ QWidget* CollapsibleSection::replaceContentWidget(QWidget* newContentWidget)
 
     updateGeometry();
     return oldWidget;
+}
+
+void CollapsibleSection::watchContentDestruction()
+{
+    QObject::disconnect(m_contentDestroyedConnection);
+    if (!m_contentWidget) return;
+
+    m_contentDestroyedConnection = connect(
+        m_contentWidget,
+        &QObject::destroyed,
+        this,
+        [this](QObject* object)
+        {
+            if (object == m_contentWidget) m_contentWidget = nullptr;
+        }
+    );
 }
 
 void CollapsibleSection::setContentVisible(bool visible)

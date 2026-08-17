@@ -25,6 +25,7 @@
 #include <memory>
 #include <optional>
 #include <unordered_set>
+#include <vector>
 #include "analysis/derived_counter.h"
 #include "container/datanode.h"
 #include "data/datastore.h"
@@ -34,6 +35,22 @@ struct CounterSummary
 {
     std::vector<double> peak_rates;
     DerivedCounter::Tensor accumulated;
+};
+
+//! Class for visualizing the precomputed wave-state JSON series.
+class WavePlotView : public PlotGraph
+{
+public:
+    WavePlotView() : WavePlotView(nullptr){};
+    WavePlotView(class QWidget* parent) : PlotGraph(1, parent){};
+
+    void LoadWaveStateData(const DataStore& store);
+    virtual void UpdateGraphTable(float timepos) override;
+
+    static std::vector<std::string> state_names;
+
+private:
+    static std::vector<QColor> colors;
 };
 
 //! Class for visualizing performance counters

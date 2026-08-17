@@ -84,6 +84,7 @@ public:
     void CreateCountersPlot();
     void UpdateCountersPlotSelection();
     void CreateOccupancyPlot(bool bDispatch);
+    void CreateWavesPlot();
     void setPlotBarPos(float x);
     void UpdateGraphInfo(const std::string& name, float value);
     void UpdateGraphAutoLod(int bAutoLod);
@@ -128,6 +129,7 @@ public:
     class QScrollArea* utilization_v_scrollarea = nullptr;
     class QScrollArea* code_scrollarea = nullptr;
     class CounterPlotView* counters_plot = nullptr;
+    class WavePlotView* waves_plot = nullptr;
     class OccupancyPlotView* occupancy_plot = nullptr;
     class OccupancyPlotView* dispatch_plot = nullptr;
     class HotspotView* hotspot_view = nullptr;
@@ -138,6 +140,7 @@ public:
     class SummaryView* summary_view = nullptr;
 
     class QGridLayout* counters_plot_layout = nullptr;
+    class QGridLayout* waves_plot_layout = nullptr;
     class QGridLayout* occupancy_plot_layout = nullptr;
     class QGridLayout* dispatch_plot_layout = nullptr;
     class QTableWidget* graph_info_table = nullptr;
@@ -238,6 +241,7 @@ private:
 
     // Config save slots
     void saveLevelOfDetailSetting(int state);
+    void saveLoadWaveStatesSetting(int state);
     void saveDisplayLineNumberSetting(int state);
     void saveSourceHotspotSizeSetting();
     void saveSourceIncludeHiddenLatencySetting(int state);
@@ -254,6 +258,7 @@ private:
     bool runHiddenLatencyAnalysis(bool show_dialogs);
     bool allowFullWaveLoad(bool show_dialogs);
     void refreshHiddenLatencyViews();
+    void ClearWavesPlot();
 
     std::optional<bool> full_wave_load_allowed;
 

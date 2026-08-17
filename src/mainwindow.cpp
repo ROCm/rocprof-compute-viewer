@@ -32,6 +32,7 @@
 #include <QMessageBox>
 #include <QPainterPath>
 #include <QScrollArea>
+#include <QSignalBlocker>
 #include <QSpinBox>
 #include <QTextStream>
 #include <algorithm>
@@ -292,6 +293,8 @@ MainWindow::MainWindow(std::string uidir) : QMainWindow(nullptr), ui(new Ui::Mai
     ulitization_widget->layout()->addWidget(utilization_h_scrollarea);
 
     accordion->addSection("Counters", nullptr);
+    accordion->addSection("Wave States", nullptr);
+    accordion->updateButtonState("Wave States", false);
     accordion->addSection("Hotspot", nullptr);
     accordion->addSection("Occupancy", nullptr);
     accordion->addSection("Kernel Dispatch", nullptr);
@@ -299,6 +302,9 @@ MainWindow::MainWindow(std::string uidir) : QMainWindow(nullptr), ui(new Ui::Mai
     accordion->addSection("Utilization", ulitization_widget);
 
     connect(cuwaves_h_scrollarea, &QCustomScroll::valueupdated, accordion, &AccordionWidget::notifyPlotsUpdate);
+#else
+    const int wave_states_index = ui->tabWidget->indexOf(ui->wv_states_tab);
+    ui->tabWidget->setTabEnabled(wave_states_index, false);
 #endif
 
     this->global_view_tab = ui->globalview_tab;
@@ -1136,7 +1142,20 @@ MainWindow::LoadResult MainWindow::LoadInputImpl(InputInfo input_info, const std
         {
             case InputType::JSON_DIR:
             {
-                JsonRecordEmitter emitter(ui_dir, dispatcher, *data_store);
+                JsonRecordEmitter emitter(
+                    ui_dir,
+                    dispatcher,
+                    *data_store,
+                    [this](const DataStore& trace)
+                    {
+                        const bool enabled = AppConfig::getInstance().resolveLoadWaveStatesForTrace(
+                            trace.gfxip, trace.gfxv
+                        );
+                        const QSignalBlocker blocker(ui->load_wave_states_box);
+                        ui->load_wave_states_box->setChecked(enabled);
+                        return enabled;
+                    }
+                );
                 emitter.run();
                 break;
             }
@@ -1352,6 +1371,10 @@ MainWindow::LoadResult MainWindow::LoadInputImpl(InputInfo input_info, const std
 
     try
     {
+        if (input_info.type == InputType::JSON_DIR && !data_store->wave_state_series.empty())
+            CreateWavesPlot();
+        else
+            ClearWavesPlot();
         CreateOccupancyPlot(false);
         CreateOccupancyPlot(true);
         CreateCountersPlot();
@@ -1378,6 +1401,10 @@ MainWindow::LoadResult MainWindow::LoadInputImpl(InputInfo input_info, const std
 
 MainWindow::~MainWindow()
 {
+    // Disabling an expanded accordion section can activate another section.
+    // Detach Wave States while every other section still has live content.
+    ClearWavesPlot();
+
     if (code_scrollarea) delete code_scrollarea;
 
     if (cuwaves_content) delete cuwaves_content;
@@ -1678,6 +1705,62 @@ void MainWindow::UpdateCountersPlotSelection()
     }
 }
 
+void MainWindow::ClearWavesPlot()
+{
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    if (accordion)
+    {
+        auto* section = accordion->findSectionByTitle("Wave States");
+        QWidget* old_content = section ? section->contentWidget() : nullptr;
+        accordion->replaceContentByTitle("Wave States", nullptr);
+        if (old_content) delete old_content;
+    }
+#else
+    if (waves_plot) delete waves_plot;
+    if (waves_plot_layout) delete waves_plot_layout;
+    const int wave_states_index = ui->tabWidget->indexOf(ui->wv_states_tab);
+    ui->tabWidget->setTabEnabled(wave_states_index, false);
+#endif
+    waves_plot = nullptr;
+    waves_plot_layout = nullptr;
+    if (ui && ui->occ_info_table)
+        ui->occ_info_table->setToolTip("Displays occupancy values and percentages under the mouse pointer.");
+}
+
+void MainWindow::CreateWavesPlot()
+{
+    ClearWavesPlot();
+
+    waves_plot = new WavePlotView(this);
+    waves_plot->setGeometry(0, 0, 300, waves_plot->size().width());
+    waves_plot->LoadWaveStateData(*data_store);
+    waves_plot->setAutoLod(ui->lod_checkBox->isChecked());
+
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    accordion->replaceContentByTitle("Wave States", waves_plot);
+#else
+    waves_plot_layout = new QBox();
+    ui->wv_states_tab->setLayout(waves_plot_layout);
+    waves_plot_layout->addWidget(waves_plot);
+    const int wave_states_index = ui->tabWidget->indexOf(ui->wv_states_tab);
+    ui->tabWidget->setTabEnabled(wave_states_index, true);
+#endif
+
+    const int wave_state_count = static_cast<int>(WavePlotView::state_names.size()) - 2;
+    ui->occ_info_table->setRowCount(wave_state_count);
+    for (int i = 0; i < wave_state_count; i++)
+    {
+        const auto& name = WavePlotView::state_names.at(i + 2);
+        auto* value_label = new QLabel("");
+        counter_values_tableitem[name] = value_label;
+        ui->occ_info_table->setCellWidget(i, 0, new QLabel(("Waves " + name).c_str()));
+        ui->occ_info_table->setCellWidget(i, 1, value_label);
+    }
+    ui->occ_info_table->setToolTip(
+        "Displays current values under the mouse pointer. For waves, displays the number of waves in each state."
+    );
+}
+
 void MainWindow::CreateOccupancyPlot(bool bDispatch)
 {
     auto*& layout = bDispatch ? this->dispatch_plot_layout : this->occupancy_plot_layout;
@@ -1728,6 +1811,7 @@ std::shared_ptr<class ScrollValue> MainWindow::getCUScroll()
 
 void MainWindow::setPlotBarPos(float x)
 {
+    if (waves_plot) waves_plot->SetBarPos(x);
     if (counters_plot) counters_plot->SetBarPos(x);
     if (occupancy_plot) occupancy_plot->SetBarPos(x);
     if (dispatch_plot) dispatch_plot->SetBarPos(x);
@@ -1765,7 +1849,7 @@ void MainWindow::UpdateOccupancyInfo(const std::vector<std::pair<std::string, in
         if (table_entry.first == nullptr || table_entry.second == nullptr)
         {
             int cnt = ui->occ_info_table->rowCount();
-            if (cnt < 3) cnt = 3; // Reserve first 3 rows for wave states
+            if (waves_plot && cnt < 3) cnt = 3; // Reserve first 3 rows for wave states when the JSON plot exists
             ui->occ_info_table->setRowCount(cnt + 1);
 
             table_entry.first = new QLabel();
@@ -1783,6 +1867,7 @@ void MainWindow::UpdateOccupancyInfo(const std::vector<std::pair<std::string, in
 
 void MainWindow::UpdateGraphAutoLod(int bAutoLod)
 {
+    if (waves_plot) waves_plot->setAutoLod((bool) bAutoLod);
     if (counters_plot) counters_plot->setAutoLod((bool) bAutoLod);
     if (occupancy_plot) occupancy_plot->setAutoLod((bool) bAutoLod);
     if (dispatch_plot) dispatch_plot->setAutoLod((bool) bAutoLod);
@@ -2320,6 +2405,7 @@ void MainWindow::loadConfigSettings()
 
     // Graph Options
     ui->lod_checkBox->setChecked(config.getLevelOfDetail());
+    ui->load_wave_states_box->setChecked(config.getLoadWaveStates());
 
     // Source Options
     ui->display_line_number->setChecked(config.getDisplayLineNumber());
@@ -2359,6 +2445,7 @@ void MainWindow::setupConfigConnections()
 {
     // Graph Options
     connect(ui->lod_checkBox, &QCheckBox::stateChanged, this, &MainWindow::saveLevelOfDetailSetting);
+    connect(ui->load_wave_states_box, &QCheckBox::stateChanged, this, &MainWindow::saveLoadWaveStatesSetting);
 
     // Source Options
     connect(ui->display_line_number, &QCheckBox::stateChanged, this, &MainWindow::saveDisplayLineNumberSetting);
@@ -2399,6 +2486,15 @@ void MainWindow::setupConfigConnections()
 }
 
 void MainWindow::saveLevelOfDetailSetting(int state) { AppConfig::getInstance().setLevelOfDetail(state != 0); }
+
+void MainWindow::saveLoadWaveStatesSetting(int state)
+{
+    AppConfig::getInstance().setLoadWaveStates(state != 0);
+    if (current_path.empty()) return;
+
+    lastPath.clear();
+    ResetSelector();
+}
 
 void MainWindow::saveDisplayLineNumberSetting(int state) { AppConfig::getInstance().setDisplayLineNumber(state != 0); }
 

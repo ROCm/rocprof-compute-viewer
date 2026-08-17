@@ -121,7 +121,9 @@ If debug symbols are present, rocprofv3 snapshots the related source files, whic
    * Clicking on a token in the waveview (Trace) will add a blue marker to identify the cycle of that token.
 * The Highlighted region shows what is visible from the "CU" and "Utilization" tabs.
 
-> **Note:** The standalone **Wave States** tab (a vertical slice of the Compute Unit view showing the number of active waves in each state: IDLE, EXEC, STALL, WAIT, for the `target_cu`) has been temporarily removed. Its functionality will eventually be absorbed into the **Counters** view. This does not affect the wave-state coloring within the Compute Unit view itself.
+* The Wave States tab shows the precomputed number of active waves in the EXEC, WAIT, and STALL states. It is enabled when the following conditions are met:
+    * Exactly one Shader Engine is enabled.
+    * Loading gfx9/MI300 traces unless overridden under Options → Graph Options
 
 * Occupancy tab shows occupancy per Shader Engine, in number of waves.
 

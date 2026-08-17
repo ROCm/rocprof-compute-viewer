@@ -25,6 +25,7 @@
 #include <QSettings>
 #include <QString>
 #include <memory>
+#include <string>
 
 class AppConfig
 {
@@ -34,6 +35,9 @@ public:
     // Graph Options
     bool getLevelOfDetail() const;
     void setLevelOfDetail(bool enabled);
+    bool getLoadWaveStates() const;
+    void setLoadWaveStates(bool enabled);
+    bool resolveLoadWaveStatesForTrace(int gfxip, const std::string& gfxv);
 
     // Source Options
     bool getDisplayLineNumber() const;

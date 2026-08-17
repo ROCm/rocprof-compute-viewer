@@ -37,6 +37,35 @@ bool AppConfig::getLevelOfDetail() const { return settings.value("GraphOptions/L
 
 void AppConfig::setLevelOfDetail(bool enabled) { settings.setValue("GraphOptions/LevelOfDetail", enabled); }
 
+bool AppConfig::getLoadWaveStates() const { return settings.value("GraphOptions/LoadWaveStates", true).toBool(); }
+
+void AppConfig::setLoadWaveStates(bool enabled) { settings.setValue("GraphOptions/LoadWaveStates", enabled); }
+
+bool AppConfig::resolveLoadWaveStatesForTrace(int gfxip, const std::string& gfxv)
+{
+    QString family;
+    bool family_default = getLoadWaveStates();
+    if (gfxip == 9)
+    {
+        family = "gfx9";
+        family_default = true;
+    }
+    else if (gfxv == "navi")
+    {
+        family = "navi";
+        family_default = false;
+    }
+    else { return getLoadWaveStates(); }
+
+    const QString previous_family = settings.value("GraphOptions/WaveStatesTraceFamily").toString();
+    if (previous_family != family)
+    {
+        settings.setValue("GraphOptions/WaveStatesTraceFamily", family);
+        setLoadWaveStates(family_default);
+    }
+    return getLoadWaveStates();
+}
+
 // Source Options
 bool AppConfig::getDisplayLineNumber() const
 {
