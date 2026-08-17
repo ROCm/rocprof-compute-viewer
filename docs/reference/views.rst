@@ -234,10 +234,6 @@ Here are the user controls for Occupancy and Kernel dispatch views:
 
 - Clicking on a token in the waveview (trace) adds a blue marker to identify the cycle for that token.
 
-.. note::
-
-   The standalone Wave States tab (a vertical slice of the Compute Unit view showing the number of active waves in each state: IDLE, EXEC, STALL, and WAIT) has been temporarily removed. Its functionality will eventually be absorbed into the Counters view. The wave-state coloring within the Compute Unit view itself is unaffected.
-
 Occupancy view
 --------------
 
