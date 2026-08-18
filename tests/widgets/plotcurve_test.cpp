@@ -28,6 +28,7 @@
 #include <cmath>
 #include <string>
 #include <vector>
+#include "graphics/plot_alignment.h"
 
 struct PlotPoint
 {
@@ -317,6 +318,23 @@ TEST(PlotCurveTest, LODReducesDataSize)
     curve.SetData(std::move(data));
 
     if (curve.lods.size() >= 2) EXPECT_LT(curve.lods[1].data.size(), curve.lods[0].data.size());
+}
+
+TEST(PlotAlignmentTest, AccountsForDifferentLabelColumnWidths)
+{
+    const PlotAlignmentReference reference{
+        .clock_at_left = 1000.0, .clocks_per_pixel = 4.0, .global_left = 84, .pixel_width = 916};
+
+    const auto range = alignedPlotRange(reference, 50, 944);
+
+    EXPECT_DOUBLE_EQ(range.start, 864.0);
+    EXPECT_DOUBLE_EQ(range.end, 4640.0);
+
+    const double clock = 2000.0;
+    const double plot_pixel = 50 + (clock - range.start) / reference.clocks_per_pixel;
+    const double reference_pixel =
+        reference.global_left + (clock - reference.clock_at_left) / reference.clocks_per_pixel;
+    EXPECT_DOUBLE_EQ(plot_pixel, reference_pixel);
 }
 
 // ============================================================================

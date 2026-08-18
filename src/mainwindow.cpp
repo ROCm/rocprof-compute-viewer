@@ -1808,24 +1808,35 @@ std::shared_ptr<class ScrollValue> MainWindow::getCUScroll()
     return nullptr;
 }
 
-std::optional<MainWindow::PlotViewRange> MainWindow::getAlignedPlotRange()
+std::optional<PlotAlignmentReference> MainWindow::getCUPlotAlignmentReference()
+{
+    auto* window = MainWindow::window;
+    if (!window || !window->cuwaves_content || !window->cuwaves_content->cuwaves_content) return std::nullopt;
+
+    const auto view = getCUScroll();
+    auto* timeline = window->cuwaves_content->cuwaves_content;
+    const int pixel_width = timeline->width();
+    if (!view || pixel_width <= 0) return std::nullopt;
+
+    const double start = QCustomScroll::clock_cutoff_start + view->start.load();
+    const double clocks_per_pixel = static_cast<double>(Token::PosToClock(pixel_width)) / pixel_width;
+    const int global_left = timeline->mapToGlobal(QPoint(0, 0)).x();
+    return PlotAlignmentReference{start, clocks_per_pixel, global_left, pixel_width};
+}
+
+std::optional<PlotAlignmentReference> MainWindow::getPlotAlignmentReference()
 {
     auto* window = MainWindow::window;
     if (!window || window->plot_alignment == PlotAlignment::None) return std::nullopt;
 
-    if (window->plot_alignment == PlotAlignment::Detail)
-    {
-        const auto view = getCUScroll();
-        if (!view) return std::nullopt;
-        const double start = QCustomScroll::clock_cutoff_start + view->start.load();
-        return PlotViewRange{start, start + view->range.load()};
-    }
+    if (window->plot_alignment == PlotAlignment::Detail) return getCUPlotAlignmentReference();
 
     if (!window->global_view_widget || !window->global_view_scrollarea) return std::nullopt;
+    auto* viewport = window->global_view_scrollarea->viewport();
     const auto* scrollbar = window->global_view_scrollarea->horizontalScrollBar();
     const double start = QGlobalView::PosToClock(scrollbar->value());
-    const double range = window->global_view_scrollarea->viewport()->width() * QGlobalView::Delta();
-    return PlotViewRange{start, start + range};
+    return PlotAlignmentReference{
+        start, static_cast<double>(QGlobalView::Delta()), viewport->mapToGlobal(QPoint(0, 0)).x(), viewport->width()};
 }
 
 void MainWindow::setPlotBarPos(float x)
@@ -2440,7 +2451,6 @@ void MainWindow::loadConfigSettings()
     AppConfig& config = AppConfig::getInstance();
 
     // Graph Options
-    ui->lod_bias_spinBox->setValue(config.getLevelOfDetailBias());
     plot_alignment = config.getPlotAlignment();
     ui->plot_alignment_none->setChecked(plot_alignment == PlotAlignment::None);
     ui->plot_alignment_detail->setChecked(plot_alignment == PlotAlignment::Detail);
@@ -2484,9 +2494,7 @@ void MainWindow::loadConfigSettings()
 void MainWindow::setupConfigConnections()
 {
     // Graph Options
-    connect(
-        ui->lod_bias_spinBox, qOverload<int>(&QSpinBox::valueChanged), this, &MainWindow::saveLevelOfDetailBiasSetting
-    );
+    connect(ui->lod_bias_spinBox, qOverload<int>(&QSpinBox::valueChanged), this, &MainWindow::UpdateGraphLodBias);
     const auto connect_alignment = [this](QRadioButton* button, PlotAlignment alignment)
     {
         connect(
@@ -2540,12 +2548,6 @@ void MainWindow::setupConfigConnections()
     connectColumnCheckbox(ui->col_codeobj_box, ASMCodeline::Element::ECODEOBJ);
     connectColumnCheckbox(ui->col_vaddr_box, ASMCodeline::Element::EADDRESS);
     connectColumnCheckbox(ui->col_sourceref_box, ASMCodeline::Element::ESOURCEREF);
-}
-
-void MainWindow::saveLevelOfDetailBiasSetting(int bias)
-{
-    AppConfig::getInstance().setLevelOfDetailBias(bias);
-    UpdateGraphLodBias(bias);
 }
 
 void MainWindow::savePlotAlignmentSetting(PlotAlignment alignment)

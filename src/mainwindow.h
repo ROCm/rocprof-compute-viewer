@@ -40,6 +40,7 @@
 #include <vector>
 #include "config/appconfig.h"
 #include "graphics/hotspot_view.h"
+#include "graphics/plot_alignment.h"
 #include "util/custom_layouts.h"
 #include "util/diagnostic_log.h"
 
@@ -72,12 +73,6 @@ public:
     {
         LoadStatus status = LoadStatus::Success;
         QString message;
-    };
-
-    struct PlotViewRange
-    {
-        double start;
-        double end;
     };
 
     MainWindow(std::string uidir);
@@ -181,7 +176,8 @@ public:
     static void incrementWaveViewMipmap(int value, float position);
     static void incrementGlobalViewMipmap(int inc, int content_mouse_x);
     static std::shared_ptr<class ScrollValue> getCUScroll();
-    static std::optional<PlotViewRange> getAlignedPlotRange();
+    static std::optional<PlotAlignmentReference> getCUPlotAlignmentReference();
+    static std::optional<PlotAlignmentReference> getPlotAlignmentReference();
 
     static int& font();
     void updateFont();
@@ -250,7 +246,6 @@ private:
     void updateAlignedPlots();
 
     // Config save slots
-    void saveLevelOfDetailBiasSetting(int bias);
     void savePlotAlignmentSetting(PlotAlignment alignment);
     void saveLoadWaveStatesSetting(int state);
     void saveDisplayLineNumberSetting(int state);

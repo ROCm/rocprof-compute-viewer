@@ -33,10 +33,6 @@ AppConfig& AppConfig::getInstance()
 AppConfig::AppConfig() : settings("AMD", "Rocprof-Compute-Viewer") {}
 
 // Graph Options
-int AppConfig::getLevelOfDetailBias() const { return settings.value("GraphOptions/LevelOfDetailBias", 0).toInt(); }
-
-void AppConfig::setLevelOfDetailBias(int bias) { settings.setValue("GraphOptions/LevelOfDetailBias", bias); }
-
 PlotAlignment AppConfig::getPlotAlignment() const
 {
     const int value = settings.value("GraphOptions/PlotAlignment", static_cast<int>(PlotAlignment::None)).toInt();

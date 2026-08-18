@@ -2,47 +2,30 @@
 
 ROCprof Compute Viewer (RCV) is a tool for visualizing and analyzing GPU thread trace data collected with rocprofv3.
 
-## Release 0.2.0
+## Release 0.2.1
 
 ### Added
 
-* Open raw `.att`/`.out` directories (extracted from rocprofiler-sdk thread-trace output) directly, without first converting to JSON (requires a trace-decoder build; see README).
-* Flamegraph view (replaces the Explorer view): per-target-CU/SIMD source/ISA stack rollup, plus a global marker flamegraph when SQTT instrumentation is present.
-* Hidden latency analysis for gfx10+/Navi thread traces, with Total latency and Nonhidden Latency views for instructions, source hotspots and flamegraphs.
-* SQTT instrumentation marker visualization from `.sqtt_funcmap` ELF sections, including marker tracks in Global View.
-* Decoder event and dispatch visualization in Global View for both raw trace-decoder input and JSON input.
-* Event filters in Global View for dispatches, flush events, code-object events, SQTT events, GC rinse events and other decoder events.
-* Heuristic GPU Utilization metric in derived counters. Create a new file to refresh.
-* Shift + Mousewheel to scroll the Compute Unit and Utilization timelines horizontally.
+* SPM JSON counter visualization, including realtime clock alignment and support for derived counters over SPM data.
+* The Wave States plot for eligible single-SE JSON inputs, with per-trace-family defaults under Options → Graph Options.
 * Plot alignment options for keeping timeline plots locked to either the Compute Unit/Utilization detail range or the Global View range.
 
 ### Changed
 
-* LDS, VMEM and Flat utilization are multiplied by 2 relative to previous versions.
-* The Wave States tab shows the precomputed number of active waves in the EXEC, WAIT, and STALL states. It is enabled when the following conditions are met:
-    * Exactly one Shader Engine is enabled.
-    * Loading gfx9/MI300 traces unless overridden under Options → Graph Options
-* Global View event and marker colors have been tuned for readability.
-* Updated the AMD application icon.
-* Updated build documentation, including macOS instructions and trace-decoder build options.
 * Replaced the plot LOD enable/disable setting with a signed LOD bias for finer resolution control.
 * The Options tab now scrolls vertically when the window is too short to show every section.
+* Optimized SQTT marker rendering and updated marker colors.
+* Corrected the notation used for other-SIMD utilization rows.
+* Reorganized and expanded the installation, troubleshooting, hidden-latency and view documentation.
+* Removed the standalone `scripts/generate_snapshot.py` workflow. Raw SDK captures without metadata remain viewable but do not provide ISA/source correlation.
 
 ### Fixed
 
-* Hardcoded target_cu for latency analysis.
-* Incorrect scaling of the clock counter in the wave slot widgets.
-* Global offset handling and wave JSON fallback.
-* Realtime alignment for JSON input and raw `.att` input.
-* Realtime alignment for counters.
-* Global View event rendering performance.
-* Global View misalignment when events or dispatches occur outside the occupancy sample range.
-* Missing user-facing reporting for malformed marker sequences and trace-decoder/input errors.
-* Utilization computation now includes other-SIMD activity where applicable.
 * Graph Options no longer compresses vertically when the window is resized.
+* Plot alignment accounts for the label columns in plots, Compute Unit/Utilization and Global View at every zoom level.
+* Qt 5 builds with the flamegraph view enabled.
+* Trace-decoder record emission and ATT loader coverage.
 
 ### Build and CI
 
-* Added GitHub Actions build, release and CodeQL workflows.
-* Release workflow validation and package verification were improved.
-* Tests now prefer a local GoogleTest installation when available.
+* Added trace-decoder builds and ATT loader tests to CI.

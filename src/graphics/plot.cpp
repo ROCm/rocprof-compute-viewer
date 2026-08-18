@@ -249,13 +249,13 @@ void PlotGraph::paintEvent(QPaintEvent* ev)
 
     if (!range_aligned)
     {
-        if (auto view = MainWindow::getCUScroll())
+        if (const auto reference = MainWindow::getCUPlotAlignmentReference())
         {
             Color viewcolor = bkgcolor;
             viewcolor += Color(14, 18, 24);
 
-            int pos_start = posToPixel(QCustomScroll::clock_cutoff_start + view->start);
-            int pos_end = posToPixel(QCustomScroll::clock_cutoff_start + view->start + view->range);
+            int pos_start = posToPixel(reference->clock_at_left);
+            int pos_end = posToPixel(reference->clock_at_left + reference->pixel_width * reference->clocks_per_pixel);
 
             if (pos_start < width() && pos_end > 0)
                 painter.fillRect(QRect(pos_start, 0, pos_end - pos_start, height()), viewcolor);
@@ -458,10 +458,14 @@ void PlotGraph::mouseMoveEvent(QMouseEvent* event)
 
 bool PlotGraph::applyAlignedRange()
 {
-    const auto range = MainWindow::getAlignedPlotRange();
-    if (!range || range->end <= range->start || xmax <= 0) return false;
+    const auto reference = MainWindow::getPlotAlignmentReference();
+    if (!reference || reference->clocks_per_pixel <= 0 || xmax <= 0) return false;
 
-    xoffset = -range->start;
-    xscale = xmax / (range->end - range->start);
+    const int plot_global_left = mapToGlobal(QPoint(left_space, 0)).x();
+    const auto range = alignedPlotRange(*reference, plot_global_left, smallwidth());
+    if (range.end <= range.start) return false;
+
+    xoffset = -range.start;
+    xscale = xmax / (range.end - range.start);
     return true;
 }

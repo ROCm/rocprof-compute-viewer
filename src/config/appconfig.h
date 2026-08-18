@@ -40,8 +40,6 @@ public:
     static AppConfig& getInstance();
 
     // Graph Options
-    int getLevelOfDetailBias() const;
-    void setLevelOfDetailBias(int bias);
     PlotAlignment getPlotAlignment() const;
     void setPlotAlignment(PlotAlignment alignment);
     bool getLoadWaveStates() const;
