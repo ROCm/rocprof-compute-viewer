@@ -189,8 +189,9 @@ The Options tab scrolls vertically when the window is too short to display every
 ### Counters:
 
 Displays a plot of counter collection over time
+There are two methods to collect counters: SQTT perfmon and SPM
 
-#### Collecting basic counters
+#### Collecting basic counters for SQTT Perfmon
 * Up to 8 counters can be added, with 4 recommended
 * Only SQ counters are allowed.
 * On Mi300, "--att-perfcounter-ctrl 3" has a polling rate of 120~240 cycles
@@ -215,18 +216,54 @@ Counters can be used to visualize specific types of hardware utilization. For in
 * SQ_INST_LEVEL_LDS - Measures current number of in-flight LDS instructions.
 * SQ_VALU_MFMA_BUSY_CYCLES - Measures current MFMA hardware utilization.
 
+![Alt text](docs/data/counter_close.png)
+
+#### Collecting basic counters for SPM
+
+* SQ_CYCLES must be collected for clock alignment with thread trace.
+* Go to Options -> Plot Alignment to lock/sync the Compute Unit or Global View with plots, such as the ones for counters.
+* Go to "Plots" menu to enable/disable plotting of a specific counter.
+* See Derived Counters section for derived counters.
+* Example syntax for rocprofv3:
+```bash
+rocprofv3 --att --spm SQ_CYCLES TCC_HIT TCC_MISS TA_TA_BUSY TCP_TOTAL_CACHE_ACCESSES TCP_TCC_WRITE_REQ TCP_TCC_READ_REQ -d test --spm-beta-enabled 1 --spm-sample-interval-unit sclk_cycles --spm-sample-interval 4096 --kernel-include-regex mykernel -f json -- ./a.out
+```
+
+![Alt text](docs/data/SPM.png)
+
 #### Derived Counters
 
 The RCV allows user-defined derived counters to be edited in realtime. Defined in Edit -> Derived Counters
 * Some simple derived counters are provided by default (MFMA_util, VALU_util, LDS_util...)
 * Use "Help" button to see the derived counter syntax.
 * Create, Delete and Edit user-defined derived counters.
+* Variables starting with a underscore "_" are interpreted as temporary and won't be plotted.
+* In the example shown: Ctrl+Click a tab to keep multiple tabs open.
 * If multiple files are present, the currently selected widget tab defines which derived counter list to show.
 
 The left list shows the list of Raw (basic) counters collected with SQTT, along with their shapes=(XCC, SE, CU, Time).
 
-![Alt text](docs/data/counter_far.png)
-![Alt text](docs/data/counter_close.png)
+Example derived counters for SPM, targeting XCC=0, SE=0, CU=1:
+
+```
+_cycles := max[select[select[SQ_CYCLES, 0, axis=XCC], 0, axis=SE], axis=CU] + 0.001
+
+_L2_HIT := sum[select[select[TCC_HIT, 0, axis=XCC], 0, axis=SE], axis=CU]
+_L2_MISS := sum[select[select[TCC_MISS, 0, axis=XCC], 0, axis=SE], axis=CU]
+
+_TA_BUSY := select[select[select[TA_TA_BUSY, 0, axis=XCC], 0, axis=SE], 1, axis=CU]
+_TCP_TOTAL := select[select[select[TCP_TOTAL_CACHE_ACCESSES, 0, axis=XCC], 0, axis=SE], 1, axis=CU]
+_TCP_WRITE := select[select[select[TCP_TCC_WRITE_REQ, 0, axis=XCC], 0, axis=SE], 1, axis=CU]
+_TCP_READ := select[select[select[TCP_TCC_READ_REQ, 0, axis=XCC], 0, axis=SE], 1, axis=CU]
+
+L2_MISS := 100 * _L2_MISS / (_L2_HIT + _L2_MISS + 30)
+L1_MISS := 100 * min((_TCP_READ + _TCP_WRITE) / (_TCP_TOTAL + 1), 1)
+
+TA_Busy := 100 * _TA_BUSY / _cycles
+L1_BW% := 66 * _TCP_TOTAL / _cycles
+
+L1_Efficiency := 100 * min(_TCP_TOTAL, _TA_BUSY) / max(_TA_BUSY, 10)
+```
 
 #### Global View
 The Global View presents a comprehensive trace of all waves across enabled Shader Engines, with each wave color-coded by kernel.
