@@ -88,7 +88,7 @@ For rocprofv3 to generate thread trace data correctly, the following components 
 
 ### Hotspot Tab
 
-![Alt text](docs/data/hotspot.png)
+![Hotspot histogram of accumulated instruction latency](docs/data/hotspot.png)
 
 The Hotspot tab displays a histogram of instruction costs.
 
@@ -100,7 +100,7 @@ The Hotspot tab displays a histogram of instruction costs.
 
 ### Instructions View
 
-![Alt text](docs/data/isaview.png)
+![Instructions view showing ISA, source code, hit counts, and latency](docs/data/isaview.png)
 
 The ISA view contains a list of instructions with their Hitcount and Latency cost.
 If debug symbols are present, rocprofv3 snapshots the related source files, which are shown on the right.
@@ -128,15 +128,15 @@ If debug symbols are present, rocprofv3 snapshots the related source files, whic
 
 * Occupancy tab shows occupancy per Shader Engine, in number of waves.
 
-![Alt text](docs/data/occupancy.png)
+![Occupancy plot showing active waves by Shader Engine over time](docs/data/occupancy.png)
 
 * Kernel Dispatches tab shows occupancy per kernel - usually relevant when there are multiple kernels running on different streams.
 
-![Alt text](docs/data/dispatch.png)
+![Kernel Dispatches plot showing kernel occupancy over time](docs/data/dispatch.png)
 
 ### Left Side Panel
 
-  ![Alt text](docs/data/left.png)
+  ![Left side panel with wave selectors, clock ranges, zoom controls, and history](docs/data/left.png)
 * "Shader" (Engine), "SIMD", "Slot" (Wave slot within a SIMD) and "WID" (A wave ID counter for that slot) boxes allows the user to select which Wave to focus on.
   * This is defined as the target wave.
   * The interactions in the 'Instruction' tab apply only to the target wave: Token-to-ISA mapping, loop iteration navigation, etc.
@@ -175,7 +175,7 @@ The Options tab scrolls vertically when the window is too short to display every
 #### Compute Unit:
 * Displays the trace separated per SIMD-Slot (e.g. 2-6).
 
-![Alt text](docs/data/cu.png)
+![Compute Unit trace grouped by SIMD and wave slot](docs/data/cu.png)
 
 #### Utilization:
 * Displays the trace per type of instruction (VALU, VMEM, SCALAR, OTHER).
@@ -184,13 +184,14 @@ The Options tab scrolls vertically when the window is too short to display every
 * Can be used to identify bubbles.
 * May have overlapping tokens from different waves slots, in that case only one will be displayed.
 
-![Alt text](docs/data/util.png)
+![Utilization trace grouped by instruction type](docs/data/util.png)
 
 ### Counters:
 
-Displays a plot of counter collection over time
+Displays a plot of counters collected over time.
+There are two methods to collect counters: att-perfcounters and SPM.
 
-#### Collecting basic counters
+#### Collecting basic counters for att-perfcounters
 * Up to 8 counters can be added, with 4 recommended
 * Only SQ counters are allowed.
 * On Mi300, "--att-perfcounter-ctrl 3" has a polling rate of 120~240 cycles
@@ -215,18 +216,58 @@ Counters can be used to visualize specific types of hardware utilization. For in
 * SQ_INST_LEVEL_LDS - Measures current number of in-flight LDS instructions.
 * SQ_VALU_MFMA_BUSY_CYCLES - Measures current MFMA hardware utilization.
 
+![Zoomed counter plots showing MFMA, VALU, and LDS activity](docs/data/counter_close.png)
+
+#### Collecting basic counters for SPM
+
+* SQ_CYCLES must be collected for clock alignment with the thread trace.
+* Go to Options > Plot Alignment to synchronize/lock plots with the Compute Unit view using Detail, or with the Global View using Global.
+* Go to the "Plots" menu to enable or disable plotting of a specific counter.
+* See the Derived Counters section for more information.
+* Example syntax for rocprofv3:
+```bash
+rocprofv3 --att --spm SQ_CYCLES TCC_HIT TCC_MISS TA_TA_BUSY TCP_TOTAL_CACHE_ACCESSES TCP_TCC_WRITE_REQ TCP_TCC_READ_REQ -d test --spm-beta-enabled 1 --spm-sample-interval-unit sclk_cycles --spm-sample-interval 4096 --kernel-include-regex mykernel -f json -- ./a.out
+```
+
+![SPM counter plots aligned with the Compute Unit trace](docs/data/SPM.png)
+
+Load the SQTT trace first, then use **Import > SPM JSON...** to attach the
+matching results file. An SPM JSON can also be opened by itself. See
+[`docs/how-to/using_spm.rst`](docs/how-to/using_spm.rst) for details.
+
 #### Derived Counters
 
-The RCV allows user-defined derived counters to be edited in realtime. Defined in Edit -> Derived Counters
+RCV lets users edit user-defined derived counters in real time. Go to Edit > Derived Counters.
 * Some simple derived counters are provided by default (MFMA_util, VALU_util, LDS_util...)
-* Use "Help" button to see the derived counter syntax.
-* Create, Delete and Edit user-defined derived counters.
+* Use the "Help" button to see the derived counter syntax.
+* Create, delete and edit user-defined derived counters.
+* Names beginning with an underscore (_) are treated as temporary variables and are not plotted.
+* As shown in the example, Ctrl-click another plot tab to keep multiple plots open.
 * If multiple files are present, the currently selected widget tab defines which derived counter list to show.
 
-The left list shows the list of Raw (basic) counters collected with SQTT, along with their shapes=(XCC, SE, CU, Time).
+The left panel lists the collected raw (basic) counters, their shapes (XCC, SE, CU, Time), and the currently defined derived counters.
 
-![Alt text](docs/data/counter_far.png)
-![Alt text](docs/data/counter_close.png)
+Example derived counters for SPM, targeting XCC=0, SE=0, CU=1:
+
+```
+_cycles := max[select[select[SQ_CYCLES, 0, axis=XCC], 0, axis=SE], axis=CU] + 0.001
+
+_L2_HIT := sum[select[select[TCC_HIT, 0, axis=XCC], 0, axis=SE], axis=CU]
+_L2_MISS := sum[select[select[TCC_MISS, 0, axis=XCC], 0, axis=SE], axis=CU]
+
+_TA_BUSY := select[select[select[TA_TA_BUSY, 0, axis=XCC], 0, axis=SE], 1, axis=CU]
+_TCP_TOTAL := select[select[select[TCP_TOTAL_CACHE_ACCESSES, 0, axis=XCC], 0, axis=SE], 1, axis=CU]
+_TCP_WRITE := select[select[select[TCP_TCC_WRITE_REQ, 0, axis=XCC], 0, axis=SE], 1, axis=CU]
+_TCP_READ := select[select[select[TCP_TCC_READ_REQ, 0, axis=XCC], 0, axis=SE], 1, axis=CU]
+
+L2_MISS := 100 * _L2_MISS / (_L2_HIT + _L2_MISS + 30)
+L1_MISS := 100 * min((_TCP_READ + _TCP_WRITE) / (_TCP_TOTAL + 1), 1)
+
+TA_Busy := 100 * _TA_BUSY / _cycles
+L1_BW% := 66 * _TCP_TOTAL / _cycles
+
+L1_Efficiency := 100 * min(_TCP_TOTAL, _TA_BUSY) / max(_TA_BUSY, 10)
+```
 
 #### Global View
 The Global View presents a comprehensive trace of all waves across enabled Shader Engines, with each wave color-coded by kernel.
@@ -235,7 +276,7 @@ The Global View presents a comprehensive trace of all waves across enabled Shade
 * The "Global View" can be compared with the Kernel Dispatches plot.
 * Right click and drag to measure number of cycles.
 
-![Alt text](docs/data/globalv.png)
+![Global View showing waves across Shader Engines](docs/data/globalv.png)
 
 #### Summary
 The summary is a feature available only on MI2xx and MI3xx GPUs. It displays 3 pieces of information:
@@ -260,7 +301,7 @@ rocprofv3 --att-activity 10
   * max_over_cycles(add_over_cu(X))/max_over_cycles(add_over_cu(SQ_BUSY_CU_CYCLES)) for peak rates.
   * add_all(X)/add_all(SQ_BUSY_CU_CYCLES) for other values.
 
-![Alt text](docs/data/summary.png)
+![Summary view showing latency, utilization, and counter statistics](docs/data/summary.png)
 
 ### Flamegraph View
 
@@ -428,23 +469,6 @@ rocprofv3 normally converts thread trace into a UI output directory (JSON). If i
 ```
 
 `code.json` and `snapshots.json` supply ISA disassembly and source-file snapshots respectively. rocprofv3 emits them automatically. Raw SDK captures without that metadata can still be viewed, but the Instructions view and source pane have no ISA/source correlation.
-
-### Loading SPM counters
-
-Collect SPM as JSON and always include `SQ_CYCLES`; the viewer uses it to map
-SPM timestamps into the SQTT shader-clock timeline.
-
-```bash
-rocprofv3 --spm-beta-enabled \
-  --spm SQ_CYCLES TCC_HIT TCC_MISS TCC_BUBBLE TCC_EA0_RDREQ TA_TA_BUSY TCP_TOTAL_CACHE_ACCESSES \
-  --spm-sample-interval-unit sclk_cycles \
-  --spm-sample-interval 4096 \
-  --output-format json -- ./application
-```
-
-Load the SQTT trace first, then use **Import > SPM JSON...** to attach the
-matching results file. An SPM JSON can also be opened by itself. See
-[`docs/how-to/using_spm.rst`](docs/how-to/using_spm.rst) for details.
 
 ## Hidden Latency
 
