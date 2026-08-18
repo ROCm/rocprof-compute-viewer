@@ -27,21 +27,12 @@
 #include <memory>
 #include <string>
 
-enum class PlotAlignment
-{
-    None = 0,
-    Detail = 1,
-    Global = 2
-};
-
 class AppConfig
 {
 public:
     static AppConfig& getInstance();
 
     // Graph Options
-    PlotAlignment getPlotAlignment() const;
-    void setPlotAlignment(PlotAlignment alignment);
     bool getLoadWaveStates() const;
     void setLoadWaveStates(bool enabled);
     bool resolveLoadWaveStatesForTrace(int gfxip, const std::string& gfxv);

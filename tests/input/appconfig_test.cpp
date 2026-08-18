@@ -61,19 +61,6 @@ TEST_F(AppConfigTest, AppliesFamilyDefaultsAndKeepsSameFamilyOverrides)
     EXPECT_TRUE(config.resolveLoadWaveStatesForTrace(9, "vega"));
 }
 
-TEST_F(AppConfigTest, PersistsPlotAlignment)
-{
-    AppConfig& config = AppConfig::getInstance();
-
-    EXPECT_EQ(config.getPlotAlignment(), PlotAlignment::None);
-
-    config.setPlotAlignment(PlotAlignment::Detail);
-    EXPECT_EQ(config.getPlotAlignment(), PlotAlignment::Detail);
-
-    config.setPlotAlignment(PlotAlignment::Global);
-    EXPECT_EQ(config.getPlotAlignment(), PlotAlignment::Global);
-}
-
 int main(int argc, char** argv)
 {
     QCoreApplication app(argc, argv);

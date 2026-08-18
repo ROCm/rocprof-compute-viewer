@@ -22,6 +22,13 @@
 
 #pragma once
 
+enum class PlotAlignment
+{
+    None,
+    Detail,
+    Global
+};
+
 struct PlotAlignmentReference
 {
     double clock_at_left;

@@ -1819,9 +1819,8 @@ std::optional<PlotAlignmentReference> MainWindow::getCUPlotAlignmentReference()
     if (!view || pixel_width <= 0) return std::nullopt;
 
     const double start = QCustomScroll::clock_cutoff_start + view->start.load();
-    const double clocks_per_pixel = static_cast<double>(Token::PosToClock(pixel_width)) / pixel_width;
     const int global_left = timeline->mapToGlobal(QPoint(0, 0)).x();
-    return PlotAlignmentReference{start, clocks_per_pixel, global_left, pixel_width};
+    return PlotAlignmentReference{start, Token::ClocksPerPixel(), global_left, pixel_width};
 }
 
 std::optional<PlotAlignmentReference> MainWindow::getPlotAlignmentReference()
@@ -2451,10 +2450,6 @@ void MainWindow::loadConfigSettings()
     AppConfig& config = AppConfig::getInstance();
 
     // Graph Options
-    plot_alignment = config.getPlotAlignment();
-    ui->plot_alignment_none->setChecked(plot_alignment == PlotAlignment::None);
-    ui->plot_alignment_detail->setChecked(plot_alignment == PlotAlignment::Detail);
-    ui->plot_alignment_global->setChecked(plot_alignment == PlotAlignment::Global);
     ui->load_wave_states_box->setChecked(config.getLoadWaveStates());
 
     // Source Options
@@ -2503,7 +2498,7 @@ void MainWindow::setupConfigConnections()
             this,
             [this, alignment](bool checked)
             {
-                if (checked) savePlotAlignmentSetting(alignment);
+                if (checked) setPlotAlignment(alignment);
             }
         );
     };
@@ -2550,7 +2545,7 @@ void MainWindow::setupConfigConnections()
     connectColumnCheckbox(ui->col_sourceref_box, ASMCodeline::Element::ESOURCEREF);
 }
 
-void MainWindow::savePlotAlignmentSetting(PlotAlignment alignment)
+void MainWindow::setPlotAlignment(PlotAlignment alignment)
 {
     if (alignment == PlotAlignment::None && plot_alignment != PlotAlignment::None)
     {
@@ -2560,7 +2555,6 @@ void MainWindow::savePlotAlignmentSetting(PlotAlignment alignment)
         if (dispatch_plot) dispatch_plot->syncAlignedRange();
     }
     plot_alignment = alignment;
-    AppConfig::getInstance().setPlotAlignment(alignment);
     updateAlignedPlots();
 }
 

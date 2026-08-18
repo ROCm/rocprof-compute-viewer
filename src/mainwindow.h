@@ -38,7 +38,6 @@
 #include <string_view>
 #include <unordered_set>
 #include <vector>
-#include "config/appconfig.h"
 #include "graphics/hotspot_view.h"
 #include "graphics/plot_alignment.h"
 #include "util/custom_layouts.h"
@@ -246,7 +245,7 @@ private:
     void updateAlignedPlots();
 
     // Config save slots
-    void savePlotAlignmentSetting(PlotAlignment alignment);
+    void setPlotAlignment(PlotAlignment alignment);
     void saveLoadWaveStatesSetting(int state);
     void saveDisplayLineNumberSetting(int state);
     void saveSourceHotspotSizeSetting();
