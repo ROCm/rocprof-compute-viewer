@@ -1148,9 +1148,8 @@ MainWindow::LoadResult MainWindow::LoadInputImpl(InputInfo input_info, const std
                     *data_store,
                     [this](const DataStore& trace)
                     {
-                        const bool enabled = AppConfig::getInstance().resolveLoadWaveStatesForTrace(
-                            trace.gfxip, trace.gfxv
-                        );
+                        const bool enabled =
+                            AppConfig::getInstance().resolveLoadWaveStatesForTrace(trace.gfxip, trace.gfxv);
                         const QSignalBlocker blocker(ui->load_wave_states_box);
                         ui->load_wave_states_box->setChecked(enabled);
                         return enabled;
@@ -2077,16 +2076,10 @@ void MainWindow::CreateGlobalView()
     // Connect scroll bars to sticky elements
     global_view_widget->setScrollArea(global_view_scrollarea);
     connect(
-        global_view_scrollarea->horizontalScrollBar(),
-        &QScrollBar::valueChanged,
-        this,
-        &MainWindow::updateAlignedPlots
+        global_view_scrollarea->horizontalScrollBar(), &QScrollBar::valueChanged, this, &MainWindow::updateAlignedPlots
     );
     connect(
-        global_view_scrollarea->horizontalScrollBar(),
-        &QScrollBar::rangeChanged,
-        this,
-        &MainWindow::updateAlignedPlots
+        global_view_scrollarea->horizontalScrollBar(), &QScrollBar::rangeChanged, this, &MainWindow::updateAlignedPlots
     );
 
     // Populate the label panel with data from the global view
@@ -2492,17 +2485,19 @@ void MainWindow::setupConfigConnections()
 {
     // Graph Options
     connect(
-        ui->lod_bias_spinBox,
-        qOverload<int>(&QSpinBox::valueChanged),
-        this,
-        &MainWindow::saveLevelOfDetailBiasSetting
+        ui->lod_bias_spinBox, qOverload<int>(&QSpinBox::valueChanged), this, &MainWindow::saveLevelOfDetailBiasSetting
     );
     const auto connect_alignment = [this](QRadioButton* button, PlotAlignment alignment)
     {
-        connect(button, &QRadioButton::toggled, this, [this, alignment](bool checked)
-        {
-            if (checked) savePlotAlignmentSetting(alignment);
-        });
+        connect(
+            button,
+            &QRadioButton::toggled,
+            this,
+            [this, alignment](bool checked)
+            {
+                if (checked) savePlotAlignmentSetting(alignment);
+            }
+        );
     };
     connect_alignment(ui->plot_alignment_none, PlotAlignment::None);
     connect_alignment(ui->plot_alignment_detail, PlotAlignment::Detail);

@@ -1,7 +1,7 @@
 #pragma once
 
-#include <QMouseEvent>
 #include <QMetaObject>
+#include <QMouseEvent>
 #include <QPushButton>
 #include <QScrollArea>
 #include <QVBoxLayout>
