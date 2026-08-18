@@ -39,6 +39,7 @@
 #include <unordered_set>
 #include <vector>
 #include "graphics/hotspot_view.h"
+#include "graphics/plot_alignment.h"
 #include "util/custom_layouts.h"
 #include "util/diagnostic_log.h"
 
@@ -87,7 +88,7 @@ public:
     void CreateWavesPlot();
     void setPlotBarPos(float x);
     void UpdateGraphInfo(const std::string& name, float value);
-    void UpdateGraphAutoLod(int bAutoLod);
+    void UpdateGraphLodBias(int bias);
     void ToggleDisplayLineNumber(int display);
     void SetJsonsFolder();
     void OpenSpmJson();
@@ -174,6 +175,8 @@ public:
     static void incrementWaveViewMipmap(int value, float position);
     static void incrementGlobalViewMipmap(int inc, int content_mouse_x);
     static std::shared_ptr<class ScrollValue> getCUScroll();
+    static std::optional<PlotAlignmentReference> getCUPlotAlignmentReference();
+    static std::optional<PlotAlignmentReference> getPlotAlignmentReference();
 
     static int& font();
     void updateFont();
@@ -231,6 +234,7 @@ private:
 
     int64_t current_loaded_clk_start = 0;
     int64_t current_loaded_clk_end = 0;
+    PlotAlignment plot_alignment = PlotAlignment::None;
 
     class FlameGraphWidget* flameGraph = nullptr;
     class MarkerFlameGraphWidget* markerFlameGraph = nullptr;
@@ -238,9 +242,10 @@ private:
 
     void loadConfigSettings();
     void setupConfigConnections();
+    void updateAlignedPlots();
 
     // Config save slots
-    void saveLevelOfDetailSetting(int state);
+    void setPlotAlignment(PlotAlignment alignment);
     void saveLoadWaveStatesSetting(int state);
     void saveDisplayLineNumberSetting(int state);
     void saveSourceHotspotSizeSetting();

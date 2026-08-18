@@ -20,51 +20,34 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-#include "config/appconfig.h"
 #include <gtest/gtest.h>
-#include <QCoreApplication>
-#include <QSettings>
-#include <QStandardPaths>
+#include <QApplication>
+#include <QMainWindow>
+#include <QScrollBar>
+#include "ui_mainwindow.h"
 
-class AppConfigTest : public ::testing::Test
+TEST(OptionsLayoutTest, KeepsGraphOptionsHeightAndScrolls)
 {
-protected:
-    // AppConfig keeps one QSettings instance alive for the process. Clearing the
-    // native settings store between tests invalidates that instance on Windows.
-    static void SetUpTestSuite()
-    {
-        QSettings settings("AMD", "Rocprof-Compute-Viewer");
-        settings.clear();
-        settings.sync();
-    }
+    QMainWindow window;
+    Ui::MainWindow ui;
+    ui.setupUi(&window);
+    ui.tabWidget_3->setCurrentWidget(ui.tab);
 
-    static void TearDownTestSuite()
-    {
-        QSettings settings("AMD", "Rocprof-Compute-Viewer");
-        settings.clear();
-        settings.sync();
-    }
-};
+    window.resize(1200, 900);
+    window.show();
+    QApplication::processEvents();
+    const int graph_options_height = ui.frame_5->height();
 
-TEST_F(AppConfigTest, AppliesFamilyDefaultsAndKeepsSameFamilyOverrides)
-{
-    AppConfig& config = AppConfig::getInstance();
+    window.resize(800, 300);
+    QApplication::processEvents();
 
-    EXPECT_TRUE(config.resolveLoadWaveStatesForTrace(9, "vega"));
-    config.setLoadWaveStates(false);
-    EXPECT_FALSE(config.resolveLoadWaveStatesForTrace(9, "vega"));
-
-    EXPECT_FALSE(config.resolveLoadWaveStatesForTrace(12, "navi"));
-    config.setLoadWaveStates(true);
-    EXPECT_TRUE(config.resolveLoadWaveStatesForTrace(12, "navi"));
-
-    EXPECT_TRUE(config.resolveLoadWaveStatesForTrace(9, "vega"));
+    EXPECT_EQ(ui.frame_5->height(), graph_options_height);
+    EXPECT_GT(ui.options_scroll_area->verticalScrollBar()->maximum(), 0);
 }
 
 int main(int argc, char** argv)
 {
-    QCoreApplication app(argc, argv);
-    QStandardPaths::setTestModeEnabled(true);
+    QApplication app(argc, argv);
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }

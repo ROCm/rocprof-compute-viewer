@@ -101,6 +101,7 @@ struct Token
     static const std::string_view GetName(int i) { return GetColor(i).name; }
 
     static int64_t PosToClock(int64_t value);
+    static double ClocksPerPixel();
     static int64_t GetTokenSize(int64_t value)
     {
         int64_t rounding = mipShiftLeft(1, mipmap_level) >> 1;

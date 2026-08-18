@@ -573,7 +573,26 @@
         </attribute>
         <layout class="QVBoxLayout" name="verticalLayout_13">
          <item>
-          <layout class="QVBoxLayout" name="verticalLayout_12">
+          <widget class="QScrollArea" name="options_scroll_area">
+           <property name="frameShape">
+            <enum>QFrame::NoFrame</enum>
+           </property>
+           <property name="horizontalScrollBarPolicy">
+            <enum>Qt::ScrollBarAlwaysOff</enum>
+           </property>
+           <property name="widgetResizable">
+            <bool>true</bool>
+           </property>
+           <widget class="QWidget" name="options_scroll_contents">
+            <property name="geometry">
+             <rect>
+              <x>0</x>
+              <y>0</y>
+              <width>100</width>
+              <height>100</height>
+             </rect>
+            </property>
+            <layout class="QVBoxLayout" name="verticalLayout_12">
            <item>
             <widget class="QFrame" name="frame_3">
              <property name="frameShape">
@@ -598,13 +617,16 @@
               <property name="bottomMargin">
                <number>0</number>
               </property>
+              <property name="sizeConstraint">
+               <enum>QLayout::SetMinimumSize</enum>
+              </property>
               <item>
                <widget class="QFrame" name="frame_5">
-                <property name="minimumSize">
-                 <size>
-                  <width>0</width>
-                  <height>64</height>
-                 </size>
+                <property name="sizePolicy">
+                 <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+                  <horstretch>0</horstretch>
+                  <verstretch>0</verstretch>
+                 </sizepolicy>
                 </property>
                 <property name="frameShape">
                  <enum>QFrame::StyledPanel</enum>
@@ -613,6 +635,9 @@
                  <enum>QFrame::Raised</enum>
                 </property>
                 <layout class="QVBoxLayout" name="verticalLayout_16">
+                 <property name="sizeConstraint">
+                  <enum>QLayout::SetMinimumSize</enum>
+                 </property>
                  <property name="spacing">
                   <number>5</number>
                  </property>
@@ -643,19 +668,66 @@
                    <property name="alignment">
                     <set>Qt::AlignCenter</set>
                    </property>
-                  </widget>
-                 </item>
-                 <item>
-                  <widget class="QCheckBox" name="lod_checkBox">
-                   <property name="text">
-                    <string>Level of detail</string>
-                   </property>
-                   <property name="checked">
-                    <bool>true</bool>
-                   </property>
-                  </widget>
-                 </item>
-                 <item>
+                 </widget>
+                </item>
+                <item>
+                 <layout class="QHBoxLayout" name="lod_bias_layout">
+                  <item>
+                   <widget class="QLabel" name="lod_bias_label">
+                    <property name="text">
+                     <string>LOD bias</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <widget class="QSpinBox" name="lod_bias_spinBox">
+                    <property name="toolTip">
+                     <string>Negative values draw finer plot detail; positive values draw coarser detail.</string>
+                    </property>
+                    <property name="minimum">
+                     <number>-20</number>
+                    </property>
+                    <property name="maximum">
+                     <number>20</number>
+                    </property>
+                   </widget>
+                  </item>
+                 </layout>
+                </item>
+                <item>
+                 <widget class="QGroupBox" name="plot_alignment_group">
+                  <property name="title">
+                   <string>Plot alignment</string>
+                  </property>
+                  <layout class="QHBoxLayout" name="plot_alignment_layout">
+                   <item>
+                    <widget class="QRadioButton" name="plot_alignment_none">
+                     <property name="text">
+                      <string>None</string>
+                     </property>
+                     <property name="checked">
+                      <bool>true</bool>
+                     </property>
+                    </widget>
+                   </item>
+                   <item>
+                    <widget class="QRadioButton" name="plot_alignment_detail">
+                     <property name="text">
+                      <string>Detail</string>
+                     </property>
+                    </widget>
+                   </item>
+                   <item>
+                    <widget class="QRadioButton" name="plot_alignment_global">
+                     <property name="text">
+                      <string>Global</string>
+                     </property>
+                    </widget>
+                   </item>
+                  </layout>
+                 </widget>
+                </item>
+                <item>
                   <widget class="QCheckBox" name="load_wave_states_box">
                    <property name="toolTip">
                     <string>Loads wstates*.json and enables the Wave States tab for eligible single-SE JSON inputs.</string>
@@ -972,7 +1044,9 @@
              </layout>
             </widget>
            </item>
-          </layout>
+            </layout>
+           </widget>
+          </widget>
          </item>
         </layout>
        </widget>

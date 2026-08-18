@@ -403,8 +403,7 @@ void JsonRecordEmitter::emitWaveStates()
             auto& samples = store.wave_state_series[state];
             const size_t size = std::min(time.size(), values.size());
             samples.reserve(size);
-            for (size_t i = 0; i < size; i++)
-                samples.push_back({time.at(i).get<float>(), values.at(i).get<float>()});
+            for (size_t i = 0; i < size; i++) samples.push_back({time.at(i).get<float>(), values.at(i).get<float>()});
 
             if (samples.size() < 2) store.wave_state_series.erase(state);
         }

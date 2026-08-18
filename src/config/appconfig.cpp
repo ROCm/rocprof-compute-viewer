@@ -33,10 +33,6 @@ AppConfig& AppConfig::getInstance()
 AppConfig::AppConfig() : settings("AMD", "Rocprof-Compute-Viewer") {}
 
 // Graph Options
-bool AppConfig::getLevelOfDetail() const { return settings.value("GraphOptions/LevelOfDetail", true).toBool(); }
-
-void AppConfig::setLevelOfDetail(bool enabled) { settings.setValue("GraphOptions/LevelOfDetail", enabled); }
-
 bool AppConfig::getLoadWaveStates() const { return settings.value("GraphOptions/LoadWaveStates", true).toBool(); }
 
 void AppConfig::setLoadWaveStates(bool enabled) { settings.setValue("GraphOptions/LoadWaveStates", enabled); }

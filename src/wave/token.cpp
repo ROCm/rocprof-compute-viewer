@@ -42,6 +42,11 @@ int64_t Token::PosToClock(int64_t value)
     return mipShiftLeft(int64_t(value * 2 / MainWindow::getScaling() / (bIsNaviWave ? 12 : 3)), mipmap_level);
 }
 
+double Token::ClocksPerPixel()
+{
+    return std::ldexp(2.0 / MainWindow::getScaling() / (bIsNaviWave ? 12 : 3), mipmap_level);
+}
+
 static float tonemap(float x)
 {
     x /= 255.0f;

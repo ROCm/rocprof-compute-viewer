@@ -10,6 +10,7 @@ For pre-built binaries, see [releases](https://github.com/ROCm/rocprof-compute-v
   - [Instructions View](#instructions-view)
   - [Occupancy and Dispatches Plots](#occupancy-and-dispatches-plots-tab)
   - [Left Side Panel](#left-side-panel)
+  - [Options](#options)
   - [Compute Unit and Utilization Views](#compute-unit-and-utilization-views)
   - [Counters](#counters)
   - [Global View](#global-view)
@@ -119,7 +120,7 @@ If debug symbols are present, rocprofv3 snapshots the related source files, whic
    * Click and drag to select an area.
    * Right click and drag for panning.
    * Clicking on a token in the waveview (Trace) will add a blue marker to identify the cycle of that token.
-* The Highlighted region shows what is visible from the "CU" and "Utilization" tabs.
+* With plot alignment set to **None**, the highlighted region shows what is visible from the Compute Unit and Utilization tabs.
 
 * The Wave States tab shows the precomputed number of active waves in the EXEC, WAIT, and STALL states. It is enabled when the following conditions are met:
     * Exactly one Shader Engine is enabled.
@@ -152,6 +153,16 @@ If debug symbols are present, rocprofv3 snapshots the related source files, whic
     * The iteration is defined as the n-th time that same instruction was executed for each wave (starting at zero).
 * "Search" searches for a specific text on the instruction view. E.g. search for ds_ to find the first lds instruction.
 * "History" contains the history (token+cycle) of previously selected tokens. It can be used to go back to a previous location.
+
+### Options
+
+The Options tab scrolls vertically when the window is too short to display every section. Graph Options includes:
+
+* **LOD bias** controls timeline plot resolution relative to the automatic level. Negative values retain finer detail, positive values use coarser detail, and zero uses the automatic choice.
+* **Plot alignment** controls the horizontal range of all timeline plots:
+  * **None** leaves plot pan and zoom independent and highlights the Compute Unit/Utilization visible range. When alignment is unlocked, the last locked range is retained as the plot's starting range.
+  * **Detail** keeps plots locked to the visible Compute Unit/Utilization range.
+  * **Global** keeps plots locked to the visible Global View range.
 
 ### Compute Unit and Utilization Views
 * Displays the trace aggregated either per-wave (Compute Unit) or per SIMD (Utilization).

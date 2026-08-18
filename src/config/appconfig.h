@@ -33,8 +33,6 @@ public:
     static AppConfig& getInstance();
 
     // Graph Options
-    bool getLevelOfDetail() const;
-    void setLevelOfDetail(bool enabled);
     bool getLoadWaveStates() const;
     void setLoadWaveStates(bool enabled);
     bool resolveLoadWaveStatesForTrace(int gfxip, const std::string& gfxv);
