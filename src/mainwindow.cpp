@@ -321,7 +321,6 @@ MainWindow::MainWindow(std::string uidir) : QMainWindow(nullptr), ui(new Ui::Mai
         ResetSelector();
     }
 
-    connect(ui->lod_bias_spinBox, qOverload<int>(&QSpinBox::valueChanged), this, &MainWindow::UpdateGraphLodBias);
     connect(cuwaves_h_scrollarea, &QCustomScroll::valueupdated, this, &MainWindow::updateAlignedPlots);
 
     connect(ui->actionJsons_folder, &QAction::triggered, this, &MainWindow::SetJsonsFolder);
@@ -2548,7 +2547,11 @@ void MainWindow::setupConfigConnections()
     connectColumnCheckbox(ui->col_sourceref_box, ASMCodeline::Element::ESOURCEREF);
 }
 
-void MainWindow::saveLevelOfDetailBiasSetting(int bias) { AppConfig::getInstance().setLevelOfDetailBias(bias); }
+void MainWindow::saveLevelOfDetailBiasSetting(int bias)
+{
+    AppConfig::getInstance().setLevelOfDetailBias(bias);
+    UpdateGraphLodBias(bias);
+}
 
 void MainWindow::savePlotAlignmentSetting(PlotAlignment alignment)
 {
