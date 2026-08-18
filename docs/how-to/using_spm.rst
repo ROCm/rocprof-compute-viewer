@@ -8,7 +8,7 @@
 Collect and view SPM counters
 *****************************
 
-RCV can load rocprofv3 Streaming Performance Monitor (SPM) JSON output either
+ROCprof Compute Viewer (RCV) can load rocprofv3 Streaming Performance Monitor (SPM) JSON output either
 by itself or alongside a matching SQTT trace.
 
 Collect SPM
@@ -38,7 +38,7 @@ Attach SPM to SQTT
 ==================
 
 1. Load the matching rocprofv3 UI output directory or raw ``.att`` trace.
-2. Select **Import > SPM JSON...**.
+2. Go to **Import > SPM JSON...**.
 3. Select the rocprofv3 results JSON containing the SPM collection.
 
 The SQTT input must contain realtime records (``realtime.json`` or decoder
@@ -64,7 +64,7 @@ Plot behavior
 =============
 
 - XCC, shader engine, and hardware instance are tensor dimensions.
-- SE and instance dimensions are summed for plotting.
+- RCV sums the SE and instance dimensions for plotting.
 - XCC clocks remain independent. Combined curves update whenever any XCC
   advances and keep the last value from the other XCCs.
 - Missing hardware windows accumulated into a later sample are divided evenly

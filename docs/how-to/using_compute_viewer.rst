@@ -75,7 +75,7 @@ To import raw ``.att`` and ``.out`` files into the Compute Viewer (requires a de
 
     ./rcviewer <dir_with_att_out_files>
 
-Raw traces captured via the rocprofiler-sdk API do not normally include
+Raw traces captured via the rocprofiler-sdk API don't normally include
 ``code.json`` or ``snapshots.json``. They can still be imported, but the
 Instructions view and source pane have no ISA/source correlation unless that
 metadata is supplied by the capture workflow.
