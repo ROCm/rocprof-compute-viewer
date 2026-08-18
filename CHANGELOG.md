@@ -14,6 +14,7 @@ ROCprof Compute Viewer (RCV) is a tool for visualizing and analyzing GPU thread 
 * Event filters in Global View for dispatches, flush events, code-object events, SQTT events, GC rinse events and other decoder events.
 * Heuristic GPU Utilization metric in derived counters. Create a new file to refresh.
 * Shift + Mousewheel to scroll the Compute Unit and Utilization timelines horizontally.
+* Plot alignment options for keeping timeline plots locked to either the Compute Unit/Utilization detail range or the Global View range.
 
 ### Changed
 
@@ -24,6 +25,8 @@ ROCprof Compute Viewer (RCV) is a tool for visualizing and analyzing GPU thread 
 * Global View event and marker colors have been tuned for readability.
 * Updated the AMD application icon.
 * Updated build documentation, including macOS instructions and trace-decoder build options.
+* Replaced the plot LOD enable/disable setting with a signed LOD bias for finer resolution control.
+* The Options tab now scrolls vertically when the window is too short to show every section.
 
 ### Fixed
 
@@ -36,6 +39,7 @@ ROCprof Compute Viewer (RCV) is a tool for visualizing and analyzing GPU thread 
 * Global View misalignment when events or dispatches occur outside the occupancy sample range.
 * Missing user-facing reporting for malformed marker sequences and trace-decoder/input errors.
 * Utilization computation now includes other-SIMD activity where applicable.
+* Graph Options no longer compresses vertically when the window is resized.
 
 ### Build and CI
 

@@ -70,7 +70,7 @@ struct PlotCurve
     const LODCurve& get() const { return lods.at(lod); }
     void SetData(std::vector<WeightedPoint>&& data);
     bool CreateLODs(int mip, std::vector<WeightedPoint>& points);
-    void UpdateLOD(float range, int width, bool bAuto);
+    void UpdateLOD(float range, int width, int bias);
 };
 
 class PlotGraph : public BasePlotWidget
@@ -93,11 +93,12 @@ public:
         update();
     };
 
-    void setAutoLod(bool bAutoLod)
+    void setLodBias(int bias)
     {
-        this->bAutoLod = bAutoLod;
+        lodBias = bias;
         update();
     };
+    void syncAlignedRange() { applyAlignedRange(); }
 
     void setDisabled(const std::string& name, bool disable)
     {
@@ -127,7 +128,8 @@ private slots:
 protected:
     void paintEvent(QPaintEvent*) override;
     virtual void UpdateGraphTable(float timepos) = 0;
-    bool bAutoLod = true;
+    bool applyAlignedRange();
+    int lodBias = 0;
 
     double xmin = 0;
     double xmax = 1;

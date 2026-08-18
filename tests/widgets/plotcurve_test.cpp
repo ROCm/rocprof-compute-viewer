@@ -162,9 +162,9 @@ struct PlotCurve
         return true;
     }
 
-    void UpdateLOD(float range, int width, bool bAuto)
+    void UpdateLOD(float range, int width, int bias)
     {
-        if (!bAuto || lods.size() < 2)
+        if (lods.size() < 2)
         {
             lod = 0;
             return;
@@ -176,7 +176,7 @@ struct PlotCurve
 
         while (lod < static_cast<int>(lods.size()) && lods.at(lod).min_interval < point_density_ratio) lod++;
 
-        lod--;
+        lod = std::clamp(lod - 1 + bias, 0, static_cast<int>(lods.size()) - 1);
     }
 };
 
@@ -289,16 +289,22 @@ TEST(PlotCurveTest, SetDataCreatesAtLeastOneLOD)
     EXPECT_GE(curve.lods.size(), 1u);
 }
 
-TEST(PlotCurveTest, UpdateLODWithAutoFalse)
+TEST(PlotCurveTest, LodBiasAdjustsAndClampsAutomaticLevel)
 {
     PlotCurve curve;
-    std::vector<WeightedPoint> data;
-    for (int i = 0; i < 200; i++) data.push_back({static_cast<float>(i), static_cast<float>(i % 10), 1.0f});
+    curve.lods.resize(5);
+    curve.lods[1].min_interval = 2.0f;
+    curve.lods[2].min_interval = 4.0f;
+    curve.lods[3].min_interval = 8.0f;
+    curve.lods[4].min_interval = 16.0f;
 
-    curve.SetData(std::move(data));
-    curve.lod = 5;
-
-    curve.UpdateLOD(100.0f, 100, false);
+    curve.UpdateLOD(800.0f, 100, 0);
+    EXPECT_EQ(curve.lod, 3);
+    curve.UpdateLOD(800.0f, 100, -2);
+    EXPECT_EQ(curve.lod, 1);
+    curve.UpdateLOD(800.0f, 100, 10);
+    EXPECT_EQ(curve.lod, 4);
+    curve.UpdateLOD(800.0f, 100, -10);
     EXPECT_EQ(curve.lod, 0);
 }
 

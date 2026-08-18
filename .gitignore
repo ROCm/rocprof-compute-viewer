@@ -92,3 +92,4 @@ compile_commands.json
 # AI and scripts
 *CLAUDE.md
 *__pycache__
+*.codex

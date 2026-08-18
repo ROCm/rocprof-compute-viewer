@@ -38,6 +38,7 @@
 #include <string_view>
 #include <unordered_set>
 #include <vector>
+#include "config/appconfig.h"
 #include "graphics/hotspot_view.h"
 #include "util/custom_layouts.h"
 #include "util/diagnostic_log.h"
@@ -73,6 +74,12 @@ public:
         QString message;
     };
 
+    struct PlotViewRange
+    {
+        double start;
+        double end;
+    };
+
     MainWindow(std::string uidir);
     virtual ~MainWindow();
     virtual void paintEvent(QPaintEvent* event) override;
@@ -87,7 +94,7 @@ public:
     void CreateWavesPlot();
     void setPlotBarPos(float x);
     void UpdateGraphInfo(const std::string& name, float value);
-    void UpdateGraphAutoLod(int bAutoLod);
+    void UpdateGraphLodBias(int bias);
     void ToggleDisplayLineNumber(int display);
     void SetJsonsFolder();
     void OpenSpmJson();
@@ -174,6 +181,7 @@ public:
     static void incrementWaveViewMipmap(int value, float position);
     static void incrementGlobalViewMipmap(int inc, int content_mouse_x);
     static std::shared_ptr<class ScrollValue> getCUScroll();
+    static std::optional<PlotViewRange> getAlignedPlotRange();
 
     static int& font();
     void updateFont();
@@ -231,6 +239,7 @@ private:
 
     int64_t current_loaded_clk_start = 0;
     int64_t current_loaded_clk_end = 0;
+    PlotAlignment plot_alignment = PlotAlignment::None;
 
     class FlameGraphWidget* flameGraph = nullptr;
     class MarkerFlameGraphWidget* markerFlameGraph = nullptr;
@@ -238,9 +247,11 @@ private:
 
     void loadConfigSettings();
     void setupConfigConnections();
+    void updateAlignedPlots();
 
     // Config save slots
-    void saveLevelOfDetailSetting(int state);
+    void saveLevelOfDetailBiasSetting(int bias);
+    void savePlotAlignmentSetting(PlotAlignment alignment);
     void saveLoadWaveStatesSetting(int state);
     void saveDisplayLineNumberSetting(int state);
     void saveSourceHotspotSizeSetting();

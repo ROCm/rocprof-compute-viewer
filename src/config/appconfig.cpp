@@ -33,9 +33,22 @@ AppConfig& AppConfig::getInstance()
 AppConfig::AppConfig() : settings("AMD", "Rocprof-Compute-Viewer") {}
 
 // Graph Options
-bool AppConfig::getLevelOfDetail() const { return settings.value("GraphOptions/LevelOfDetail", true).toBool(); }
+int AppConfig::getLevelOfDetailBias() const { return settings.value("GraphOptions/LevelOfDetailBias", 0).toInt(); }
 
-void AppConfig::setLevelOfDetail(bool enabled) { settings.setValue("GraphOptions/LevelOfDetail", enabled); }
+void AppConfig::setLevelOfDetailBias(int bias) { settings.setValue("GraphOptions/LevelOfDetailBias", bias); }
+
+PlotAlignment AppConfig::getPlotAlignment() const
+{
+    const int value = settings.value("GraphOptions/PlotAlignment", static_cast<int>(PlotAlignment::None)).toInt();
+    if (value < static_cast<int>(PlotAlignment::None) || value > static_cast<int>(PlotAlignment::Global))
+        return PlotAlignment::None;
+    return static_cast<PlotAlignment>(value);
+}
+
+void AppConfig::setPlotAlignment(PlotAlignment alignment)
+{
+    settings.setValue("GraphOptions/PlotAlignment", static_cast<int>(alignment));
+}
 
 bool AppConfig::getLoadWaveStates() const { return settings.value("GraphOptions/LoadWaveStates", true).toBool(); }
 

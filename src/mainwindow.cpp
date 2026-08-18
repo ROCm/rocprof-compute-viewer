@@ -321,7 +321,8 @@ MainWindow::MainWindow(std::string uidir) : QMainWindow(nullptr), ui(new Ui::Mai
         ResetSelector();
     }
 
-    connect(ui->lod_checkBox, &QCheckBox::stateChanged, this, &MainWindow::UpdateGraphAutoLod);
+    connect(ui->lod_bias_spinBox, qOverload<int>(&QSpinBox::valueChanged), this, &MainWindow::UpdateGraphLodBias);
+    connect(cuwaves_h_scrollarea, &QCustomScroll::valueupdated, this, &MainWindow::updateAlignedPlots);
 
     connect(ui->actionJsons_folder, &QAction::triggered, this, &MainWindow::SetJsonsFolder);
     connect(ui->actionAttFiles, &QAction::triggered, this, &MainWindow::OpenAttFiles);
@@ -1616,7 +1617,7 @@ void MainWindow::CreateCountersPlot()
     // active, or support counter-source-specific definition files.
     std::string derived_definitions = DerivedCounterEditor::loadDefinitions();
 
-    this->counters_plot->setAutoLod(ui->lod_checkBox->isChecked());
+    this->counters_plot->setLodBias(ui->lod_bias_spinBox->value());
     this->counters_plot->setGeometry(0, 0, 300, this->counters_plot->size().width());
     this->counters_plot->UpdateDataSelection(perfcounter_names, derived_definitions);
     UpdateCountersPlotSelection();
@@ -1734,7 +1735,7 @@ void MainWindow::CreateWavesPlot()
     waves_plot = new WavePlotView(this);
     waves_plot->setGeometry(0, 0, 300, waves_plot->size().width());
     waves_plot->LoadWaveStateData(*data_store);
-    waves_plot->setAutoLod(ui->lod_checkBox->isChecked());
+    waves_plot->setLodBias(ui->lod_bias_spinBox->value());
 
 #if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
     accordion->replaceContentByTitle("Wave States", waves_plot);
@@ -1798,7 +1799,7 @@ void MainWindow::CreateOccupancyPlot(bool bDispatch)
             dynamic_cast<OccupancyPlotView*>(plot)->LoadOccupancyData(*data_store);
     }
     else { plot->LoadOccupancyData(GetUIDir() + "occupancy.json"); }
-    plot->setAutoLod(ui->lod_checkBox->isChecked());
+    plot->setLodBias(ui->lod_bias_spinBox->value());
 }
 
 std::shared_ptr<class ScrollValue> MainWindow::getCUScroll()
@@ -1807,6 +1808,26 @@ std::shared_ptr<class ScrollValue> MainWindow::getCUScroll()
         if (auto* waveview = window->cuwaves_h_scrollarea)
             if (auto view = waveview->view) return view;
     return nullptr;
+}
+
+std::optional<MainWindow::PlotViewRange> MainWindow::getAlignedPlotRange()
+{
+    auto* window = MainWindow::window;
+    if (!window || window->plot_alignment == PlotAlignment::None) return std::nullopt;
+
+    if (window->plot_alignment == PlotAlignment::Detail)
+    {
+        const auto view = getCUScroll();
+        if (!view) return std::nullopt;
+        const double start = QCustomScroll::clock_cutoff_start + view->start.load();
+        return PlotViewRange{start, start + view->range.load()};
+    }
+
+    if (!window->global_view_widget || !window->global_view_scrollarea) return std::nullopt;
+    const auto* scrollbar = window->global_view_scrollarea->horizontalScrollBar();
+    const double start = QGlobalView::PosToClock(scrollbar->value());
+    const double range = window->global_view_scrollarea->viewport()->width() * QGlobalView::Delta();
+    return PlotViewRange{start, start + range};
 }
 
 void MainWindow::setPlotBarPos(float x)
@@ -1865,12 +1886,20 @@ void MainWindow::UpdateOccupancyInfo(const std::vector<std::pair<std::string, in
     }
 }
 
-void MainWindow::UpdateGraphAutoLod(int bAutoLod)
+void MainWindow::UpdateGraphLodBias(int bias)
 {
-    if (waves_plot) waves_plot->setAutoLod((bool) bAutoLod);
-    if (counters_plot) counters_plot->setAutoLod((bool) bAutoLod);
-    if (occupancy_plot) occupancy_plot->setAutoLod((bool) bAutoLod);
-    if (dispatch_plot) dispatch_plot->setAutoLod((bool) bAutoLod);
+    if (waves_plot) waves_plot->setLodBias(bias);
+    if (counters_plot) counters_plot->setLodBias(bias);
+    if (occupancy_plot) occupancy_plot->setLodBias(bias);
+    if (dispatch_plot) dispatch_plot->setLodBias(bias);
+}
+
+void MainWindow::updateAlignedPlots()
+{
+    if (waves_plot) waves_plot->update();
+    if (counters_plot) counters_plot->update();
+    if (occupancy_plot) occupancy_plot->update();
+    if (dispatch_plot) dispatch_plot->update();
 }
 
 void MainWindow::incrementWaveViewMipmap(int inc, float position)
@@ -1929,6 +1958,7 @@ void MainWindow::incrementGlobalViewMipmap(int inc, int content_mouse_x)
     if (new_mip < old_mip && new_scroll > scrollbar->maximum()) scrollbar->setMaximum(new_scroll);
     scrollbar->setValue(new_scroll);
     window->global_view_widget->SetMip(new_mip);
+    window->updateAlignedPlots();
 
     // Set scroll again after layout update for zoom out
     if (new_mip > old_mip) scrollbar->setValue(new_scroll);
@@ -1946,6 +1976,7 @@ void MainWindow::SetGlobalViewMipmap(int spinValue)
     int new_scroll = QGlobalView::calcZoomScroll(old_mip, new_mip, old_scroll, viewport_center);
 
     if (global_view_widget) global_view_widget->SetMip(new_mip);
+    updateAlignedPlots();
 
     // Use timer to set scroll after layout updates
     slider_global = new_scroll;
@@ -2046,6 +2077,18 @@ void MainWindow::CreateGlobalView()
 
     // Connect scroll bars to sticky elements
     global_view_widget->setScrollArea(global_view_scrollarea);
+    connect(
+        global_view_scrollarea->horizontalScrollBar(),
+        &QScrollBar::valueChanged,
+        this,
+        &MainWindow::updateAlignedPlots
+    );
+    connect(
+        global_view_scrollarea->horizontalScrollBar(),
+        &QScrollBar::rangeChanged,
+        this,
+        &MainWindow::updateAlignedPlots
+    );
 
     // Populate the label panel with data from the global view
     global_view_widget->populateLabelPanel();
@@ -2055,6 +2098,7 @@ void MainWindow::CreateGlobalView()
     mainLayout->addWidget(contentWidget);
 
     this->global_view_tab->setLayout(mainLayout);
+    updateAlignedPlots();
 }
 
 void MainWindow::AddHistoryEntry(int64_t cycle, std::string_view type, std::string_view asmline)
@@ -2404,7 +2448,11 @@ void MainWindow::loadConfigSettings()
     AppConfig& config = AppConfig::getInstance();
 
     // Graph Options
-    ui->lod_checkBox->setChecked(config.getLevelOfDetail());
+    ui->lod_bias_spinBox->setValue(config.getLevelOfDetailBias());
+    plot_alignment = config.getPlotAlignment();
+    ui->plot_alignment_none->setChecked(plot_alignment == PlotAlignment::None);
+    ui->plot_alignment_detail->setChecked(plot_alignment == PlotAlignment::Detail);
+    ui->plot_alignment_global->setChecked(plot_alignment == PlotAlignment::Global);
     ui->load_wave_states_box->setChecked(config.getLoadWaveStates());
 
     // Source Options
@@ -2444,7 +2492,22 @@ void MainWindow::loadConfigSettings()
 void MainWindow::setupConfigConnections()
 {
     // Graph Options
-    connect(ui->lod_checkBox, &QCheckBox::stateChanged, this, &MainWindow::saveLevelOfDetailSetting);
+    connect(
+        ui->lod_bias_spinBox,
+        qOverload<int>(&QSpinBox::valueChanged),
+        this,
+        &MainWindow::saveLevelOfDetailBiasSetting
+    );
+    const auto connect_alignment = [this](QRadioButton* button, PlotAlignment alignment)
+    {
+        connect(button, &QRadioButton::toggled, this, [this, alignment](bool checked)
+        {
+            if (checked) savePlotAlignmentSetting(alignment);
+        });
+    };
+    connect_alignment(ui->plot_alignment_none, PlotAlignment::None);
+    connect_alignment(ui->plot_alignment_detail, PlotAlignment::Detail);
+    connect_alignment(ui->plot_alignment_global, PlotAlignment::Global);
     connect(ui->load_wave_states_box, &QCheckBox::stateChanged, this, &MainWindow::saveLoadWaveStatesSetting);
 
     // Source Options
@@ -2485,7 +2548,21 @@ void MainWindow::setupConfigConnections()
     connectColumnCheckbox(ui->col_sourceref_box, ASMCodeline::Element::ESOURCEREF);
 }
 
-void MainWindow::saveLevelOfDetailSetting(int state) { AppConfig::getInstance().setLevelOfDetail(state != 0); }
+void MainWindow::saveLevelOfDetailBiasSetting(int bias) { AppConfig::getInstance().setLevelOfDetailBias(bias); }
+
+void MainWindow::savePlotAlignmentSetting(PlotAlignment alignment)
+{
+    if (alignment == PlotAlignment::None && plot_alignment != PlotAlignment::None)
+    {
+        if (waves_plot) waves_plot->syncAlignedRange();
+        if (counters_plot) counters_plot->syncAlignedRange();
+        if (occupancy_plot) occupancy_plot->syncAlignedRange();
+        if (dispatch_plot) dispatch_plot->syncAlignedRange();
+    }
+    plot_alignment = alignment;
+    AppConfig::getInstance().setPlotAlignment(alignment);
+    updateAlignedPlots();
+}
 
 void MainWindow::saveLoadWaveStatesSetting(int state)
 {
