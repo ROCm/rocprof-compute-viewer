@@ -20,23 +20,25 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+#include "config/appconfig.h"
 #include <gtest/gtest.h>
 #include <QCoreApplication>
 #include <QSettings>
 #include <QStandardPaths>
-#include "config/appconfig.h"
 
 class AppConfigTest : public ::testing::Test
 {
 protected:
-    void SetUp() override
+    // AppConfig keeps one QSettings instance alive for the process. Clearing the
+    // native settings store between tests invalidates that instance on Windows.
+    static void SetUpTestSuite()
     {
         QSettings settings("AMD", "Rocprof-Compute-Viewer");
         settings.clear();
         settings.sync();
     }
 
-    void TearDown() override
+    static void TearDownTestSuite()
     {
         QSettings settings("AMD", "Rocprof-Compute-Viewer");
         settings.clear();
