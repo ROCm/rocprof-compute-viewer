@@ -1,6 +1,6 @@
 // MIT License
 //
-// Copyright (c) 2024-2026 Advanced Micro Devices, Inc. All rights reserved.
+// Copyright (c) 2026 Advanced Micro Devices, Inc. All rights reserved.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -22,40 +22,21 @@
 
 #pragma once
 
-#include <functional>
-#include <string>
-#include "data/datastore.h"
-#include "data/record_dispatcher.h"
+#include <cstddef>
+#include <vector>
 
-class JsonRecordEmitter
+#include "analysis/derived_counter.h"
+#include "data/spm_json.h"
+
+namespace SpmSeries
 {
-public:
-    using WaveStateLoadPolicy = std::function<bool(const DataStore&)>;
-
-    JsonRecordEmitter(
-        const std::string& ui_dir,
-        RecordDispatcher& dispatcher,
-        DataStore& store,
-        WaveStateLoadPolicy wave_state_load_policy = {}
-    );
-    void run();
-    void runOccupancyOnlyForTests();
-
-private:
-    void emitMetadata();
-    void emitWaveHierarchy();
-    void emitWaveStates();
-    void emitOccupancy();
-    void emitCounters();
-    void emitRealtime();
-    void emitShaderData();
-    void emitOtherSimd();
-    void resolveMarkersFromCodeJson();
-    void emitCode();
-    void emitSourceSnapshots();
-
-    std::string ui_dir;
-    RecordDispatcher& dispatcher;
-    DataStore& store;
-    WaveStateLoadPolicy wave_state_load_policy;
+struct Point
+{
+    float time = 0;
+    float value = 0;
 };
+
+std::vector<float> timestampDeltas(const SpmData& spm);
+
+std::vector<Point> makePlotSeries(const DerivedCounter::Tensor& values, const DerivedCounter::Tensor& clock);
+} // namespace SpmSeries

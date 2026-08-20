@@ -1,6 +1,6 @@
 // MIT License
 //
-// Copyright (c) 2024-2026 Advanced Micro Devices, Inc. All rights reserved.
+// Copyright (c) 2026 Advanced Micro Devices, Inc. All rights reserved.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -22,40 +22,22 @@
 
 #pragma once
 
-#include <functional>
-#include <string>
-#include "data/datastore.h"
-#include "data/record_dispatcher.h"
+#include <cstddef>
+#include <cstdint>
+#include <vector>
 
-class JsonRecordEmitter
+namespace Validity
 {
-public:
-    using WaveStateLoadPolicy = std::function<bool(const DataStore&)>;
+using Mask = std::vector<uint64_t>;
 
-    JsonRecordEmitter(
-        const std::string& ui_dir,
-        RecordDispatcher& dispatcher,
-        DataStore& store,
-        WaveStateLoadPolicy wave_state_load_policy = {}
-    );
-    void run();
-    void runOccupancyOnlyForTests();
-
-private:
-    void emitMetadata();
-    void emitWaveHierarchy();
-    void emitWaveStates();
-    void emitOccupancy();
-    void emitCounters();
-    void emitRealtime();
-    void emitShaderData();
-    void emitOtherSimd();
-    void resolveMarkersFromCodeJson();
-    void emitCode();
-    void emitSourceSnapshots();
-
-    std::string ui_dir;
-    RecordDispatcher& dispatcher;
-    DataStore& store;
-    WaveStateLoadPolicy wave_state_load_policy;
-};
+inline size_t words(size_t size) { return (size + 63) / 64; }
+inline void allocate(Mask& mask, size_t size)
+{
+    if (mask.empty()) mask.resize(words(size), 0);
+}
+inline bool test(const Mask& mask, size_t index)
+{
+    return mask.empty() || (mask.at(index / 64) & (uint64_t{1} << (index % 64)));
+}
+inline void set(Mask& mask, size_t index) { mask[index / 64] |= uint64_t{1} << (index % 64); }
+} // namespace Validity

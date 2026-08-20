@@ -39,6 +39,7 @@
 #include <unordered_set>
 #include <vector>
 #include "graphics/hotspot_view.h"
+#include "graphics/plot_alignment.h"
 #include "util/custom_layouts.h"
 #include "util/diagnostic_log.h"
 
@@ -84,11 +85,13 @@ public:
     void CreateCountersPlot();
     void UpdateCountersPlotSelection();
     void CreateOccupancyPlot(bool bDispatch);
+    void CreateWavesPlot();
     void setPlotBarPos(float x);
     void UpdateGraphInfo(const std::string& name, float value);
-    void UpdateGraphAutoLod(int bAutoLod);
+    void UpdateGraphLodBias(int bias);
     void ToggleDisplayLineNumber(int display);
     void SetJsonsFolder();
+    void OpenSpmJson();
     void OpenAttFiles();
     void OpenRocpd();
     void OpenOptionsDialog();
@@ -127,6 +130,7 @@ public:
     class QScrollArea* utilization_v_scrollarea = nullptr;
     class QScrollArea* code_scrollarea = nullptr;
     class CounterPlotView* counters_plot = nullptr;
+    class WavePlotView* waves_plot = nullptr;
     class OccupancyPlotView* occupancy_plot = nullptr;
     class OccupancyPlotView* dispatch_plot = nullptr;
     class HotspotView* hotspot_view = nullptr;
@@ -137,6 +141,7 @@ public:
     class SummaryView* summary_view = nullptr;
 
     class QGridLayout* counters_plot_layout = nullptr;
+    class QGridLayout* waves_plot_layout = nullptr;
     class QGridLayout* occupancy_plot_layout = nullptr;
     class QGridLayout* dispatch_plot_layout = nullptr;
     class QTableWidget* graph_info_table = nullptr;
@@ -170,6 +175,8 @@ public:
     static void incrementWaveViewMipmap(int value, float position);
     static void incrementGlobalViewMipmap(int inc, int content_mouse_x);
     static std::shared_ptr<class ScrollValue> getCUScroll();
+    static std::optional<PlotAlignmentReference> getCUPlotAlignmentReference();
+    static std::optional<PlotAlignmentReference> getPlotAlignmentReference();
 
     static int& font();
     void updateFont();
@@ -195,11 +202,18 @@ private:
     /// Path the user opened (directory or single file). Replaces the old
     /// ConfigNameEdit lineedit as the source-of-truth for "what is loaded".
     std::string current_path;
+    /// Optional SPM counter source attached to the current trace.
+    std::string current_spm_path;
 
     /// Apply a fully-built InputInfo (from detectInput or one of the file pickers).
     /// Centralises the loading sequence so menu handlers can construct InputInfo
     /// directly without round-tripping through detectInput.
-    void LoadInput(InputInfo info, const std::string& display_path);
+    enum class LoadMode
+    {
+        Reload,
+        Replace
+    };
+    LoadResult LoadInput(InputInfo info, const std::string& display_path, LoadMode mode = LoadMode::Reload);
     LoadResult LoadInputImpl(InputInfo info, const std::string& display_path, bool show_dialogs);
     int hotspot_n_bins = 32;
     int hotspot_begin = 0;
@@ -220,6 +234,7 @@ private:
 
     int64_t current_loaded_clk_start = 0;
     int64_t current_loaded_clk_end = 0;
+    PlotAlignment plot_alignment = PlotAlignment::None;
 
     class FlameGraphWidget* flameGraph = nullptr;
     class MarkerFlameGraphWidget* markerFlameGraph = nullptr;
@@ -227,9 +242,11 @@ private:
 
     void loadConfigSettings();
     void setupConfigConnections();
+    void updateAlignedPlots();
 
     // Config save slots
-    void saveLevelOfDetailSetting(int state);
+    void setPlotAlignment(PlotAlignment alignment);
+    void saveLoadWaveStatesSetting(int state);
     void saveDisplayLineNumberSetting(int state);
     void saveSourceHotspotSizeSetting();
     void saveSourceIncludeHiddenLatencySetting(int state);
@@ -246,6 +263,7 @@ private:
     bool runHiddenLatencyAnalysis(bool show_dialogs);
     bool allowFullWaveLoad(bool show_dialogs);
     void refreshHiddenLatencyViews();
+    void ClearWavesPlot();
 
     std::optional<bool> full_wave_load_allowed;
 

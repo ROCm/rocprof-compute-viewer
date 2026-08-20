@@ -76,6 +76,7 @@ void DataStore::clear()
     hidden_latency_analyzed = false;
     counter_names.clear();
     wave_hierarchy.clear();
+    wave_state_series.clear();
     hidden_latency_by_line.clear();
     code.clear();
     source_snapshots.clear();
@@ -86,6 +87,7 @@ void DataStore::clear()
     occupancy_has_dispatcher_info = false;
     dispatch_resolver.Clear();
     counters_by_se.clear();
+    spm = {};
     realtime_frequency = 0;
     realtime_by_se.clear();
     realtime_alignment_applied = false;

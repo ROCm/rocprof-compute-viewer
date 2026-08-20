@@ -77,29 +77,7 @@ To import raw ``.att`` and ``.out`` files into the Compute Viewer (requires a de
 
     ./rcviewer <dir_with_att_out_files>
 
-Raw traces captured via the rocprofiler-sdk API don't include ``code.json`` or ``snapshots.json``, so the Instructions view and source pane are empty by default. To enable them, generate the ISA and source correlation before importing.
-
-.. _generating-isa-source-correlation:
-
-Generating ISA and source correlation
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-Use ``scripts/generate_snapshot.py`` to recreate that correlation from the kernel code objects:
-
-.. code-block:: bash
-
-    # Explicit code objects
-    python3 scripts/generate_snapshot.py kernel_code_object_id_1.out kernel_code_object_id_2.out
-
-    # With no arguments, scans every *.hsaco and *.out in the current directory
-    python3 scripts/generate_snapshot.py
-
-This writes ``code.json``, ``snapshots.json``, and copies of the referenced source files into the current directory. Once generated, import the directory as described above.
-
-Key considerations when using the script:
-
-- **Code object IDs:** Each code object is tagged with the ID the trace references, parsed from the trailing number in the filename (for example, ``..._code_object_id_1.out`` → ``1``, ``codeobj_42.out`` → ``42``). Only ``.hsaco`` files might use ID ``0``; a ``.out`` without a parseable ID, or an ID that collides with another input, is skipped with a warning.
-
-- **Debug symbols:** Build the code objects with debug info (``-g``) to enable source-line mapping. Without it, the script still produces ISA output but the source pane stays empty.
-
-- **Dependencies:** The script requires ``llvm-objdump`` to disassemble code objects and the ``pyelftools`` Python package to parse ELF metadata. Install ``pyelftools`` with ``pip install pyelftools``. ``llvm-objdump`` is available from a ROCm or LLVM install, or can be added to ``PATH`` separately.
+Raw traces captured via the rocprofiler-sdk API don't normally include
+``code.json`` or ``snapshots.json``. They can still be imported, but the
+Instructions view and source pane have no ISA/source correlation unless that
+metadata is supplied by the capture workflow.

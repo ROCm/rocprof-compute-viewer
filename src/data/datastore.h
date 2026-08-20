@@ -36,6 +36,7 @@
 #include "data/dispatch_resolver.h"
 #include "data/hwid.h"
 #include "data/records.h"
+#include "data/spm_json.h"
 #include "json/include/nlohmann/json.hpp"
 #include "wave/othersimd_types.h"
 
@@ -54,6 +55,12 @@ using WaveSlotMap = std::map<int, WaveEntry>;
 using SlotMap = std::map<int, WaveSlotMap>;
 using SimdMap = std::map<int, SlotMap>;
 using SEWaveMap = std::map<int, SimdMap>;
+
+struct WaveStateSample
+{
+    float time = 0;
+    float value = 0;
+};
 
 class DataStore
 {
@@ -81,6 +88,7 @@ public:
     std::vector<std::string> counter_names;
 
     SEWaveMap wave_hierarchy;
+    std::map<int, std::vector<WaveStateSample>> wave_state_series;
     std::map<int, HiddenLatencyAnalysis::HiddenLatency> hidden_latency_by_line;
 
     std::shared_ptr<WaveInstance> getWave(const WaveEntry& entry);
@@ -102,6 +110,7 @@ public:
     DispatchResolver dispatch_resolver;
 
     std::map<int, std::array<std::vector<counter_record_t>, 2>> counters_by_se;
+    SpmData spm;
 
     int64_t realtime_frequency = 0;
     std::map<int, std::vector<realtime_record_t>> realtime_by_se;

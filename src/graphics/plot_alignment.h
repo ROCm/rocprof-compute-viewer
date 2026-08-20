@@ -22,40 +22,32 @@
 
 #pragma once
 
-#include <functional>
-#include <string>
-#include "data/datastore.h"
-#include "data/record_dispatcher.h"
-
-class JsonRecordEmitter
+enum class PlotAlignment
 {
-public:
-    using WaveStateLoadPolicy = std::function<bool(const DataStore&)>;
-
-    JsonRecordEmitter(
-        const std::string& ui_dir,
-        RecordDispatcher& dispatcher,
-        DataStore& store,
-        WaveStateLoadPolicy wave_state_load_policy = {}
-    );
-    void run();
-    void runOccupancyOnlyForTests();
-
-private:
-    void emitMetadata();
-    void emitWaveHierarchy();
-    void emitWaveStates();
-    void emitOccupancy();
-    void emitCounters();
-    void emitRealtime();
-    void emitShaderData();
-    void emitOtherSimd();
-    void resolveMarkersFromCodeJson();
-    void emitCode();
-    void emitSourceSnapshots();
-
-    std::string ui_dir;
-    RecordDispatcher& dispatcher;
-    DataStore& store;
-    WaveStateLoadPolicy wave_state_load_policy;
+    None,
+    Detail,
+    Global
 };
+
+struct PlotAlignmentReference
+{
+    double clock_at_left;
+    double clocks_per_pixel;
+    int global_left;
+    int pixel_width;
+};
+
+struct PlotViewRange
+{
+    double start;
+    double end;
+};
+
+inline PlotViewRange alignedPlotRange(
+    const PlotAlignmentReference& reference, int plot_global_left, int plot_pixel_width
+)
+{
+    const double start =
+        reference.clock_at_left + (plot_global_left - reference.global_left) * reference.clocks_per_pixel;
+    return {start, start + plot_pixel_width * reference.clocks_per_pixel};
+}

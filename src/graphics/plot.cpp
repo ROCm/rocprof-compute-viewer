@@ -22,6 +22,7 @@
 
 #include "plot.h"
 #include <QWheelEvent>
+#include <algorithm>
 #include <cmath>
 #include <iostream>
 #include "config/config.hpp"
@@ -143,9 +144,9 @@ bool PlotCurve::CreateLODs(int mip, std::vector<WeightedPoint>& points)
     return true;
 }
 
-void PlotCurve::UpdateLOD(float range, int width, bool bAuto)
+void PlotCurve::UpdateLOD(float range, int width, int bias)
 {
-    if (!bAuto || lods.size() < 2)
+    if (lods.size() < 2)
     {
         lod = 0;
         return;
@@ -157,7 +158,7 @@ void PlotCurve::UpdateLOD(float range, int width, bool bAuto)
 
     while (lod < lods.size() && lods.at(lod).min_interval < point_density_ratio) lod++;
 
-    lod--;
+    lod = std::clamp(lod - 1 + bias, 0, static_cast<int>(lods.size()) - 1);
 }
 
 PlotGraph::PlotGraph(int _penwidth, QWidget* parent) : BasePlotWidget(parent), penwidth(_penwidth)
@@ -174,6 +175,7 @@ void PlotGraph::wheelEvent(QWheelEvent* ev)
     double scale = pow(1.001, ev->angleDelta().y());
 
     if (ev->modifiers() & Qt::ControlModifier) { yscale *= scale; }
+    else if (applyAlignedRange()) { return; }
     else
     {
         double midpoint = pixelToPos(mousepos.x());
@@ -190,19 +192,24 @@ void PlotGraph::mousePressEvent(QMouseEvent* ev)
 
     if (ev->button() == Qt::LeftButton)
     {
+        const bool range_aligned = applyAlignedRange();
         if (ev->modifiers() & Qt::ControlModifier)
         {
-            xscale = 1;
             yscale = 1;
-            xoffset = 1;
+            if (!range_aligned)
+            {
+                xscale = 1;
+                xoffset = 1;
+            }
         }
+        else if (range_aligned) { return; }
         else
         {
             bLClick = true;
             lclickpos = ev->pos();
         }
     }
-    else if (ev->button() == Qt::RightButton)
+    else if (ev->button() == Qt::RightButton && !applyAlignedRange())
         setCursor(Qt::ClosedHandCursor);
 
     update();
@@ -229,6 +236,7 @@ void PlotGraph::mouseReleaseEvent(QMouseEvent* ev)
 void PlotGraph::paintEvent(QPaintEvent* ev)
 {
     QWidget::paintEvent(ev);
+    const bool range_aligned = applyAlignedRange();
     const QColor bkgcolor = WindowColors::GraphBkg();
 
     QPainter painter(this);
@@ -239,16 +247,19 @@ void PlotGraph::paintEvent(QPaintEvent* ev)
 
     painter.fillRect(QRect(left_space, 0, width() - left_space, height()), bkgcolor);
 
-    if (auto view = MainWindow::getCUScroll())
+    if (!range_aligned)
     {
-        Color viewcolor = bkgcolor;
-        viewcolor += Color(24, 32, 40);
+        if (const auto reference = MainWindow::getCUPlotAlignmentReference())
+        {
+            Color viewcolor = bkgcolor;
+            viewcolor += Color(14, 18, 24);
 
-        int pos_start = posToPixel(QCustomScroll::clock_cutoff_start + view->start);
-        int pos_end = posToPixel(QCustomScroll::clock_cutoff_start + view->start + view->range);
+            int pos_start = posToPixel(reference->clock_at_left);
+            int pos_end = posToPixel(reference->clock_at_left + reference->pixel_width * reference->clocks_per_pixel);
 
-        if (pos_start < width() && pos_end > 0)
-            painter.fillRect(QRect(pos_start, 0, pos_end - pos_start, height()), viewcolor);
+            if (pos_start < width() && pos_end > 0)
+                painter.fillRect(QRect(pos_start, 0, pos_end - pos_start, height()), viewcolor);
+        }
     }
 
     QFont font = MainWindow::default_font.isEmpty() ? painter.font() : QFont(MainWindow::default_font);
@@ -269,7 +280,7 @@ void PlotGraph::paintEvent(QPaintEvent* ev)
     {
         if (!series.lods.size() || series.disabled) continue;
 
-        series.UpdateLOD((xmax - xmin) / xscale, width(), bAutoLod);
+        series.UpdateLOD((xmax - xmin) / xscale, width(), lodBias);
         auto& data = series.get().data;
         if (data.size() < 2) continue;
 
@@ -429,7 +440,7 @@ void PlotGraph::mouseMoveEvent(QMouseEvent* event)
 {
     BasePlotWidget::mouseMoveEvent(event);
 
-    if (event->buttons() & Qt::RightButton)
+    if ((event->buttons() & Qt::RightButton) && !applyAlignedRange())
     {
         double cvt = xmax / scaledwidth();
         xoffset += cvt * (event->pos().x() - mousepos.x());
@@ -443,4 +454,18 @@ void PlotGraph::mouseMoveEvent(QMouseEvent* event)
 
     UpdateGraphTable(pixelToPos(mousepos.x()));
     update();
+}
+
+bool PlotGraph::applyAlignedRange()
+{
+    const auto reference = MainWindow::getPlotAlignmentReference();
+    if (!reference || reference->clocks_per_pixel <= 0 || xmax <= 0) return false;
+
+    const int plot_global_left = mapToGlobal(QPoint(left_space, 0)).x();
+    const auto range = alignedPlotRange(*reference, plot_global_left, smallwidth());
+    if (range.end <= range.start) return false;
+
+    xoffset = -range.start;
+    xscale = xmax / (range.end - range.start);
+    return true;
 }

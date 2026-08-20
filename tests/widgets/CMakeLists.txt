@@ -36,6 +36,18 @@ add_test(NAME plotcurve_test COMMAND plotcurve_test)
 set_tests_properties(plotcurve_test PROPERTIES ENVIRONMENT "ASAN_OPTIONS=detect_leaks=0")
 
 # ============================================================================
+# Options Layout Tests - vertical scrolling and fixed Graph Options sizing
+# ============================================================================
+add_executable(options_layout_test options_layout_test.cpp ${SRC_DIR}/mainwindow.ui)
+set_target_properties(options_layout_test PROPERTIES AUTOUIC ON AUTOUIC_SEARCH_PATHS ${SRC_DIR})
+target_include_directories(options_layout_test PRIVATE ${SRC_DIR})
+target_link_libraries(options_layout_test GTest::gtest Qt6::Widgets)
+rcv_enable_asan(options_layout_test)
+add_test(NAME options_layout_test COMMAND options_layout_test)
+set_tests_properties(
+    options_layout_test PROPERTIES ENVIRONMENT "ASAN_OPTIONS=detect_leaks=0;QT_QPA_PLATFORM=offscreen")
+
+# ============================================================================
 # TextElement Tests - Text line rendering with caching and hover states
 # ============================================================================
 add_executable(textelement_test textelement_test.cpp)

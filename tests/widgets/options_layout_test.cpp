@@ -20,42 +20,34 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-#pragma once
+#include <gtest/gtest.h>
+#include <QApplication>
+#include <QMainWindow>
+#include <QScrollBar>
+#include "ui_mainwindow.h"
 
-#include <functional>
-#include <string>
-#include "data/datastore.h"
-#include "data/record_dispatcher.h"
-
-class JsonRecordEmitter
+TEST(OptionsLayoutTest, KeepsGraphOptionsHeightAndScrolls)
 {
-public:
-    using WaveStateLoadPolicy = std::function<bool(const DataStore&)>;
+    QMainWindow window;
+    Ui::MainWindow ui;
+    ui.setupUi(&window);
+    ui.tabWidget_3->setCurrentWidget(ui.tab);
 
-    JsonRecordEmitter(
-        const std::string& ui_dir,
-        RecordDispatcher& dispatcher,
-        DataStore& store,
-        WaveStateLoadPolicy wave_state_load_policy = {}
-    );
-    void run();
-    void runOccupancyOnlyForTests();
+    window.resize(1200, 900);
+    window.show();
+    QApplication::processEvents();
+    const int graph_options_height = ui.frame_5->height();
 
-private:
-    void emitMetadata();
-    void emitWaveHierarchy();
-    void emitWaveStates();
-    void emitOccupancy();
-    void emitCounters();
-    void emitRealtime();
-    void emitShaderData();
-    void emitOtherSimd();
-    void resolveMarkersFromCodeJson();
-    void emitCode();
-    void emitSourceSnapshots();
+    window.resize(800, 300);
+    QApplication::processEvents();
 
-    std::string ui_dir;
-    RecordDispatcher& dispatcher;
-    DataStore& store;
-    WaveStateLoadPolicy wave_state_load_policy;
-};
+    EXPECT_EQ(ui.frame_5->height(), graph_options_height);
+    EXPECT_GT(ui.options_scroll_area->verticalScrollBar()->maximum(), 0);
+}
+
+int main(int argc, char** argv)
+{
+    QApplication app(argc, argv);
+    ::testing::InitGoogleTest(&argc, argv);
+    return RUN_ALL_TESTS();
+}

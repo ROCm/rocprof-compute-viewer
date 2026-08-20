@@ -102,7 +102,8 @@ void QCustomScroll::resizeEvent(QResizeEvent* event)
 {
     QWidget::resizeEvent(event);
     view->range = Token::PosToClock(width());
-    update();
+    updatebar(true);
+    QWidget::update();
 }
 
 void ScrollValue::notify()

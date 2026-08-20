@@ -10,6 +10,7 @@ For pre-built binaries, see [releases](https://github.com/ROCm/rocprof-compute-v
   - [Instructions View](#instructions-view)
   - [Occupancy and Dispatches Plots](#occupancy-and-dispatches-plots-tab)
   - [Left Side Panel](#left-side-panel)
+  - [Options](#options)
   - [Compute Unit and Utilization Views](#compute-unit-and-utilization-views)
   - [Counters](#counters)
   - [Global View](#global-view)
@@ -87,7 +88,7 @@ For rocprofv3 to generate thread trace data correctly, the following components 
 
 ### Hotspot Tab
 
-![Alt text](docs/data/hotspot.png)
+![Hotspot histogram of accumulated instruction latency](docs/data/hotspot.png)
 
 The Hotspot tab displays a histogram of instruction costs.
 
@@ -99,7 +100,7 @@ The Hotspot tab displays a histogram of instruction costs.
 
 ### Instructions View
 
-![Alt text](docs/data/isaview.png)
+![Instructions view showing ISA, source code, hit counts, and latency](docs/data/isaview.png)
 
 The ISA view contains a list of instructions with their Hitcount and Latency cost.
 If debug symbols are present, rocprofv3 snapshots the related source files, which are shown on the right.
@@ -119,21 +120,23 @@ If debug symbols are present, rocprofv3 snapshots the related source files, whic
    * Click and drag to select an area.
    * Right click and drag for panning.
    * Clicking on a token in the waveview (Trace) will add a blue marker to identify the cycle of that token.
-* The Highlighted region shows what is visible from the "CU" and "Utilization" tabs.
+* With plot alignment set to **None**, the highlighted region shows what is visible from the Compute Unit and Utilization tabs.
 
-> **Note:** The standalone **Wave States** tab (a vertical slice of the Compute Unit view showing the number of active waves in each state: IDLE, EXEC, STALL, WAIT, for the `target_cu`) has been temporarily removed. Its functionality will eventually be absorbed into the **Counters** view. This does not affect the wave-state coloring within the Compute Unit view itself.
+* The Wave States tab shows the precomputed number of active waves in the EXEC, WAIT, and STALL states. It is enabled when the following conditions are met:
+    * Exactly one Shader Engine is enabled.
+    * Loading gfx9/MI300 traces unless overridden under Options → Graph Options
 
 * Occupancy tab shows occupancy per Shader Engine, in number of waves.
 
-![Alt text](docs/data/occupancy.png)
+![Occupancy plot showing active waves by Shader Engine over time](docs/data/occupancy.png)
 
 * Kernel Dispatches tab shows occupancy per kernel - usually relevant when there are multiple kernels running on different streams.
 
-![Alt text](docs/data/dispatch.png)
+![Kernel Dispatches plot showing kernel occupancy over time](docs/data/dispatch.png)
 
 ### Left Side Panel
 
-  ![Alt text](docs/data/left.png)
+  ![Left side panel with wave selectors, clock ranges, zoom controls, and history](docs/data/left.png)
 * "Shader" (Engine), "SIMD", "Slot" (Wave slot within a SIMD) and "WID" (A wave ID counter for that slot) boxes allows the user to select which Wave to focus on.
   * This is defined as the target wave.
   * The interactions in the 'Instruction' tab apply only to the target wave: Token-to-ISA mapping, loop iteration navigation, etc.
@@ -151,6 +154,16 @@ If debug symbols are present, rocprofv3 snapshots the related source files, whic
 * "Search" searches for a specific text on the instruction view. E.g. search for ds_ to find the first lds instruction.
 * "History" contains the history (token+cycle) of previously selected tokens. It can be used to go back to a previous location.
 
+### Options
+
+The Options tab scrolls vertically when the window is too short to display every section. Graph Options includes:
+
+* **LOD bias** controls timeline plot resolution relative to the automatic level. Negative values retain finer detail, positive values use coarser detail, and zero uses the automatic choice.
+* **Plot alignment** controls the horizontal range of all timeline plots:
+  * **None** leaves plot pan and zoom independent and highlights the Compute Unit/Utilization visible range. When alignment is unlocked, the last locked range is retained as the plot's starting range.
+  * **Detail** keeps plots locked to the visible Compute Unit/Utilization range.
+  * **Global** keeps plots locked to the visible Global View range.
+
 ### Compute Unit and Utilization Views
 * Displays the trace aggregated either per-wave (Compute Unit) or per SIMD (Utilization).
 * Right click and drag to measure number of cycles.
@@ -162,7 +175,7 @@ If debug symbols are present, rocprofv3 snapshots the related source files, whic
 #### Compute Unit:
 * Displays the trace separated per SIMD-Slot (e.g. 2-6).
 
-![Alt text](docs/data/cu.png)
+![Compute Unit trace grouped by SIMD and wave slot](docs/data/cu.png)
 
 #### Utilization:
 * Displays the trace per type of instruction (VALU, VMEM, SCALAR, OTHER).
@@ -171,13 +184,14 @@ If debug symbols are present, rocprofv3 snapshots the related source files, whic
 * Can be used to identify bubbles.
 * May have overlapping tokens from different waves slots, in that case only one will be displayed.
 
-![Alt text](docs/data/util.png)
+![Utilization trace grouped by instruction type](docs/data/util.png)
 
 ### Counters:
 
-Displays a plot of counter collection over time
+Displays a plot of counters collected over time.
+There are two methods to collect counters: att-perfcounters and SPM.
 
-#### Collecting basic counters
+#### Collecting basic counters for att-perfcounters
 * Up to 8 counters can be added, with 4 recommended
 * Only SQ counters are allowed.
 * On Mi300, "--att-perfcounter-ctrl 3" has a polling rate of 120~240 cycles
@@ -202,18 +216,58 @@ Counters can be used to visualize specific types of hardware utilization. For in
 * SQ_INST_LEVEL_LDS - Measures current number of in-flight LDS instructions.
 * SQ_VALU_MFMA_BUSY_CYCLES - Measures current MFMA hardware utilization.
 
+![Zoomed counter plots showing MFMA, VALU, and LDS activity](docs/data/counter_close.png)
+
+#### Collecting basic counters for SPM
+
+* SQ_CYCLES must be collected for clock alignment with the thread trace.
+* Go to Options > Plot Alignment to synchronize/lock plots with the Compute Unit view using Detail, or with the Global View using Global.
+* Go to the "Plots" menu to enable or disable plotting of a specific counter.
+* See the Derived Counters section for more information.
+* Example syntax for rocprofv3:
+```bash
+rocprofv3 --att --spm SQ_CYCLES TCC_HIT TCC_MISS TA_TA_BUSY TCP_TOTAL_CACHE_ACCESSES TCP_TCC_WRITE_REQ TCP_TCC_READ_REQ -d test --spm-beta-enabled 1 --spm-sample-interval-unit sclk_cycles --spm-sample-interval 4096 --kernel-include-regex mykernel -f json -- ./a.out
+```
+
+![SPM counter plots aligned with the Compute Unit trace](docs/data/SPM.png)
+
+Load the SQTT trace first, then use **Import > SPM JSON...** to attach the
+matching results file. An SPM JSON can also be opened by itself. See
+[`docs/how-to/using_spm.rst`](docs/how-to/using_spm.rst) for details.
+
 #### Derived Counters
 
-The RCV allows user-defined derived counters to be edited in realtime. Defined in Edit -> Derived Counters
+RCV lets users edit user-defined derived counters in real time. Go to Edit > Derived Counters.
 * Some simple derived counters are provided by default (MFMA_util, VALU_util, LDS_util...)
-* Use "Help" button to see the derived counter syntax.
-* Create, Delete and Edit user-defined derived counters.
+* Use the "Help" button to see the derived counter syntax.
+* Create, delete and edit user-defined derived counters.
+* Names beginning with an underscore (_) are treated as temporary variables and are not plotted.
+* As shown in the example, Ctrl-click another plot tab to keep multiple plots open.
 * If multiple files are present, the currently selected widget tab defines which derived counter list to show.
 
-The left list shows the list of Raw (basic) counters collected with SQTT, along with their shapes=(XCC, SE, CU, Time).
+The left panel lists the collected raw (basic) counters, their shapes (XCC, SE, CU, Time), and the currently defined derived counters.
 
-![Alt text](docs/data/counter_far.png)
-![Alt text](docs/data/counter_close.png)
+Example derived counters for SPM, targeting XCC=0, SE=0, CU=1:
+
+```
+_cycles := max[select[select[SQ_CYCLES, 0, axis=XCC], 0, axis=SE], axis=CU] + 0.001
+
+_L2_HIT := sum[select[select[TCC_HIT, 0, axis=XCC], 0, axis=SE], axis=CU]
+_L2_MISS := sum[select[select[TCC_MISS, 0, axis=XCC], 0, axis=SE], axis=CU]
+
+_TA_BUSY := select[select[select[TA_TA_BUSY, 0, axis=XCC], 0, axis=SE], 1, axis=CU]
+_TCP_TOTAL := select[select[select[TCP_TOTAL_CACHE_ACCESSES, 0, axis=XCC], 0, axis=SE], 1, axis=CU]
+_TCP_WRITE := select[select[select[TCP_TCC_WRITE_REQ, 0, axis=XCC], 0, axis=SE], 1, axis=CU]
+_TCP_READ := select[select[select[TCP_TCC_READ_REQ, 0, axis=XCC], 0, axis=SE], 1, axis=CU]
+
+L2_MISS := 100 * _L2_MISS / (_L2_HIT + _L2_MISS + 30)
+L1_MISS := 100 * min((_TCP_READ + _TCP_WRITE) / (_TCP_TOTAL + 1), 1)
+
+TA_Busy := 100 * _TA_BUSY / _cycles
+L1_BW% := 66 * _TCP_TOTAL / _cycles
+
+L1_Efficiency := 100 * min(_TCP_TOTAL, _TA_BUSY) / max(_TA_BUSY, 10)
+```
 
 #### Global View
 The Global View presents a comprehensive trace of all waves across enabled Shader Engines, with each wave color-coded by kernel.
@@ -222,7 +276,7 @@ The Global View presents a comprehensive trace of all waves across enabled Shade
 * The "Global View" can be compared with the Kernel Dispatches plot.
 * Right click and drag to measure number of cycles.
 
-![Alt text](docs/data/globalv.png)
+![Global View showing waves across Shader Engines](docs/data/globalv.png)
 
 #### Summary
 The summary is a feature available only on MI2xx and MI3xx GPUs. It displays 3 pieces of information:
@@ -247,7 +301,7 @@ rocprofv3 --att-activity 10
   * max_over_cycles(add_over_cu(X))/max_over_cycles(add_over_cu(SQ_BUSY_CU_CYCLES)) for peak rates.
   * add_all(X)/add_all(SQ_BUSY_CU_CYCLES) for other values.
 
-![Alt text](docs/data/summary.png)
+![Summary view showing latency, utilization, and counter statistics](docs/data/summary.png)
 
 ### Flamegraph View
 
@@ -414,30 +468,7 @@ rocprofv3 normally converts thread trace into a UI output directory (JSON). If i
 ./rocprof-compute-viewer <dir_with_att_and_out_files> /path/to/code.json /path/to/snapshots.json
 ```
 
-`code.json` and `snapshots.json` supply ISA disassembly and source-file snapshots respectively. rocprofv3 emits them automatically, but the SDK API does not — so generate them as described below.
-
-### Generating ISA/source correlation
-
-**When:** you captured the trace via the rocprofiler-sdk API, so the raw `.att`/`.out` output has the trace samples but no `code.json`/`snapshots.json`.
-
-**Why:** without this metadata the viewer can still draw the trace, but it cannot map SQTT tokens to ISA instructions or to source lines (the Instructions view and source pane stay empty). `scripts/generate_snapshot.py` recreates that correlation from the kernel code objects so the SDK-API workflow matches the CLI experience.
-
-**How:** point the script at the kernel ELF code objects (`.hsaco`, `.out`, or `.o`):
-
-```bash
-# Explicit code objects.
-python3 scripts/generate_snapshot.py kernel_code_object_id_1.out kernel_code_object_id_2.out
-
-# Or, with no arguments, every *.hsaco and *.out in the current directory.
-python3 scripts/generate_snapshot.py
-```
-
-It writes `code.json`, `snapshots.json`, and copies of the referenced source files into the current directory, which you then pass to the viewer as shown under [Loading raw `.att`/`.out`](#loading-raw-attout) above.
-
-Notes:
-* Each code object is tagged with the **code object id** the trace references, parsed from the trailing number in the filename (e.g. `..._code_object_id_1.out` → `1`, `codeobj_42.out` → `42`). Only `.hsaco` files may use id `0`; a `.out` without a parseable id, or an id that collides with another input, is skipped with a warning.
-* Build the code objects with debug info (`-g`) for source correlation; without it you still get ISA but no source mapping.
-* Requires `llvm-objdump` (from a ROCm/LLVM install or on `PATH`) and the `pyelftools` Python package (`pip install pyelftools`).
+`code.json` and `snapshots.json` supply ISA disassembly and source-file snapshots respectively. rocprofv3 emits them automatically. Raw SDK captures without that metadata can still be viewed, but the Instructions view and source pane have no ISA/source correlation.
 
 ## Hidden Latency
 

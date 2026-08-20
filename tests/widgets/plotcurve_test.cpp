@@ -28,6 +28,7 @@
 #include <cmath>
 #include <string>
 #include <vector>
+#include "graphics/plot_alignment.h"
 
 struct PlotPoint
 {
@@ -162,9 +163,9 @@ struct PlotCurve
         return true;
     }
 
-    void UpdateLOD(float range, int width, bool bAuto)
+    void UpdateLOD(float range, int width, int bias)
     {
-        if (!bAuto || lods.size() < 2)
+        if (lods.size() < 2)
         {
             lod = 0;
             return;
@@ -176,7 +177,7 @@ struct PlotCurve
 
         while (lod < static_cast<int>(lods.size()) && lods.at(lod).min_interval < point_density_ratio) lod++;
 
-        lod--;
+        lod = std::clamp(lod - 1 + bias, 0, static_cast<int>(lods.size()) - 1);
     }
 };
 
@@ -289,16 +290,22 @@ TEST(PlotCurveTest, SetDataCreatesAtLeastOneLOD)
     EXPECT_GE(curve.lods.size(), 1u);
 }
 
-TEST(PlotCurveTest, UpdateLODWithAutoFalse)
+TEST(PlotCurveTest, LodBiasAdjustsAndClampsAutomaticLevel)
 {
     PlotCurve curve;
-    std::vector<WeightedPoint> data;
-    for (int i = 0; i < 200; i++) data.push_back({static_cast<float>(i), static_cast<float>(i % 10), 1.0f});
+    curve.lods.resize(5);
+    curve.lods[1].min_interval = 2.0f;
+    curve.lods[2].min_interval = 4.0f;
+    curve.lods[3].min_interval = 8.0f;
+    curve.lods[4].min_interval = 16.0f;
 
-    curve.SetData(std::move(data));
-    curve.lod = 5;
-
-    curve.UpdateLOD(100.0f, 100, false);
+    curve.UpdateLOD(800.0f, 100, 0);
+    EXPECT_EQ(curve.lod, 3);
+    curve.UpdateLOD(800.0f, 100, -2);
+    EXPECT_EQ(curve.lod, 1);
+    curve.UpdateLOD(800.0f, 100, 10);
+    EXPECT_EQ(curve.lod, 4);
+    curve.UpdateLOD(800.0f, 100, -10);
     EXPECT_EQ(curve.lod, 0);
 }
 
@@ -311,6 +318,22 @@ TEST(PlotCurveTest, LODReducesDataSize)
     curve.SetData(std::move(data));
 
     if (curve.lods.size() >= 2) EXPECT_LT(curve.lods[1].data.size(), curve.lods[0].data.size());
+}
+
+TEST(PlotAlignmentTest, AccountsForDifferentLabelColumnWidths)
+{
+    for (const double clocks_per_pixel : {0.25, 4.0, 1024.0})
+    {
+        const PlotAlignmentReference reference{
+            .clock_at_left = 1000.0, .clocks_per_pixel = clocks_per_pixel, .global_left = 84, .pixel_width = 916};
+
+        const auto range = alignedPlotRange(reference, 50, 944);
+        const double clock = reference.clock_at_left + 250 * clocks_per_pixel;
+        const double plot_pixel = 50 + (clock - range.start) / clocks_per_pixel;
+        const double reference_pixel = reference.global_left + (clock - reference.clock_at_left) / clocks_per_pixel;
+
+        EXPECT_DOUBLE_EQ(plot_pixel, reference_pixel);
+    }
 }
 
 // ============================================================================

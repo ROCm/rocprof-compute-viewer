@@ -14,6 +14,24 @@ target_include_directories(input_detector_test PRIVATE ${SRC_DIR})
 target_link_libraries(input_detector_test GTest::gtest_main)
 add_test(NAME input_detector_test COMMAND input_detector_test)
 
+add_executable(appconfig_test
+    appconfig_test.cpp
+    ${SRC_DIR}/config/appconfig.cpp)
+target_include_directories(appconfig_test PRIVATE ${SRC_DIR})
+target_link_libraries(appconfig_test GTest::gtest Qt6::Core)
+add_test(NAME appconfig_test COMMAND appconfig_test)
+
+add_executable(spm_json_test
+    spm_json_test.cpp
+    ${DATA_DIR}/spm_json.cpp)
+target_compile_definitions(
+    spm_json_test PRIVATE
+    SPM_TEST_DATA="${CMAKE_CURRENT_SOURCE_DIR}/data/spm_results.json"
+    SPM_GAP_TEST_DATA="${CMAKE_CURRENT_SOURCE_DIR}/data/spm_gap_results.json")
+target_include_directories(spm_json_test PRIVATE ${SRC_DIR})
+target_link_libraries(spm_json_test GTest::gtest_main)
+add_test(NAME spm_json_test COMMAND spm_json_test)
+
 add_executable(datastore_test
     datastore_test.cpp
     ${DATA_DIR}/datastore.cpp

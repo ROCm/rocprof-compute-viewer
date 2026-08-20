@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QMetaObject>
 #include <QMouseEvent>
 #include <QPushButton>
 #include <QScrollArea>
@@ -31,10 +32,13 @@ signals:
     void expansionChanged(bool isExpanded); // Signal for external sync
 
 private:
+    void watchContentDestruction();
+
     QString m_title;
     bool m_isExpanded;
 
     QWidget* m_contentWidget;
+    QMetaObject::Connection m_contentDestroyedConnection;
     QVBoxLayout* m_internalLayout;
 
     int m_lastExpandedHeight;
