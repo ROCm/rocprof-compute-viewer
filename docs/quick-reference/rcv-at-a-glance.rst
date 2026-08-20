@@ -71,7 +71,7 @@ Each view answers a different performance question. Full descriptions and contro
      - Which code path dominates accumulated latency?
      - :ref:`flamegraph-view`
    * - Global view
-     - How were waves distributed across all shader engines over time?
+     - How were waves distributed across all CUs and selected shader engines over time?
      - :ref:`global-view`
    * - Occupancy / Kernel dispatch
      - How many waves were resident, per shader engine or per kernel?
