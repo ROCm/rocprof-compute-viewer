@@ -17,7 +17,7 @@ ROCprof Compute Viewer (RCV) interprets the output of `ui_output_agent_{agent_id
 - Flamegraph view (per-target-CU/SIMD source and ISA stack rollup, plus a global marker flamegraph when SQTT instrumentation is present)
 - SQTT instrumentation marker visualization (from the ``.sqtt_funcmap`` ELF section emitted by the LLVM pass)
 
-For a description of each view and its controls, see the :ref:`Views and shortcuts <rcv-views-reference>` topic.
+For a description of each view and its controls, see the :ref:`Views and controls <rcv-views-reference>` topic.
 
 .. _using-compute-viewer-requirements:
 
@@ -26,7 +26,7 @@ Requirements
 
 To ensure that ``rocprofv3`` generates the thread trace data correctly, install the following components:
 
-* AQL profile:
+* AQLprofile:
 
   * Available with ROCm 7.0 or later, or `build from source <https://github.com/ROCm/rocm-systems/tree/develop/projects/aqlprofile>`_.
 
@@ -53,7 +53,7 @@ RCV accepts two kinds of input:
 Import a rocprofv3 UI output directory
 ----------------------------------------
 
-To import a ``rocprofv3`` UI output directory into the Compute Viewer, use any of the following methods:
+To import a ``rocprofv3`` UI output directory into RCV, use any of the following methods:
 
 - Go to **Menu > Import > Rocprofv3 UI Output**.
 - Provide the full path in the **UI path** field.
@@ -61,21 +61,21 @@ To import a ``rocprofv3`` UI output directory into the Compute Viewer, use any o
 
 .. code-block:: bash
 
-    ./rcviewer <dir_to_ui_folder>
+    ./rocprof-compute-viewer <dir_to_ui_folder>
 
 .. _loading-raw-att-out:
 
 Import raw .att and .out files
 --------------------------------
 
-To import raw ``.att`` and ``.out`` files into the Compute Viewer (requires a decoder-enabled build):
+To import raw ``.att`` and ``.out`` files into RCV (requires a decoder-enabled build):
 
 - Go to **Menu > Import > ATT Trace Files...** and select the files.
 - Or pass the directory on the command line:
 
 .. code-block:: bash
 
-    ./rcviewer <dir_with_att_out_files>
+    ./rocprof-compute-viewer <dir_with_att_out_files>
 
 Raw traces captured via the rocprofiler-sdk API don't normally include
 ``code.json`` or ``snapshots.json``. They can still be imported, but the
