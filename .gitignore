@@ -92,4 +92,6 @@ compile_commands.json
 # AI and scripts
 *CLAUDE.md
 *__pycache__
+/_build
+docs/sphinx/_toc.yml
 *.codex

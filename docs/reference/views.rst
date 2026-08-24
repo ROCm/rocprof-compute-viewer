@@ -4,9 +4,9 @@
 
 .. _rcv-views-reference:
 
-*****************
+******************
 Views and controls
-*****************
+******************
 
 This page describes the views available in ROCprof Compute Viewer (RCV) and the keyboard shortcuts for each.
 
@@ -97,6 +97,8 @@ The settings as shown in the preceding image are explained here:
 
 - The History box contains the history (token + cycle) of previously selected tokens. It can be used to go back to a previous location.
 
+.. _hotspot-view:
+
 Hotspot view
 =============
 
@@ -107,7 +109,7 @@ The Hotspot tab displays a histogram of instruction costs.
 
 - Vertical axis (Cycles): Total accumulated latency cycles for each bin based on the bin's center value.
 
-- To adjust the number of bins and histogram range, go to Edit -> Hotspot Options. Clicking a bin highlights the first and last ISA lines present in the bin.
+- To adjust the number of bins and histogram range, go to **Menu > Edit > Hotspot Options**. Clicking a bin highlights the first and last ISA lines present in the bin.
 
 - The hotspot is computed over all waves within the "WaveView Clock Range".
 
@@ -144,6 +146,8 @@ Here are the user controls for Compute Unit and Utilization views:
 
 - Use WaveView zoom box on the left panel or CTRL + MouseWheel to control the zoom level.
 
+.. _instructions-view:
+
 Instructions view
 ==================
 
@@ -179,6 +183,8 @@ The Global View tab presents a comprehensive trace of all waves across the enabl
 - The Global view can be compared with the Kernel dispatch plot.
 
 - Right-click and drag to measure number of cycles.
+
+.. _summary-view:
 
 Summary view
 =============
@@ -250,6 +256,8 @@ Kernel dispatch view
 
 The Kernel Dispatches tab shows occupancy per kernel. This tab is usually relevant when there are multiple kernels running on different streams.
 
+.. _counters-view:
+
 Counters view
 ==============
 
@@ -272,11 +280,11 @@ To stream SQ performance counters for all or specific SIMDs, define SIMD masks u
 
 To view the plot for SQ counters collected per Compute Unit (CU) or SE:
 
-1. Go to Menu -> Edit -> Counters shown to define the SE or CU to be plotted.
+1. In the **Plots** panel, use the checkboxes in the **Enable Counter** column to select which SE or CU counters are plotted.
 
 2. Deselect all CUs except "1" to visualize counters only for CU=1. Note that "1" is usually the default ``--att-target-cu``.
 
-To view the plot for SQ counters collected per SIMD, use :ref:`SIMD mask <simd-mask>` and filter the CU in "Menu -> Edit -> Counters shown".
+To view the plot for SQ counters collected per SIMD, use :ref:`SIMD mask <simd-mask>` and filter the CU using the **Enable Counter** checkboxes in the **Plots** panel.
 
 On ROCm 7.13 or later, collect counters only for the target CU with ``--att-perfcounter-target-only``. This is recommended when using a high polling rate:
 
@@ -303,7 +311,7 @@ Here is a zoomed-in view of the preceding figure.
 Derived counters
 ----------------
 
-In addition to the raw SQ counters, RCV lets you define derived counters that are evaluated in real time. Go to Menu -> Edit -> Derived Counters.
+In addition to the raw SQ counters, RCV lets you define derived counters that are evaluated in real time. Go to **Menu > Analyze > Derived Counters**.
 
 - Some simple derived counters are provided by default, such as ``MFMA_util``, ``VALU_util``, and ``LDS_util``.
 
@@ -314,6 +322,8 @@ In addition to the raw SQ counters, RCV lets you define derived counters that ar
 - If multiple files are present, the currently selected widget tab defines which derived counter list is shown.
 
 The left list shows the raw (basic) counters collected with SQTT, along with their shapes ``(XCC, SE, CU, Time)``.
+
+.. _flamegraph-view:
 
 Flamegraph view
 ================
