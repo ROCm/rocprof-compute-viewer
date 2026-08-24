@@ -18,6 +18,10 @@ The documentation is structured as follows:
 .. grid:: 2
   :gutter: 3
 
+  .. grid-item-card:: Quick reference
+
+    * :ref:`RCV at a glance <rcv-at-a-glance>`
+
   .. grid-item-card:: Install
 
     * :ref:`Building from source <install-viewer>`
