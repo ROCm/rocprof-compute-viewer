@@ -55,6 +55,7 @@ public:
     static SqttFuncmapJson FromJson(const nlohmann::json& data);
 
     bool empty() const { return entries_by_codeobj.empty(); }
+    bool HasCodeobj(uint64_t codeobj_id) const { return entries_by_codeobj.count(codeobj_id) != 0; }
     const std::vector<std::string>& diagnostics() const { return diags; }
 
     ResolvedMarker Resolve(uint32_t marker_id, uint64_t codeobj_id) const;
