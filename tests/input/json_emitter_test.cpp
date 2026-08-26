@@ -274,3 +274,55 @@ TEST(JsonRecordEmitterOccupancy, ReadsSchema31OccupancyEventsAndDispatches)
     EXPECT_EQ(event.payload.raw, 2748u);
     EXPECT_EQ(event.byte_offset, 16u);
 }
+
+TEST(JsonRecordEmitterMarkers, UsesOccupancyCodeObjectWhenWaveFilesAreMissing)
+{
+    fs::path dir = freshTempDir("markers_from_occupancy_codeobj");
+
+    nlohmann::json filenames;
+    filenames["shaderdata_filenames"]["18"] =
+        nlohmann::json::array({nlohmann::json::array({"shaderdata_18_0.json", 110, 120})});
+    writeJson(dir / "filenames.json", filenames);
+
+    writeJson(
+        dir / "code.json",
+        {{"header", nlohmann::json::array()},
+         {"code", nlohmann::json::array()},
+         {"sqtt_funcmap", nlohmann::json::array({nlohmann::json::array({3, 1, "U", "scope"})})}}
+    );
+
+    writeJson(
+        dir / "shaderdata_18_0.json",
+        {{"records_count", 2},
+         {"records",
+          nlohmann::json::array(
+              {nlohmann::json::array({110, 6, 1, 2, 0, 0}), nlohmann::json::array({120, 1, 1, 2, 0, 0})}
+          )}}
+    );
+
+    nlohmann::json occupancy;
+    occupancy["dispatches"] = {
+        {"3", "generic_launcher"}
+    };
+    occupancy["18"] =
+        nlohmann::json::array({nlohmann::json::array({100, 1, 2, 0, 1, 3, 0, 1, 1, 0, 0}),
+                               nlohmann::json::array({200, 1, 2, 0, 0, 3, 0, 1, 1, 0, 0})});
+    writeJson(dir / "occupancy.json", occupancy);
+
+    DataStore store;
+    RecordDispatcher dispatcher;
+    OccupancyHandler occupancy_handler(store);
+    dispatcher.addHandler(&occupancy_handler);
+    JsonRecordEmitter emitter(dir.string() + "/", dispatcher, store);
+    emitter.run();
+
+    ASSERT_TRUE(store.shaderdata);
+    EXPECT_TRUE(store.shaderdata->HasMarkers());
+
+    auto markers = store.shaderdata->GetMarkers({18, 1, 2, 0});
+    ASSERT_TRUE(markers);
+    ASSERT_EQ(markers->size(), 1u);
+    EXPECT_EQ(markers->front().name, "scope");
+    EXPECT_EQ(markers->front().enter_time, 110);
+    EXPECT_EQ(markers->front().exit_time, 120);
+}

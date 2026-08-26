@@ -262,6 +262,15 @@ private:
 
     uint64_t codeobjForOccupancyRecord(const occupancy_record_t& rec)
     {
+        // The JSON loader stores the occupancy row's code-object ID in
+        // pc.address and tags it with JsonKernelCodeObjectId so the dispatch
+        // resolver can still use the same field as its synthetic kernel key.
+        // Prefer that exact ID for marker lookup; kernel-name matching is only
+        // a compatibility fallback for older JSON whose IDs do not identify a
+        // code object in this funcmap.
+        if (rec.pc.code_object_id == DispatchResolver::JsonKernelCodeObjectId && funcmap.HasCodeobj(rec.pc.address))
+            return rec.pc.address;
+
         int kid = store.dispatch_resolver.Resolve(rec.pc);
         return funcmap.CodeobjForKernelName(store.dispatch_resolver.Name(kid));
     }
