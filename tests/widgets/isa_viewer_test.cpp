@@ -268,22 +268,32 @@ TEST_F(IsaViewerTest, SourceReferencesSkipMissingSnapshotsAndPreserveCallstackOr
 
 TEST_F(IsaViewerTest, CollapsedArrowEndpointsAreNotDrawnOnAnotherRow)
 {
-    QImage empty(200, 200, QImage::Format_ARGB32_Premultiplied);
-    empty.fill(Qt::transparent);
-    const auto render_arrow = [&]
+    auto* header = view->findChild<QHeaderView*>();
+    ASSERT_NE(header, nullptr);
+    for (int width : {180, 320})
     {
-        QImage image = empty;
-        QPainter painter(&image);
-        QColor color(Qt::red);
-        view->connector->Connect(painter, 103, 112, 0, color);
-        painter.end();
-        return image;
-    };
-    EXPECT_NE(render_arrow(), empty);
-    view->toggleSection(0);
-    EXPECT_EQ(render_arrow(), empty);
-    view->expandAll();
-    EXPECT_NE(render_arrow(), empty);
+        SCOPED_TRACE(width);
+        header->resizeSection(0, width);
+        // Connect positions arrows at the canvas's right edge. A fixed-size
+        // image can clip them entirely with wider columns or platform fonts.
+        QImage empty(view->connector->size(), QImage::Format_ARGB32_Premultiplied);
+        empty.fill(Qt::transparent);
+        const auto render_arrow = [&]
+        {
+            QImage image = empty;
+            QPainter painter(&image);
+            QColor color(Qt::red);
+            view->connector->Connect(painter, 103, 112, 0, color);
+            painter.end();
+            return image;
+        };
+        const auto expanded = render_arrow();
+        EXPECT_NE(expanded, empty);
+        view->toggleSection(0);
+        EXPECT_EQ(render_arrow(), empty);
+        view->expandAll();
+        EXPECT_EQ(render_arrow(), expanded);
+    }
 }
 
 TEST_F(IsaViewerTest, AnnotationBarsFollowVisibleRowsAfterFolding)
