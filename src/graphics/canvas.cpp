@@ -315,8 +315,16 @@ bool Canvas::Connect(QPainter& painter, int l1, int l2, int xslot, QColor& color
 
     try
     {
-        posy1 = lineheight * (1 + ASMCodeline::line_map.at(l1)->line_index);
-        posy2 = lineheight * (1 + ASMCodeline::line_map.at(l2)->line_index);
+        const int line1 = ASMCodeline::line_map.at(l1)->line_index;
+        const int line2 = ASMCodeline::line_map.at(l2)->line_index;
+        const auto* view = QCodelist::singleton;
+        const int row1 = view ? view->rowMapping().rowOf(line1) : line1;
+        const int row2 = view ? view->rowMapping().rowOf(line2) : line2;
+        // Hidden instructions have no endpoint. Do not attach their arrows to
+        // unrelated visible rows or imply that a label's metrics are aggregates.
+        if (row1 < 0 || row2 < 0) return false;
+        posy1 = lineheight * (1 + row1);
+        posy2 = lineheight * (1 + row2);
     }
     catch (...)
     {
@@ -393,21 +401,16 @@ void Canvas::paintAnnotation()
     const int maxBarWidth = (width() - 3) * invscale;
     const int rows = std::clamp(cat->row_count, 1, 2);
 
-    // Binary search for first visible line.
-    int target_index = std::max(0, (scrollposy - padding) / lineheight);
-    auto start_it = std::lower_bound(
-        ASMCodeline::line_vec.begin(),
-        ASMCodeline::line_vec.end(),
-        target_index,
-        [](const auto& line, int idx) { return line && line->line_index < idx; }
-    );
-
-    for (auto it = start_it; it != ASMCodeline::line_vec.end(); ++it)
+    const auto* view = QCodelist::singleton;
+    if (!view) return;
+    const auto& visible_rows = view->rowMapping();
+    const auto [first, end] = visible_rows.visibleRange(scrollposy, height(), lineheight);
+    for (int row = first; row < end; ++row)
     {
-        auto line = *it;
+        const auto& line = ASMCodeline::line_vec[visible_rows.lineAt(row)];
         if (!line) continue;
 
-        auto ypos = indexToYpos(line->line_index, lineheight);
+        auto ypos = indexToYpos(row, lineheight);
         if (ypos > this->height()) break;
 
         auto lineIt = cat->per_line.find(line->line_index);
@@ -503,23 +506,22 @@ void Canvas::handleHotspotHover(QMouseEvent* event)
     const int lineheight = QCodelist::lineheight();
     const int mouse_y = event->pos().y();
 
-    // indexToYpos(idx) = lineheight*idx + padding - scrollposy; invert directly.
-    // idx is a sequential position in ASMCodeline::line_vec (matches Category::per_line keys),
-    // NOT the raw CodeData index that keys ASMCodeline::line_map.
+    // Invert display geometry, then map back to the stable annotation key.
     const int rel = mouse_y + scrollposy - padding;
     if (rel < 0)
     {
         setHoveredLine(-1);
         return;
     }
-    const int idx = rel / lineheight;
-    if (idx >= static_cast<int>(ASMCodeline::line_vec.size()))
+    const int row = rel / lineheight;
+    const int idx = MainWindow::window->code_contents->rowMapping().lineAt(row);
+    if (idx < 0)
     {
         setHoveredLine(-1);
         return;
     }
     // Reject the inter-row gap so hover doesn't bleed into adjacent lines' padding.
-    const int rowTop = indexToYpos(idx, lineheight);
+    const int rowTop = indexToYpos(row, lineheight);
     const int rowBottom = rowTop + lineheight - 2 * padding;
     if (mouse_y < rowTop || mouse_y > rowBottom)
     {

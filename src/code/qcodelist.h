@@ -25,7 +25,9 @@
 #include <QComboBox>
 #include <QWidget>
 #include "asmcode.h"
+#include "config/config.hpp"
 #include "graphics/canvas.h"
+#include "isa_rows.h"
 #include "util/highlight.h"
 
 class QElementList : public QTextElement
@@ -35,25 +37,26 @@ class QElementList : public QTextElement
     using Super = QTextElement;
 
 public:
-    explicit QElementList(ASMCodeline::Element _elem);
+    QElementList(ASMCodeline::Element element, const Isa::Rows& rows);
     virtual ~QElementList(){};
 
     virtual void paintEvent(QPaintEvent* event) override;
     virtual QSize sizeHint() const override;
-    virtual QSize minimumSizeHint() const override { return sizeHint(); };
+    virtual QSize minimumSizeHint() const override { return QSize(48, 0); };
 
     const ASMCodeline::Element elementtype;
     bool isASM() const { return elementtype == ASMCodeline::Element::EASM; }
 
-    void InvalidateCache() { cachevalid = false; };
+    void InvalidateCache() { width_cache = -1; };
+    int contentWidth();
+    int getLineIndex(int posy) override;
     virtual LineElement* getelement(int index) override;
     virtual int line_height() override;
 
 protected:
-    void updateCache(class QFontMetrics& fm);
-
+    const Isa::Rows& rows;
     int width_cache = -1;
-    bool cachevalid = false;
+    QFont width_font;
 };
 
 class QASMElementList : public QElementList
@@ -63,10 +66,12 @@ class QASMElementList : public QElementList
     using Super = QElementList;
 
 public:
-    QASMElementList() : Super(ASMCodeline::Element::EASM) { setAttribute(Qt::WA_AlwaysShowToolTips, true); };
+    explicit QASMElementList(class QCodelist& viewer);
+    void mousePressEvent(QMouseEvent* event) override;
     virtual void mouseMoveEvent(class QMouseEvent* event) override;
-    virtual QSize sizeHint() const override;
-    virtual QSize minimumSizeHint() const override;
+
+private:
+    QCodelist& viewer;
 };
 
 class QCodelist : public QWidget
@@ -101,10 +106,14 @@ public:
     /// after Registry::publish/clear/clearAll.
     void refreshAnnotations();
 
+    const Isa::Rows& rowMapping() const { return rows; }
+    void setFoldingEnabled(bool enabled);
+    void toggleSection(int label);
+    void expandAll();
+
     std::array<QElementList*, Element::ENUMTYPES> elements{};
 
     class QScrollBar* scrollbar = nullptr;
-    class QGridLayout* layout_main = nullptr;
     class Canvas* connector = nullptr;
     class DrawTypeSelector* drawselector = nullptr;
     std::vector<Canvas::WaitList> waitcnt{};
@@ -117,6 +126,19 @@ public:
     int64_t max_pcs_latency = 1;
 
 private:
+    void updateScrollRange();
+    void updateAutomaticColumnWidths();
+    void autoSizeColumn(int column);
+    void clearRowInteraction();
+    void rowsChanged(int anchor_line, int offset);
+    QWidget* createInstructionHeader();
+
+    Isa::Rows rows;
+    class CodeColumns* columns = nullptr;
+    QComboBox* folding_selector = nullptr;
+    class QToolButton* expand_sections = nullptr;
+    bool updating_columns = false;
+    QFont display_font;
     int scrollposy = 0;
 };
 

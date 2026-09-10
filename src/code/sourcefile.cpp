@@ -196,7 +196,7 @@ void SourceLine::onMousePress()
     for (auto& ref : refs)
         if (auto refptr = ref.lock())
         {
-            QCodelist::singleton->Highlight(refptr->line_number, refptr->line_number, true);
+            QCodelist::singleton->Highlight(refptr->line_index, refptr->line_index, true);
             return;
         }
 };

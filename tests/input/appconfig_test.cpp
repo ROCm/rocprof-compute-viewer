@@ -23,24 +23,27 @@
 #include "config/appconfig.h"
 #include <gtest/gtest.h>
 #include <QCoreApplication>
+#include <QDir>
+#include <QFileInfo>
+#include <QProcess>
 #include <QSettings>
-#include <QStandardPaths>
+#include <QTextStream>
+#include "../config_test_settings.h"
 
 class AppConfigTest : public ::testing::Test
 {
 protected:
-    // AppConfig keeps one QSettings instance alive for the process. Clearing the
-    // native settings store between tests invalidates that instance on Windows.
+    // This is the temporary INI store configured in main(), never user settings.
     static void SetUpTestSuite()
     {
-        QSettings settings("AMD", "Rocprof-Compute-Viewer");
+        auto settings = TestConfig::openSettings();
         settings.clear();
         settings.sync();
     }
 
     static void TearDownTestSuite()
     {
-        QSettings settings("AMD", "Rocprof-Compute-Viewer");
+        auto settings = TestConfig::openSettings();
         settings.clear();
         settings.sync();
     }
@@ -61,10 +64,49 @@ TEST_F(AppConfigTest, AppliesFamilyDefaultsAndKeepsSameFamilyOverrides)
     EXPECT_TRUE(config.resolveLoadWaveStatesForTrace(9, "vega"));
 }
 
+TEST_F(AppConfigTest, InvalidStoredColumnWidthsFallBackToAutomaticSizing)
+{
+    auto& config = AppConfig::getInstance();
+    auto settings = TestConfig::openSettings();
+    for (const auto& invalid : {QVariant("invalid"), QVariant(-50), QVariant(0), QVariant(47), QVariant(4097)})
+    {
+        settings.setValue("InstructionColumnWidths/Element0", invalid);
+        EXPECT_EQ(config.getColumnWidth(0), -1) << invalid.toString().toStdString();
+    }
+    settings.remove("InstructionColumnWidths/Element0");
+}
+
+TEST_F(AppConfigTest, FontSizePersistsAcrossProcesses)
+{
+    AppConfig::getInstance().setFontSize(13);
+    auto settings = TestConfig::openSettings();
+    settings.sync();
+    ASSERT_EQ(settings.status(), QSettings::NoError);
+    QDir storage_dir = QFileInfo(settings.fileName()).absoluteDir();
+    ASSERT_TRUE(storage_dir.cdUp()); // QSettings appends the organization directory.
+    // A second QSettings in this process shares a cache, so only a fresh process
+    // proves the saved value is on disk and restored by AppConfig at startup.
+    QProcess reader;
+    reader.start(QCoreApplication::applicationFilePath(), {"--read-font-size", storage_dir.absolutePath()});
+    ASSERT_TRUE(reader.waitForFinished(10000));
+    ASSERT_EQ(reader.exitStatus(), QProcess::NormalExit);
+    ASSERT_EQ(reader.exitCode(), 0) << reader.readAllStandardError().toStdString();
+    EXPECT_EQ(reader.readAllStandardOutput().trimmed(), QByteArray("13"));
+}
+
 int main(int argc, char** argv)
 {
     QCoreApplication app(argc, argv);
-    QStandardPaths::setTestModeEnabled(true);
+    if (argc == 3 && QString::fromLocal8Bit(argv[1]) == "--read-font-size")
+    {
+        QSettings::setDefaultFormat(QSettings::IniFormat);
+        const auto path = QString::fromLocal8Bit(argv[2]);
+        QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, path);
+        QSettings::setPath(QSettings::IniFormat, QSettings::SystemScope, path);
+        QTextStream(stdout) << AppConfig::getInstance().getFontSize();
+        return 0;
+    }
+    TestConfig::IsolatedSettings settings;
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }

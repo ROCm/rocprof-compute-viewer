@@ -50,12 +50,33 @@ set_tests_properties(
 # ============================================================================
 # TextElement Tests - Text line rendering with caching and hover states
 # ============================================================================
-add_executable(textelement_test textelement_test.cpp)
+add_executable(textelement_test
+    textelement_test.cpp
+    ${SRC_DIR}/code/textelement.cpp
+    ${SRC_DIR}/config/config.cpp
+    ${UTIL_DIR}/custom_layouts.cpp
+    ${UTIL_DIR}/highlight.cpp)
 target_include_directories(textelement_test PRIVATE ${SRC_DIR})
 target_link_libraries(textelement_test GTest::gtest Qt6::Widgets)
+if(RCV_HAS_TRACE_DECODER)
+    target_link_libraries(textelement_test rocprof-trace-decoder::rocprof-trace-decoder-static)
+endif()
 rcv_enable_asan(textelement_test)
 add_test(NAME textelement_test COMMAND textelement_test)
-set_tests_properties(textelement_test PROPERTIES ENVIRONMENT "ASAN_OPTIONS=detect_leaks=0")
+set_tests_properties(textelement_test PROPERTIES ENVIRONMENT "ASAN_OPTIONS=detect_leaks=0;QT_QPA_PLATFORM=offscreen")
+
+# ISA row mapping, classification, and native column geometry (no per-row widgets).
+add_executable(isa_model_test isa_model_test.cpp
+    ${SRC_DIR}/code/isa_rows.cpp
+    ${SRC_DIR}/code/instruction_style.cpp
+    ${SRC_DIR}/code/codecolumns.cpp)
+target_include_directories(isa_model_test PRIVATE ${SRC_DIR})
+target_link_libraries(isa_model_test GTest::gtest Qt6::Widgets Qt6::Test)
+rcv_enable_asan(isa_model_test)
+add_test(NAME isa_model_test COMMAND isa_model_test)
+set_tests_properties(isa_model_test PROPERTIES ENVIRONMENT "ASAN_OPTIONS=detect_leaks=0;QT_QPA_PLATFORM=offscreen")
+
+add_subdirectory(viewer)
 
 # ============================================================================
 # Wave Utils Tests - Pure utility functions from wave/token and sourcefile No Qt dependencies - tests mip shifting,

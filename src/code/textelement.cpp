@@ -21,20 +21,43 @@
 // SOFTWARE.
 
 #include "textelement.h"
-#include <QLabel>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPainterPath>
-#include <QScrollBar>
-#include <unordered_set>
-#include <vector>
-#include "../config/config.hpp"
-#include "mainwindow.h"
-#include "util/custom_layouts.h"
+#include <QTimer>
+#include "config/config.hpp"
 
 QTextElement::QTextElement() { setMouseTracking(true); }
 
-int QTextElement::getLineIndex(int posy) { return (posy + scrollposy) / line_height(); }
+int QTextElement::getLineIndex(int posy)
+{
+    return posy < 0 || line_height() <= 0 ? -1 : (posy + scrollposy) / line_height();
+}
+
+void QTextElement::setScroll(int posy)
+{
+    if (scrollposy != posy) clearHover();
+    scrollposy = posy;
+    update();
+}
+
+void QTextElement::clearHover()
+{
+    if (auto* element = getelement(hoveringOverLine)) element->setMouseHover(false);
+    hoveringOverLine = -1;
+    setToolTip({});
+    unsetCursor();
+    update();
+}
+
+void QTextElement::clearHighlight()
+{
+    delete timer.timer;
+    timer.timer = nullptr;
+    timer.vis = 1.0f;
+    highlight_begin = highlight_end = -1;
+    update();
+}
 
 void QTextElement::mousePressEvent(QMouseEvent* ev)
 {
@@ -50,7 +73,8 @@ std::optional<int> QTextElement::Highlight(const Color& color, int lbegin, int l
     const int lineheight = line_height();
 
     timer.Highlight();
-    QObject::connect(timer.timer, &QTimer::timeout, this, &QTextElement::IncrementHighlight);
+    QObject::connect(timer.timer, &QTimer::timeout, this, &QTextElement::IncrementHighlight, Qt::UniqueConnection);
+    update();
 
     int newscroll = 0;
     if ((lbegin + 1) * lineheight - scrollposy > height())
@@ -94,15 +118,16 @@ void QTextElement::leaveEvent(QEvent* event)
     this->Super::leaveEvent(event);
     isMouseHover = false;
 
-    if (auto ref = getelement(hoveringOverLine)) ref->setMouseHover(false);
-    hoveringOverLine = -1;
-
-    update();
+    clearHover();
 }
 
 int TextLineElement::width(QFontMetrics& fm)
 {
-    if (width_cache <= 1) width_cache = fm.horizontalAdvance(this->text);
+    if (width_cache < 0 || !width_metrics || *width_metrics != fm)
+    {
+        width_cache = fm.horizontalAdvance(this->text);
+        width_metrics = fm;
+    }
 
     return width_cache;
 }
@@ -110,6 +135,8 @@ int TextLineElement::width(QFontMetrics& fm)
 void TextLineElement::paint(class QPainter& painter, int posx, int posy, int stepy, int overline)
 {
     if (!text.size()) return;
+    QFontMetrics fm(painter.font());
+    width(fm);
 
     if (bRefHighlight)
     {
@@ -121,8 +148,6 @@ void TextLineElement::paint(class QPainter& painter, int posx, int posy, int ste
 
     if (bHovering)
     {
-        QColor color2(230, 230, 230);
-        QColor color1(210, 210, 210);
         QLinearGradient grad(0, posy - stepy, 0, posy);
 
         Color background = WindowColors::Background();
@@ -144,5 +169,7 @@ void TextLineElement::paint(class QPainter& painter, int posx, int posy, int ste
         painter.setPen(pen);
     }
 
-    painter.drawText(posx + overline, posy - overline, this->text);
+    drawText(painter, posx + overline, posy - overline);
 }
+
+void TextLineElement::drawText(QPainter& painter, int x, int baseline) { painter.drawText(x, baseline, text); }

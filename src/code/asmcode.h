@@ -22,20 +22,17 @@
 
 #pragma once
 
-#include <QLabel>
-#include <QPushButton>
-#include <QWidget>
+#include <array>
 #include <map>
+#include <memory>
 #include <vector>
-#include "data/wavemanager.h"
+#include "codeload.hpp"
 #include "hotspot.hpp"
+#include "instruction_style.h"
 #include "textelement.h"
-#include "util/custom_layouts.h"
 
-/**
- *  Widget that displays information about an assembly instruction.
- *  To be used as a element of QCodelist.
- */
+/// Lightweight per-instruction data and text primitives (no per-row widgets).
+/// QCodelist paints only visible rows.
 class ASMCodeline
 {
 public:
@@ -79,13 +76,12 @@ public:
     static std::vector<std::shared_ptr<ASMCodeline>> line_vec;
 };
 
-//! A text widget containing an assembly instruction
+//! A painted text primitive containing an assembly instruction.
 class ASMLine : public TextLineElement
 {
     using Super = TextLineElement;
 
 public:
-    // ASMLine(int line_number, const std::string& line, int64_t _codeobj, int64_t _addr, const std::string& sourceref);
     ASMLine(int line_number, const CodeData::Line& line);
 
     void setMouseHover(bool value) override;
@@ -97,9 +93,17 @@ public:
     const int line_number;
     const int64_t codeobj;
     const int64_t addr;
+    const Isa::InstructionKind instruction_kind;
+
+protected:
+    void drawText(QPainter& painter, int x, int baseline) override;
+
+private:
+    int mnemonic_start = 0;
+    int mnemonic_length = 0;
 };
 
-//! A text widget containing the number of hits a instruction received
+//! A painted numeric value (zero values are blank).
 class NumberLabel : public TextLineElement
 {
     using Super = TextLineElement;
@@ -110,7 +114,7 @@ public:
     const size_t number;
 };
 
-//! A text widget containing the number of hits a instruction received
+//! A painted instruction hit count.
 class HitcountLabel : public NumberLabel
 {
     using Super = NumberLabel;
@@ -119,7 +123,7 @@ public:
     HitcountLabel(int64_t num) : Super(num) {}
 };
 
-//! A text widget containing the cycles used for a particular instruction.
+//! A painted cycle count for the active latency strategy.
 class CyclesLabel : public TextLineElement
 {
     using Super = TextLineElement;
@@ -154,6 +158,8 @@ public:
     virtual int width(class QFontMetrics& fm) override;
 
 private:
+    void refreshText();
+    int cached_iteration = -1;
     std::vector<int> cycles;
     int64_t all_cycles_sum;
     int64_t all_hitcount;

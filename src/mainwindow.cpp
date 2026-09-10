@@ -229,18 +229,16 @@ MainWindow::MainWindow(std::string uidir) : QMainWindow(nullptr), ui(new Ui::Mai
         auto* code_layout = new QHBox();
         code_wid->setLayout(code_layout);
 
-        QVBox* box = new QVBox();
         this->code_scrollarea = new QScrollArea();
         this->code_scrollarea->setWidgetResizable(true);
         this->code_scrollarea->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-        code_scrollarea->setLayout(box);
 
         this->code_contents = new QCodelist();
-        box->addWidget(this->code_contents);
         this->code_scrollarea->setWidget(this->code_contents);
 
         code_layout->addWidget(code_scrollarea);
         code_layout->addWidget(code_contents->scrollbar);
+        code_contents->scrollbar->show();
 
         this->source_filetab = new SourceFileTab();
         code_splitter->addWidget(code_wid);
@@ -583,20 +581,6 @@ void MainWindow::SetMainWave(int se, int simd, int sl, int wid)
 
     if (thread_wait.valid()) thread_wait.get();
     if (thread_branch.valid()) thread_branch.get();
-
-    QTimer* timer = new QTimer(this);
-    timer->setSingleShot(true);
-    timer->setInterval(1);
-    QObject::connect(
-        timer,
-        &QTimer::timeout,
-        this,
-        [this]()
-        {
-            if (auto* bar = this->code_scrollarea->horizontalScrollBar()) bar->setValue(bar->maximum());
-        }
-    );
-    timer->start();
 
     // Print code idle/stall/wait/exec
     int64_t idle = 0;
