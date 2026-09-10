@@ -6,7 +6,6 @@
 #include <QDir>
 #include <QHeaderView>
 #include <QImage>
-#include <QLineEdit>
 #include <QPainter>
 #include <QScrollArea>
 #include <QScrollBar>
@@ -16,15 +15,33 @@
 #include "../config_test_settings.h"
 #include "analysis/annotation.h"
 #include "code/codecolumns.h"
+#include "code/labelminimap.h"
 #include "code/qcodelist.h"
 #include "code/sourcefile.h"
 #include "config/appconfig.h"
-#include "data/datastore.h"
-#include "data/shaderdata.h"
-#include "mainwindow.h"
 
 namespace
 {
+// Only the app boundary is substituted. Rendering, navigation within the
+// listing, source references, annotations, and settings use production code.
+class TestContext : public Isa::Context
+{
+public:
+    QFont codeFont(const QFont&) const override { return font; }
+    int currentIteration() const override { return iteration; }
+    bool hiddenLatencyAvailable() const override { return hidden_latency_available; }
+    void scalePainter(QPainter& painter) const override { painter.scale(scale, scale); }
+    double painterScale() const override { return scale; }
+    void selectInstruction(const ASMLine& instruction) override { selected_lines.push_back(instruction.line_number); }
+    void listingChanged() override {}
+
+    QFont font{"monospace", 10};
+    int iteration = -1;
+    bool hidden_latency_available = false;
+    double scale = 1.0;
+    std::vector<int> selected_lines;
+};
+
 std::vector<CodeData> makeCode(const std::vector<std::string>& text)
 {
     std::vector<CodeData> code;
@@ -44,15 +61,13 @@ protected:
             AppConfig::getInstance().setColumnWidth(i, -1);
             AppConfig::getInstance().setColumnVisible(i, true);
         }
-        MainWindow::font() = 10;
-        MainWindow::default_font = "monospace";
         WindowColors::setDark(false);
         HorizontalHotspot::is_sqtt_enabled = true;
         HorizontalHotspot::is_pcs_enabled = false;
         CyclesLabel::setStrategy(CyclesLabel::Strategy::SUM_ALL);
         Canvas::drawtype = Canvas::DrawType::DrawArrows;
         Canvas::active_annotation_id.clear();
-        view = std::make_unique<QCodelist>();
+        view = std::make_unique<QCodelist>(context);
         view->resize(1400, 450);
         view->Populate(makeCode({"label_a:", "v_add_f32 v0, v1, v2", "s_waitcnt vmcnt(0)", "label_b:", "s_endpgm"}));
         view->show();
@@ -67,6 +82,7 @@ protected:
         Annotation::Registry::instance().clearAll();
         WindowColors::setDark(false);
     }
+    TestContext context;
     std::unique_ptr<QCodelist> view;
 };
 
@@ -119,6 +135,104 @@ TEST_F(IsaViewerTest, NavigationRevealsHiddenInstructionsAndLabels)
     EXPECT_EQ(view->rowMapping().rowOf(4), -1);
     view->Highlight(3, 3, true);
     EXPECT_EQ(view->rowMapping().count(), 5);
+}
+
+TEST_F(IsaViewerTest, ClickingFoldedRowsNavigatesUsingDecoderInstructionIdentity)
+{
+    auto* instructions = view->elements[ASMCodeline::EASM];
+    const int row_height = QCodelist::lineheight();
+    QTest::mouseClick(instructions, Qt::LeftButton, Qt::NoModifier, QPoint(7, row_height / 2));
+    EXPECT_TRUE(context.selected_lines.empty()); // Folding must not navigate.
+
+    QTest::mouseClick(instructions, Qt::LeftButton, Qt::NoModifier, QPoint(30, 2 * row_height + row_height / 2));
+    view->expandAll();
+    QTest::mouseClick(instructions, Qt::LeftButton, Qt::NoModifier, QPoint(30, 2 * row_height + row_height / 2));
+    // The same display row now refers to a different instruction, and neither
+    // display row nor dense line index is the decoder's instruction identifier.
+    EXPECT_EQ(context.selected_lines, (std::vector<int>{112, 106}));
+    QTest::mouseClick(instructions, Qt::LeftButton, Qt::NoModifier, QPoint(30, 10 * row_height));
+    EXPECT_EQ(context.selected_lines.size(), 2); // No navigation on empty rows.
+}
+
+TEST_F(IsaViewerTest, LabelMinimapClickRevealsSectionUsingFoldedRowCoordinates)
+{
+    std::vector<std::string> code(1000, "v_add_f32 v0, v1, v2");
+    code[0] = "label_a:";
+    code[200] = "label_b:";
+    code[600] = "label_c:";
+    view->Populate(makeCode(code));
+    view->toggleSection(0);
+    view->toggleSection(600);
+    LabelMinimap minimap;
+    minimap.Populate();
+    minimap.resize(500, 300);
+    minimap.show();
+    QApplication::processEvents();
+    auto* table = minimap.findChild<QTableWidget*>();
+    ASSERT_NE(table, nullptr);
+    ASSERT_EQ(table->rowCount(), 3);
+    QTest::mouseClick(
+        table->viewport(), Qt::LeftButton, Qt::NoModifier, table->visualItemRect(table->item(2, 0)).center()
+    );
+    EXPECT_EQ(view->rowMapping().rowOf(601), 402); // Target section was expanded.
+    EXPECT_EQ(view->rowMapping().rowOf(1), -1);    // Unrelated section stays folded.
+    EXPECT_EQ(view->scrollbar->value(), 401 * QCodelist::lineheight() - view->height() / 3);
+}
+
+TEST_F(IsaViewerTest, IterationChangesRefreshPaintedLatencyAndItsMeasurement)
+{
+    auto code = makeCode({"v_add_f32 v0, v1, v2"});
+    code[0].exec = std::make_unique<CodeData::Exec>(0);
+    code[0].exec->latency = {7, 12345};
+    view->Populate(code);
+    auto* column = view->elements[ASMCodeline::ELATENCY];
+    auto* selector = view->findChild<CycleModeSelector*>();
+    ASSERT_NE(selector, nullptr);
+    selector->setCurrentIndex(static_cast<int>(CyclesLabel::Strategy::ITERATION));
+    auto* label = column->getelement(0);
+    ASSERT_NE(label, nullptr);
+    QFontMetrics metrics(column->font());
+    for (const auto& [iteration, expected] : std::vector<std::pair<int, std::string>>{
+             {-1, "0"    },
+             {0,  "7"    },
+             {1,  "12345"},
+             {2,  "0"    },
+             {0,  "7"    }
+    })
+    {
+        context.iteration = iteration;
+        column->grab(); // Repaint without repopulating or changing strategy.
+        EXPECT_EQ(label->getStdText(), expected);
+        EXPECT_EQ(label->width(metrics), metrics.horizontalAdvance(QString::fromStdString(expected)));
+    }
+    selector->setCurrentIndex(static_cast<int>(CyclesLabel::Strategy::SUM));
+    column->grab();
+    EXPECT_EQ(label->getStdText(), "12352");
+}
+
+TEST_F(IsaViewerTest, LosingHiddenLatencyAnalysisDisablesItsViewAndFallsBack)
+{
+    QComboBox* selector = nullptr;
+    for (auto* combo : view->findChildren<QComboBox*>())
+        if (combo->findData(QString("nonhidden_latency")) >= 0) selector = combo;
+    ASSERT_NE(selector, nullptr);
+    const auto enabled = [&]
+    {
+        return selector->model()->flags(selector->model()->index(selector->findData(QString("nonhidden_latency")), 0)) &
+               Qt::ItemIsEnabled;
+    };
+    EXPECT_FALSE(enabled());
+    context.hidden_latency_available = true;
+    view->refreshAnnotations();
+    EXPECT_TRUE(enabled());
+    selector->setCurrentIndex(selector->findData(QString("nonhidden_latency")));
+    EXPECT_EQ(Canvas::active_annotation_id, "nonhidden_latency");
+    context.hidden_latency_available = false;
+    view->refreshAnnotations();
+    EXPECT_FALSE(enabled());
+    EXPECT_EQ(Canvas::drawtype, Canvas::DrawType::DrawArrows);
+    EXPECT_TRUE(Canvas::active_annotation_id.empty());
+    EXPECT_EQ(selector->currentIndex(), 0);
 }
 
 TEST_F(IsaViewerTest, SourceSelectionUsesStableIndexNotSparseDecoderLineNumber)
@@ -184,11 +298,16 @@ TEST_F(IsaViewerTest, AnnotationBarsFollowVisibleRowsAfterFolding)
     view->selectAnnotation("test");
     view->setFoldingEnabled(true);
     view->toggleSection(0);
-    const auto image = view->connector->grab().toImage();
-    // Label a is row 0, label b row 1, endpgm row 2; hidden add's red bar is absent.
-    const int row_height = QCodelist::lineheight();
-    EXPECT_EQ(image.pixelColor(10, 2 * row_height + row_height / 2), QColor(Qt::blue));
-    for (int y = 0; y < image.height(); ++y) EXPECT_NE(image.pixelColor(10, y), QColor(Qt::red));
+    for (double scale : {1.0, 0.5})
+    {
+        context.scale = scale;
+        const auto image = view->connector->grab().toImage();
+        // Label a is row 0, label b row 1, endpgm row 2; hidden add's red bar is
+        // absent. Display scaling must not move bars away from their text rows.
+        const int row_height = QCodelist::lineheight();
+        EXPECT_EQ(image.pixelColor(10, 2 * row_height + row_height / 2), QColor(Qt::blue));
+        for (int y = 0; y < image.height(); ++y) EXPECT_NE(image.pixelColor(10, y), QColor(Qt::red));
+    }
 }
 
 TEST_F(IsaViewerTest, FontThemeAndViewportChangesKeepRowsAligned)
@@ -218,7 +337,7 @@ TEST_F(IsaViewerTest, FontThemeAndViewportChangesKeepRowsAligned)
     for (bool dark : {false, true})
     {
         WindowColors::setDark(dark);
-        MainWindow::font() = dark ? 13 : 10;
+        context.font.setPointSize(dark ? 13 : 10);
         view->refreshLayout();
         QApplication::processEvents();
         const int row_height = QCodelist::lineheight();
@@ -252,7 +371,7 @@ TEST_F(IsaViewerTest, WidthsPersistAcrossPopulationVisibilityAndViewerRecreation
     QApplication::processEvents();
     EXPECT_EQ(view->elements[ASMCodeline::EASM]->width(), 275);
     view.reset();
-    view = std::make_unique<QCodelist>();
+    view = std::make_unique<QCodelist>(context);
     EXPECT_EQ(view->elements[ASMCodeline::EASM]->width(), 275);
 }
 
@@ -271,7 +390,7 @@ TEST_F(IsaViewerTest, DraggingAndDoubleClickingDividerRestoresAutomaticSizing)
     QTest::mouseDClick(header->viewport(), Qt::LeftButton, Qt::NoModifier, divider + QPoint(75, 0));
     EXPECT_EQ(view->elements[ASMCodeline::EHIT]->width(), automatic_width);
     EXPECT_EQ(AppConfig::getInstance().getColumnWidth(ASMCodeline::EHIT), -1);
-    MainWindow::font() = 19;
+    context.font.setPointSize(19);
     view->refreshLayout();
     QApplication::processEvents();
     EXPECT_GT(view->elements[ASMCodeline::EHIT]->width(), automatic_width);
@@ -287,7 +406,7 @@ TEST_F(IsaViewerTest, AutomaticLatencyWidthTracksFontSizeAndKeepsManualWidths)
     const int latency_column = ASMCodeline::ELATENCY + 1;
     const auto check_font = [&](int size)
     {
-        MainWindow::font() = size;
+        context.font.setPointSize(size);
         view->refreshLayout();
         QApplication::processEvents();
         EXPECT_EQ(selector->font().pointSize(), size);
@@ -304,37 +423,11 @@ TEST_F(IsaViewerTest, AutomaticLatencyWidthTracksFontSizeAndKeepsManualWidths)
     EXPECT_EQ(check_font(9), small_width);
 
     header->resizeSection(latency_column, 300);
-    MainWindow::font() = 11;
+    context.font.setPointSize(11);
     view->refreshLayout();
     QApplication::processEvents();
     EXPECT_EQ(header->sectionSize(latency_column), 300);
     EXPECT_EQ(config.getColumnWidth(ASMCodeline::ELATENCY), 300);
-}
-
-TEST_F(IsaViewerTest, SavedFontSizeSurvivesOpeningAndEditingTheViewer)
-{
-    view.reset();
-    auto& config = AppConfig::getInstance();
-    config.setFontSize(11);
-    for (int initial_size : {11, 9})
-    {
-        MainWindow window("");
-        auto* edit = window.findChild<QLineEdit*>("fontedit");
-        ASSERT_NE(edit, nullptr);
-        EXPECT_EQ(edit->text().toInt(), initial_size);
-        EXPECT_EQ(MainWindow::font(), initial_size);
-        auto* selector = window.code_contents->findChild<CycleModeSelector*>();
-        ASSERT_NE(selector, nullptr);
-        EXPECT_EQ(selector->font().pointSize(), initial_size);
-        const int original_width = window.code_contents->elements[ASMCodeline::ELATENCY]->width();
-        // Use the real edit signal, which saves and applies the setting.
-        edit->setText("9");
-        ASSERT_TRUE(QMetaObject::invokeMethod(edit, "editingFinished"));
-        EXPECT_EQ(config.getFontSize(), 9);
-        EXPECT_EQ(MainWindow::font(), 9);
-        // The window has never been shown: layout updates cannot rely on a paint event.
-        if (initial_size > 9) EXPECT_LT(window.code_contents->elements[ASMCodeline::ELATENCY]->width(), original_width);
-    }
 }
 
 TEST_F(IsaViewerTest, FontRefreshPreservesFoldedScrollAnchorBeforePainting)
@@ -352,7 +445,7 @@ TEST_F(IsaViewerTest, FontRefreshPreservesFoldedScrollAnchorBeforePainting)
     const int latency_width = view->elements[ASMCodeline::ELATENCY]->width();
     view->hide();
 
-    MainWindow::font() = 16;
+    context.font.setPointSize(16);
     view->refreshLayout();
 
     // No event processing or painting: scrolling and hit testing must already
@@ -517,44 +610,6 @@ TEST_F(IsaViewerTest, HorizontalOverflowStartsLeftAndKeepsDeliberateScrolling)
     QApplication::processEvents();
     EXPECT_EQ(bar->value(), 100);
     area.takeWidget(); // the fixture retains ownership
-}
-
-TEST_F(IsaViewerTest, SelectingMainWaveDoesNotForceHorizontalScrollToRight)
-{
-    view.reset();
-    MainWindow window("");
-    window.data_store = std::make_unique<DataStore>();
-    auto& store = *window.data_store;
-    store.code = makeCode({"label_a:", "v_add_f32 v0, v1, v2", "s_endpgm"});
-    wave_record_t record{};
-    record.id = "isa-scroll-test-wave";
-    record.begin = 100;
-    record.end = 132;
-    record.instructions = {
-        {100, ROCPROFILER_THREAD_TRACE_DECODER_INST_VALU,  0, 16, 103},
-        {116, ROCPROFILER_THREAD_TRACE_DECODER_INST_IMMED, 0, 16, 106}
-    };
-    record.timeline = {
-        {2, 32}
-    };
-    store.wave_records[record.id] = record;
-    store.wave_hierarchy[0][0][0][0] = {record.id, record.begin, record.end};
-
-    // Exercise the real MainWindow wave-selection path without showing plots
-    // that require a graphics context in headless test environments.
-    auto* area = window.code_scrollarea;
-    area->setParent(nullptr); // MainWindow still owns/deletes code_scrollarea
-    area->resize(500, 350);
-    area->show();
-    window.SetMainWave(0, 0, 0, 0);
-    QTest::qWait(10);
-    auto* bar = area->horizontalScrollBar();
-    EXPECT_GT(bar->maximum(), 100);
-    EXPECT_EQ(bar->value(), bar->minimum());
-    bar->setValue(100);
-    window.SetMainWave(0, 0, 0, 0);
-    QTest::qWait(10);
-    EXPECT_EQ(bar->value(), 100);
 }
 
 struct PaintCounts

@@ -22,7 +22,6 @@
 
 #include "code/textelement.h"
 #include <gtest/gtest.h>
-#include <QApplication>
 #include <QFontMetrics>
 #include <QImage>
 #include <QPainter>
@@ -102,11 +101,4 @@ TEST(TextLineElementTest, HoverAndReferenceHighlightsRenderAndClear)
             EXPECT_EQ(render(element, font), plain);
         }
     }
-}
-
-int main(int argc, char** argv)
-{
-    QApplication app(argc, argv);
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
 }

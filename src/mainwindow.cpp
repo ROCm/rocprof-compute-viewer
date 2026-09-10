@@ -233,7 +233,7 @@ MainWindow::MainWindow(std::string uidir) : QMainWindow(nullptr), ui(new Ui::Mai
         this->code_scrollarea->setWidgetResizable(true);
         this->code_scrollarea->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
 
-        this->code_contents = new QCodelist();
+        this->code_contents = new QCodelist(*this);
         this->code_scrollarea->setWidget(this->code_contents);
 
         code_layout->addWidget(code_scrollarea);
@@ -415,6 +415,26 @@ int& MainWindow::font()
 {
     static int font = 9;
     return font;
+}
+
+QFont MainWindow::codeFont(const QFont& fallback) const
+{
+    QFont code_font = default_font.isEmpty() ? fallback : QFont(default_font);
+    code_font.setPointSize(font());
+    return code_font;
+}
+
+int MainWindow::currentIteration() const { return iteration_current.second; }
+
+bool MainWindow::hiddenLatencyAvailable() const { return data_store && data_store->hidden_latency_analyzed; }
+
+void MainWindow::scalePainter(QPainter& painter) const { getScaling(painter); }
+
+double MainWindow::painterScale() const { return getScaling(); }
+
+void MainWindow::listingChanged()
+{
+    if (label_minimap) label_minimap->Populate();
 }
 
 void MainWindow::updateFont()
@@ -2110,6 +2130,35 @@ void MainWindow::SetSearchText(const std::string& text)
     ui->search_edit->blockSignals(true);
     ui->search_edit->setText(QString::fromStdString(text));
     ui->search_edit->blockSignals(false);
+}
+
+void MainWindow::selectInstruction(const ASMLine& instruction)
+{
+    SetSearchText(instruction.getStdText());
+
+    const int64_t clock = WaveInstance::GetMainClock(instruction.line_number, iteration_current.second);
+    if (clock >= 0) ScrollViewsTo(clock);
+
+    // Prefer a reference in the currently displayed source file.
+    if (source_filetab)
+    {
+        if (auto* source = dynamic_cast<QScrollArea*>(source_filetab->currentWidget()))
+            for (const auto& ref : instruction.line_ref)
+                if (auto locked = ref.lock())
+                    if (locked->parent == source->widget())
+                    {
+                        locked->scrollTo();
+                        return;
+                    }
+    }
+
+    // Otherwise navigate to the first live source reference.
+    for (const auto& ref : instruction.line_ref)
+        if (auto locked = ref.lock())
+        {
+            locked->scrollTo();
+            return;
+        }
 }
 
 void MainWindow::NextSearch()

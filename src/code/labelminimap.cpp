@@ -29,7 +29,6 @@
 #include <cstring>
 #include <sstream>
 #include "config/config.hpp"
-#include "mainwindow.h"
 #include "qcodelist.h"
 #include "isa_rows.h"
 

@@ -39,10 +39,18 @@
 #include "analysis/annotation.h"
 #include "code/qcodelist.h"
 #include "config/config.hpp"
-#include "data/wavemanager.h"
-#include "mainwindow.h"
 
 #define ARROW_SPACING 5
+
+namespace
+{
+void scalePainter(QPainter& painter)
+{
+    if (QCodelist::singleton) QCodelist::singleton->context().scalePainter(painter);
+}
+
+double painterScale() { return QCodelist::singleton ? QCodelist::singleton->context().painterScale() : 1.0; }
+} // namespace
 
 Canvas::DrawType Canvas::drawtype = Canvas::DrawType::DrawArrows;
 std::string Canvas::active_annotation_id;
@@ -73,7 +81,7 @@ std::vector<QColor> Canvas::arrow_colors = {
 void Canvas::paintArrows()
 {
     QPainter painter(this);
-    MainWindow::getScaling(painter);
+    scalePainter(painter);
     painter.setRenderHint(QPainter::Antialiasing);
     painter.setPen(Qt::NoPen);
 
@@ -351,7 +359,7 @@ bool Canvas::Connect(QPainter& painter, int l1, int l2, int xslot, QColor& color
     if (ymin < 0 && ymax < 0) return true;
     if (ymin > heightw && ymax > heightw) return true;
 
-    const double invscale = 1.0 / MainWindow::getScaling();
+    const double invscale = 1.0 / painterScale();
     xpos *= invscale;
     ymin *= invscale;
     ymax *= invscale;
@@ -391,11 +399,11 @@ void Canvas::paintAnnotation()
     if (!cat || cat->per_line.empty()) return;
 
     QPainter painter(this);
-    MainWindow::getScaling(painter);
+    scalePainter(painter);
     painter.setPen(Qt::NoPen);
     painter.setBrush(Qt::NoBrush);
 
-    const double invscale = 1.0 / MainWindow::getScaling();
+    const double invscale = 1.0 / painterScale();
     const int lineheight = QCodelist::lineheight();
     const int rowsTotalPx = lineheight - 2 * padding;
     const int maxBarWidth = (width() - 3) * invscale;
@@ -501,7 +509,8 @@ void Canvas::setHoveredLine(int line_index)
 
 void Canvas::handleHotspotHover(QMouseEvent* event)
 {
-    QWARNING(MainWindow::window && MainWindow::window->code_contents, "no contents", return );
+    const auto* view = QCodelist::singleton;
+    QWARNING(view, "no contents", return );
 
     const int lineheight = QCodelist::lineheight();
     const int mouse_y = event->pos().y();
@@ -514,7 +523,7 @@ void Canvas::handleHotspotHover(QMouseEvent* event)
         return;
     }
     const int row = rel / lineheight;
-    const int idx = MainWindow::window->code_contents->rowMapping().lineAt(row);
+    const int idx = view->rowMapping().lineAt(row);
     if (idx < 0)
     {
         setHoveredLine(-1);
@@ -562,7 +571,7 @@ void Canvas::leaveEvent(QEvent* event)
 void Canvas::paintBranch()
 {
     QPainter painter(this);
-    MainWindow::getScaling(painter);
+    scalePainter(painter);
     painter.setRenderHint(QPainter::Antialiasing);
     painter.setPen(Qt::NoPen);
 

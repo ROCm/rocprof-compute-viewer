@@ -22,13 +22,11 @@
 
 #include "asmcode.h"
 #include <QPainter>
-#include <QScrollArea>
 #include <QTextLayout>
 #include <algorithm>
 #include <sstream>
 #include "config/config.hpp"
-#include "data/wavemanager.h"
-#include "mainwindow.h"
+#include "qcodelist.h"
 #include "sourcefile.h"
 #include "util/diagnostic_log.h"
 
@@ -88,7 +86,7 @@ void CyclesLabel::paint(class QPainter& painter, int posx, int posy, int stepy, 
 
 void CyclesLabel::refreshText()
 {
-    const int iteration = MainWindow::window ? MainWindow::window->iteration_current.second : -1;
+    const int iteration = QCodelist::singleton ? QCodelist::singleton->context().currentIteration() : -1;
     if (local_strategy != global_strategy || (global_strategy == Strategy::ITERATION && cached_iteration != iteration))
     {
         local_strategy = global_strategy;
@@ -123,7 +121,7 @@ void CyclesLabel::updateStrategy()
             break;
         case Strategy::ITERATION:
         {
-            int iter = MainWindow::window ? MainWindow::window->iteration_current.second : -1;
+            int iter = QCodelist::singleton ? QCodelist::singleton->context().currentIteration() : -1;
             value = (iter >= 0 && iter < cycles.size()) ? cycles.at(iter) : 0;
             break;
         }
@@ -252,39 +250,5 @@ void ASMLine::drawText(QPainter& painter, int x, int baseline)
 
 void ASMLine::onMousePress()
 {
-    QASSERT(MainWindow::window, "Invalid window");
-
-    MainWindow::window->SetSearchText(getStdText());
-
-    int iteration = MainWindow::window ? MainWindow::window->iteration_current.second : -1;
-    int64_t clock = WaveInstance::GetMainClock(line_number, iteration);
-    if (clock >= 0) MainWindow::window->ScrollViewsTo(clock);
-
-    // First, we attempt to scroll to the current file being displayed
-    if (auto* sourcetab = MainWindow::window->source_filetab)
-    {
-        auto* source = dynamic_cast<QScrollArea*>(sourcetab->currentWidget());
-        if (source)
-        {
-            for (auto& ref : line_ref)
-            {
-                if (auto locked = ref.lock())
-                {
-                    if (locked->parent == source->widget())
-                    {
-                        locked->scrollTo();
-                        return;
-                    }
-                }
-            }
-        }
-    }
-
-    // If current widget is not one of our source files, we scroll to the first one
-    for (auto& ref : line_ref)
-        if (auto locked = ref.lock())
-        {
-            locked->scrollTo();
-            return;
-        }
+    if (QCodelist::singleton) QCodelist::singleton->context().selectInstruction(*this);
 }

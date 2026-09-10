@@ -27,6 +27,7 @@
 #include "asmcode.h"
 #include "config/config.hpp"
 #include "graphics/canvas.h"
+#include "isa_context.h"
 #include "isa_rows.h"
 #include "util/highlight.h"
 
@@ -83,7 +84,7 @@ class QCodelist : public QWidget
     using Super = QWidget;
 
 public:
-    explicit QCodelist(QWidget* parent = nullptr);
+    explicit QCodelist(Isa::Context& context, QWidget* parent = nullptr);
     virtual ~QCodelist();
 
     virtual void paintEvent(QPaintEvent* event) override;
@@ -108,6 +109,7 @@ public:
     void refreshAnnotations();
 
     const Isa::Rows& rowMapping() const { return rows; }
+    Isa::Context& context() const { return host; }
     void setFoldingEnabled(bool enabled);
     void toggleSection(int label);
     void expandAll();
@@ -134,6 +136,7 @@ private:
     void rowsChanged(int anchor_line, int offset);
     QWidget* createInstructionHeader();
 
+    Isa::Context& host;
     Isa::Rows rows;
     class CodeColumns* columns = nullptr;
     QComboBox* folding_selector = nullptr;

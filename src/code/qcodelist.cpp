@@ -33,11 +33,7 @@
 #include "analysis/annotation.h"
 #include "codecolumns.h"
 #include "config/appconfig.h"
-#include "data/datastore.h"
-#include "data/wavemanager.h"
 #include "graphics/canvas.h"
-#include "labelminimap.h"
-#include "mainwindow.h"
 
 int QCodelist::line_height = 20;
 QCodelist* QCodelist::singleton = nullptr;
@@ -54,12 +50,6 @@ static const std::array<std::pair<const char*, Canvas::DrawType>, 2> kBuiltinRow
 // Sentinel value stashed in Qt::UserRole for built-in rows; annotation rows
 // store their Category id as a QString.
 static constexpr int kBuiltinUserRole = 0; // value isn't read; we check QVariant type
-
-static bool hiddenLatencyAnalysisAvailable()
-{
-    auto* mw = MainWindow::window;
-    return mw && mw->data_store && mw->data_store->hidden_latency_analyzed;
-}
 
 class DrawTypeSelector : public QComboBox
 {
@@ -106,7 +96,7 @@ void DrawTypeSelector::rebuildAnnotationRows()
 
     while (count() > static_cast<int>(kBuiltinRows.size())) removeItem(count() - 1);
 
-    const bool hiddenLatencyAvailable = hiddenLatencyAnalysisAvailable();
+    const bool hiddenLatencyAvailable = parent->context().hiddenLatencyAvailable();
     const int enabled = static_cast<int>(Qt::ItemIsSelectable | Qt::ItemIsEnabled);
     const int disabled = static_cast<int>(Qt::NoItemFlags);
     int selectRow = -1;
@@ -182,8 +172,7 @@ void CycleModeSelector::changeStrategy(const QString& text)
 
 void QCodelist::refreshLayout()
 {
-    QFont code_font = MainWindow::default_font.isEmpty() ? font() : QFont(MainWindow::default_font);
-    code_font.setPointSize(MainWindow::font());
+    const QFont code_font = host.codeFont(font());
     const int top_row = scrollposy / line_height;
     const int previous_height = line_height;
     line_height = QFontMetrics(code_font).height();
@@ -204,7 +193,7 @@ void QCodelist::refreshLayout()
     if (connector) connector->update();
 }
 
-QCodelist::QCodelist(QWidget* parent) : QWidget(parent)
+QCodelist::QCodelist(Isa::Context& context, QWidget* parent) : QWidget(parent), host(context)
 {
     singleton = this;
     auto* layout = new QVBoxLayout(this);
@@ -298,7 +287,7 @@ void QCodelist::updateAutomaticColumnWidths()
     const QScopedValueRollback<bool> guard(updating_columns, true);
     // Header controls contribute to automatic widths, so update their metrics
     // before measuring. Only explicit user resizes should persist pixel widths.
-    columns->setHeaderFontSize(MainWindow::font());
+    columns->setHeaderFontSize(elements.at(Element::EASM)->font().pointSize());
     const auto& config = AppConfig::getInstance();
     for (int column = 0; column <= Element::ENUMTYPES; ++column)
     {
@@ -507,8 +496,7 @@ void QCodelist::Populate(const std::vector<CodeData>& code)
     // Update column visibility based on data availability flags
     updateColumnVisibility();
 
-    // Update label minimap
-    if (MainWindow::window && MainWindow::window->label_minimap) MainWindow::window->label_minimap->Populate();
+    host.listingChanged();
 }
 
 void QCodelist::resizeEvent(QResizeEvent* event)
