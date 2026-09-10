@@ -92,7 +92,8 @@ public:
     void Populate(const std::vector<CodeData>& code);
 
     void onScroll(int value);
-    void scheduleRedraw();
+    // Apply the configured font and recompute column/scroll geometry before painting.
+    void refreshLayout();
 
     void Highlight(int lbegin, int lend, bool bIntoView, const Color& color = WindowColors::LineSlowHighlight());
 
@@ -138,7 +139,6 @@ private:
     QComboBox* folding_selector = nullptr;
     class QToolButton* expand_sections = nullptr;
     bool updating_columns = false;
-    QFont display_font;
     int scrollposy = 0;
 };
 

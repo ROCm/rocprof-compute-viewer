@@ -420,6 +420,7 @@ int& MainWindow::font()
 void MainWindow::updateFont()
 {
     if (auto newFontValue = parseLineEditInt(ui->fontedit)) { font() = std::clamp(*newFontValue, 5, 19); }
+    if (code_contents) code_contents->refreshLayout();
 
     update();
     updateGeometry();

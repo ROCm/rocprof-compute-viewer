@@ -3,20 +3,12 @@
 
 #include <QMouseEvent>
 #include <QPainter>
-#include "mainwindow.h"
 #include "qcodelist.h"
 
 namespace
 {
 constexpr int fold_gutter = 18;
 constexpr int default_max_width = 420;
-
-QFont codeFont(const QWidget& widget)
-{
-    QFont font = MainWindow::default_font.isEmpty() ? widget.font() : QFont(MainWindow::default_font);
-    font.setPointSize(MainWindow::font());
-    return font;
-}
 } // namespace
 
 QElementList::QElementList(ASMCodeline::Element element, const Isa::Rows& rows) : elementtype(element), rows(rows)
@@ -26,7 +18,7 @@ QElementList::QElementList(ASMCodeline::Element element, const Isa::Rows& rows) 
 
 int QElementList::contentWidth()
 {
-    const auto font = codeFont(*this);
+    const auto font = this->font();
     if (width_cache >= 0 && width_font == font) return width_cache;
     width_font = font;
     QFontMetrics fm(font);
@@ -43,7 +35,6 @@ void QElementList::paintEvent(QPaintEvent* event)
     Super::paintEvent(event);
     const int heighty = line_height();
     QPainter painter(this);
-    painter.setFont(codeFont(*this));
     QFontMetrics fm(painter.font());
     const int overline = fm.height() - fm.overlinePos();
     const auto [first, end] = rows.visibleRange(scrollposy, height(), heighty);

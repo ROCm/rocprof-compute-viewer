@@ -25,6 +25,7 @@
 #include <QListView>
 #include <QMouseEvent>
 #include <QPainter>
+#include <QScopedValueRollback>
 #include <QScrollBar>
 #include <QToolButton>
 #include <QVBoxLayout>
@@ -176,23 +177,31 @@ void CycleModeSelector::changeStrategy(const QString& text)
     for (int i = 0; i < (int) CyclesLabel::Strategy::LAST; i++)
         if (strategy_names.at(i) == text.toStdString()) CyclesLabel::setStrategy(CyclesLabel::Strategy(i));
 
-    parent->scheduleRedraw();
+    parent->refreshLayout();
 }
 
-void QCodelist::scheduleRedraw()
+void QCodelist::refreshLayout()
 {
-    update();
-    if (connector) connector->update();
+    QFont code_font = MainWindow::default_font.isEmpty() ? font() : QFont(MainWindow::default_font);
+    code_font.setPointSize(MainWindow::font());
+    const int top_row = scrollposy / line_height;
+    const int previous_height = line_height;
+    line_height = QFontMetrics(code_font).height();
+    if (code_font != elements.at(Element::EASM)->font()) clearRowInteraction();
 
     for (auto& elem : elements)
         if (elem)
         {
+            elem->setFont(code_font);
             elem->InvalidateCache();
             elem->update();
         }
 
     updateAutomaticColumnWidths();
     updateScrollRange();
+    if (line_height != previous_height) scrollbar->setValue(top_row * line_height);
+    update();
+    if (connector) connector->update();
 }
 
 QCodelist::QCodelist(QWidget* parent) : QWidget(parent)
@@ -225,7 +234,7 @@ QCodelist::QCodelist(QWidget* parent) : QWidget(parent)
     scrollbar = new QScrollBar(Qt::Vertical, this);
     scrollbar->hide(); // MainWindow places it beside the enclosing horizontal scroll area.
     connect(scrollbar, &QScrollBar::valueChanged, this, &QCodelist::onScroll);
-    updateAutomaticColumnWidths();
+    refreshLayout();
     updateColumnVisibility();
     connect(
         columns,
@@ -286,7 +295,7 @@ QWidget* QCodelist::createInstructionHeader()
 
 void QCodelist::updateAutomaticColumnWidths()
 {
-    updating_columns = true;
+    const QScopedValueRollback<bool> guard(updating_columns, true);
     // Header controls contribute to automatic widths, so update their metrics
     // before measuring. Only explicit user resizes should persist pixel widths.
     columns->setHeaderFontSize(MainWindow::font());
@@ -299,17 +308,16 @@ void QCodelist::updateAutomaticColumnWidths()
         else
             autoSizeColumn(column);
     }
-    updating_columns = false;
 }
 
 void QCodelist::autoSizeColumn(int column)
 {
     int width = column == 0 ? std::max(connector->sizeHint().width(), 180) : elements.at(column - 1)->contentWidth();
     width = std::max(width, columns->headerWidthHint(column));
-    const bool was_updating = updating_columns;
-    updating_columns = true;
-    columns->setColumnWidth(column, width);
-    updating_columns = was_updating;
+    {
+        const QScopedValueRollback<bool> guard(updating_columns, true);
+        columns->setColumnWidth(column, width);
+    }
     if (!updating_columns) AppConfig::getInstance().setColumnWidth(column - 1, -1);
 }
 
@@ -380,10 +388,8 @@ void QCodelist::setColumnVisibility(ASMCodeline::Element elem, bool visible)
     if (elem == Element::EPCSamples || elem == Element::EPCStalls || elem == Element::EPCIssued)
         visible &= HorizontalHotspot::is_pcs_enabled;
 
-    const bool was_updating = updating_columns;
-    updating_columns = true;
+    const QScopedValueRollback<bool> guard(updating_columns, true);
     columns->setColumnVisible(elem + 1, visible);
-    updating_columns = was_updating;
 
     updateGeometry();
     update();
@@ -453,7 +459,7 @@ void QCodelist::refreshLatencyAnnotations()
     }
 
     HorizontalHotspot::PublishCategories(max_sqtt_latency, max_pcs_latency);
-    scheduleRedraw();
+    refreshLayout();
 }
 
 void QCodelist::Populate(const std::vector<CodeData>& code)
@@ -558,18 +564,6 @@ void QCodelist::paintEvent(QPaintEvent* event)
     this->Super::paintEvent(event);
     QPainter painter(this);
     painter.fillRect(rect(), WindowColors::Background());
-
-    QFont font = MainWindow::default_font.isEmpty() ? this->font() : QFont(MainWindow::default_font);
-    font.setPointSize(MainWindow::font());
-    if (font != display_font)
-    {
-        display_font = font;
-        const int top_row = scrollposy / line_height;
-        line_height = QFontMetrics(font).height();
-        clearRowInteraction();
-        scheduleRedraw();
-        scrollbar->setValue(top_row * line_height);
-    }
 }
 
 #include "qcodelist.moc"

@@ -219,7 +219,7 @@ TEST_F(IsaViewerTest, FontThemeAndViewportChangesKeepRowsAligned)
     {
         WindowColors::setDark(dark);
         MainWindow::font() = dark ? 13 : 10;
-        view->update();
+        view->refreshLayout();
         QApplication::processEvents();
         const int row_height = QCodelist::lineheight();
         for (auto* column : view->elements)
@@ -245,7 +245,7 @@ TEST_F(IsaViewerTest, WidthsPersistAcrossPopulationVisibilityAndViewerRecreation
     header->resizeSection(ASMCodeline::EADDRESS + 1, 125);
     EXPECT_EQ(AppConfig::getInstance().getColumnWidth(ASMCodeline::EASM), 275);
     view->setColumnVisibility(ASMCodeline::EADDRESS, false);
-    view->scheduleRedraw();
+    view->refreshLayout();
     view->setColumnVisibility(ASMCodeline::EADDRESS, true);
     EXPECT_EQ(view->elements[ASMCodeline::EADDRESS]->width(), 125);
     view->Populate(makeCode({"v_add_f32", "s_endpgm"}));
@@ -272,7 +272,7 @@ TEST_F(IsaViewerTest, DraggingAndDoubleClickingDividerRestoresAutomaticSizing)
     EXPECT_EQ(view->elements[ASMCodeline::EHIT]->width(), automatic_width);
     EXPECT_EQ(AppConfig::getInstance().getColumnWidth(ASMCodeline::EHIT), -1);
     MainWindow::font() = 19;
-    view->update();
+    view->refreshLayout();
     QApplication::processEvents();
     EXPECT_GT(view->elements[ASMCodeline::EHIT]->width(), automatic_width);
 }
@@ -288,7 +288,7 @@ TEST_F(IsaViewerTest, AutomaticLatencyWidthTracksFontSizeAndKeepsManualWidths)
     const auto check_font = [&](int size)
     {
         MainWindow::font() = size;
-        view->update();
+        view->refreshLayout();
         QApplication::processEvents();
         EXPECT_EQ(selector->font().pointSize(), size);
         EXPECT_EQ(header->font().pointSize(), size);
@@ -305,7 +305,7 @@ TEST_F(IsaViewerTest, AutomaticLatencyWidthTracksFontSizeAndKeepsManualWidths)
 
     header->resizeSection(latency_column, 300);
     MainWindow::font() = 11;
-    view->update();
+    view->refreshLayout();
     QApplication::processEvents();
     EXPECT_EQ(header->sectionSize(latency_column), 300);
     EXPECT_EQ(config.getColumnWidth(ASMCodeline::ELATENCY), 300);
@@ -326,12 +326,44 @@ TEST_F(IsaViewerTest, SavedFontSizeSurvivesOpeningAndEditingTheViewer)
         auto* selector = window.code_contents->findChild<CycleModeSelector*>();
         ASSERT_NE(selector, nullptr);
         EXPECT_EQ(selector->font().pointSize(), initial_size);
+        const int original_width = window.code_contents->elements[ASMCodeline::ELATENCY]->width();
         // Use the real edit signal, which saves and applies the setting.
         edit->setText("9");
         ASSERT_TRUE(QMetaObject::invokeMethod(edit, "editingFinished"));
         EXPECT_EQ(config.getFontSize(), 9);
         EXPECT_EQ(MainWindow::font(), 9);
+        // The window has never been shown: layout updates cannot rely on a paint event.
+        if (initial_size > 9) EXPECT_LT(window.code_contents->elements[ASMCodeline::ELATENCY]->width(), original_width);
     }
+}
+
+TEST_F(IsaViewerTest, FontRefreshPreservesFoldedScrollAnchorBeforePainting)
+{
+    std::vector<std::string> lines(1000, "v_add_f32 v0, v1, v2");
+    lines[0] = "label_a:";
+    lines[20] = "label_b:";
+    view->Populate(makeCode(lines));
+    view->toggleSection(0);
+    view->scrollbar->setValue(80 * QCodelist::lineheight() + 3);
+    auto* instruction = view->elements[ASMCodeline::EASM];
+    const int anchor = instruction->getLineIndex(0);
+    auto* header = view->findChild<QHeaderView*>();
+    header->resizeSection(ASMCodeline::EASM + 1, 275);
+    const int latency_width = view->elements[ASMCodeline::ELATENCY]->width();
+    view->hide();
+
+    MainWindow::font() = 16;
+    view->refreshLayout();
+
+    // No event processing or painting: scrolling and hit testing must already
+    // use the new metrics, with the same instruction at the top of the viewport.
+    EXPECT_EQ(instruction->getLineIndex(0), anchor);
+    EXPECT_EQ(instruction->getLineIndex(QFontMetrics(instruction->font()).height() + 1), anchor + 1);
+    EXPECT_EQ(view->scrollbar->value(), 80 * QFontMetrics(instruction->font()).height());
+    EXPECT_GT(view->elements[ASMCodeline::ELATENCY]->width(), latency_width);
+    EXPECT_EQ(instruction->width(), 275);
+    EXPECT_EQ(AppConfig::getInstance().getColumnWidth(ASMCodeline::EASM), 275);
+    EXPECT_EQ(AppConfig::getInstance().getColumnWidth(ASMCodeline::ELATENCY), -1);
 }
 
 TEST_F(IsaViewerTest, OnlyMnemonicIsColoredWithoutChangingFontWeightOrPainterState)
@@ -480,7 +512,7 @@ TEST_F(IsaViewerTest, HorizontalOverflowStartsLeftAndKeepsDeliberateScrolling)
     EXPECT_EQ(bar->value(), bar->minimum());
     bar->setValue(100);
     view->setFoldingEnabled(false);
-    view->scheduleRedraw();
+    view->refreshLayout();
     area.resize(510, 360);
     QApplication::processEvents();
     EXPECT_EQ(bar->value(), 100);
@@ -554,7 +586,7 @@ TEST_F(IsaViewerTest, DeepScrollingAndResizingOnlyVisitVisibleRows)
     PaintCounts counts;
     for (auto& line : ASMCodeline::line_vec)
         line->elements[ASMCodeline::EHIT] = std::make_unique<CountingElement>(counts);
-    view->scheduleRedraw();
+    view->refreshLayout();
     QApplication::processEvents();
     const auto widgets = view->findChildren<QWidget*>().size();
     EXPECT_EQ(widgets, small_listing_widgets); // widget count does not scale with the listing
