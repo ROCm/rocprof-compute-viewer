@@ -70,6 +70,13 @@ QColor asmColorForType(int tokenType)
     return QColor(0x70, 0x70, 0x70);
 }
 
+std::string frameLocation(const StackNode& node, const std::string& fallback)
+{
+    if (!node.isMarker) return fallback;
+    if (node.markerSourceLoc.empty()) return node.label;
+    return node.label + "\n" + node.markerSourceLoc;
+}
+
 /// Copy a `string → StackNode` map into a vector sorted by node latency
 /// descending. Used everywhere we lay out children/roots so the largest
 /// frames anchor the left edge.
@@ -162,7 +169,7 @@ int flattenNode(
 
         Frame f;
         f.label = child->label;
-        f.location = child->fullLocation;
+        f.location = frameLocation(*child, child->fullLocation);
         f.content = child->content;
         f.latency = child->latency;
         f.totalLatency = child->totalLatency > 0 ? child->totalLatency : child->latency;
@@ -248,7 +255,7 @@ LayoutResult layoutFromRoots(Roots& roots)
 
         Frame f;
         f.label = node->label;
-        f.location = name;
+        f.location = frameLocation(*node, name);
         f.latency = node->latency;
         f.totalLatency = node->totalLatency > 0 ? node->totalLatency : node->latency;
         f.hiddenLatency = node->hiddenLatency;
