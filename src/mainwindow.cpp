@@ -229,18 +229,16 @@ MainWindow::MainWindow(std::string uidir) : QMainWindow(nullptr), ui(new Ui::Mai
         auto* code_layout = new QHBox();
         code_wid->setLayout(code_layout);
 
-        QVBox* box = new QVBox();
         this->code_scrollarea = new QScrollArea();
         this->code_scrollarea->setWidgetResizable(true);
         this->code_scrollarea->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-        code_scrollarea->setLayout(box);
 
-        this->code_contents = new QCodelist();
-        box->addWidget(this->code_contents);
+        this->code_contents = new QCodelist(*this);
         this->code_scrollarea->setWidget(this->code_contents);
 
         code_layout->addWidget(code_scrollarea);
         code_layout->addWidget(code_contents->scrollbar);
+        code_contents->scrollbar->show();
 
         this->source_filetab = new SourceFileTab();
         code_splitter->addWidget(code_wid);
@@ -419,9 +417,30 @@ int& MainWindow::font()
     return font;
 }
 
+QFont MainWindow::codeFont(const QFont& fallback) const
+{
+    QFont code_font = default_font.isEmpty() ? fallback : QFont(default_font);
+    code_font.setPointSize(font());
+    return code_font;
+}
+
+int MainWindow::currentIteration() const { return iteration_current.second; }
+
+bool MainWindow::hiddenLatencyAvailable() const { return data_store && data_store->hidden_latency_analyzed; }
+
+void MainWindow::scalePainter(QPainter& painter) const { getScaling(painter); }
+
+double MainWindow::painterScale() const { return getScaling(); }
+
+void MainWindow::listingChanged()
+{
+    if (label_minimap) label_minimap->Populate();
+}
+
 void MainWindow::updateFont()
 {
     if (auto newFontValue = parseLineEditInt(ui->fontedit)) { font() = std::clamp(*newFontValue, 5, 19); }
+    if (code_contents) code_contents->refreshLayout();
 
     update();
     updateGeometry();
@@ -583,20 +602,6 @@ void MainWindow::SetMainWave(int se, int simd, int sl, int wid)
 
     if (thread_wait.valid()) thread_wait.get();
     if (thread_branch.valid()) thread_branch.get();
-
-    QTimer* timer = new QTimer(this);
-    timer->setSingleShot(true);
-    timer->setInterval(1);
-    QObject::connect(
-        timer,
-        &QTimer::timeout,
-        this,
-        [this]()
-        {
-            if (auto* bar = this->code_scrollarea->horizontalScrollBar()) bar->setValue(bar->maximum());
-        }
-    );
-    timer->start();
 
     // Print code idle/stall/wait/exec
     int64_t idle = 0;
@@ -2125,6 +2130,35 @@ void MainWindow::SetSearchText(const std::string& text)
     ui->search_edit->blockSignals(true);
     ui->search_edit->setText(QString::fromStdString(text));
     ui->search_edit->blockSignals(false);
+}
+
+void MainWindow::selectInstruction(const ASMLine& instruction)
+{
+    SetSearchText(instruction.getStdText());
+
+    const int64_t clock = WaveInstance::GetMainClock(instruction.line_number, iteration_current.second);
+    if (clock >= 0) ScrollViewsTo(clock);
+
+    // Prefer a reference in the currently displayed source file.
+    if (source_filetab)
+    {
+        if (auto* source = dynamic_cast<QScrollArea*>(source_filetab->currentWidget()))
+            for (const auto& ref : instruction.line_ref)
+                if (auto locked = ref.lock())
+                    if (locked->parent == source->widget())
+                    {
+                        locked->scrollTo();
+                        return;
+                    }
+    }
+
+    // Otherwise navigate to the first live source reference.
+    for (const auto& ref : instruction.line_ref)
+        if (auto locked = ref.lock())
+        {
+            locked->scrollTo();
+            return;
+        }
 }
 
 void MainWindow::NextSearch()

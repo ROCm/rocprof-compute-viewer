@@ -48,14 +48,42 @@ set_tests_properties(
     options_layout_test PROPERTIES ENVIRONMENT "ASAN_OPTIONS=detect_leaks=0;QT_QPA_PLATFORM=offscreen")
 
 # ============================================================================
-# TextElement Tests - Text line rendering with caching and hover states
+# ISA tests share one executable so their production sources compile only once.
+# Keep the source list explicit: pulling in MainWindow would rebuild the entire
+# application (loaders, plots, dialogs, etc.) during CI's separate test build.
 # ============================================================================
-add_executable(textelement_test textelement_test.cpp)
-target_include_directories(textelement_test PRIVATE ${SRC_DIR})
-target_link_libraries(textelement_test GTest::gtest Qt6::Widgets)
-rcv_enable_asan(textelement_test)
-add_test(NAME textelement_test COMMAND textelement_test)
-set_tests_properties(textelement_test PROPERTIES ENVIRONMENT "ASAN_OPTIONS=detect_leaks=0")
+add_executable(isa_viewer_test
+    isa_viewer_test.cpp
+    isa_model_test.cpp
+    textelement_test.cpp
+    ${SRC_DIR}/code/asmcode.cpp
+    ${SRC_DIR}/code/codecolumns.cpp
+    ${SRC_DIR}/code/hotspot.cpp
+    ${SRC_DIR}/code/instruction_style.cpp
+    ${SRC_DIR}/code/isa_rows.cpp
+    ${SRC_DIR}/code/labelminimap.cpp
+    ${SRC_DIR}/code/qcodelist.cpp
+    ${SRC_DIR}/code/qelementlist.cpp
+    ${SRC_DIR}/code/sourcefile.cpp
+    ${SRC_DIR}/code/textelement.cpp
+    ${SRC_DIR}/analysis/annotation.cpp
+    ${SRC_DIR}/config/appconfig.cpp
+    ${SRC_DIR}/config/config.cpp
+    ${GRAPHICS_DIR}/canvas.cpp
+    ${UTIL_DIR}/custom_layouts.cpp
+    ${UTIL_DIR}/highlight.cpp)
+target_include_directories(isa_viewer_test PRIVATE ${SRC_DIR})
+target_link_libraries(isa_viewer_test GTest::gtest Qt6::Widgets Qt6::Test)
+if(RCV_HAS_TRACE_DECODER)
+    target_link_libraries(isa_viewer_test rocprof-trace-decoder::rocprof-trace-decoder-static)
+endif()
+rcv_enable_asan(isa_viewer_test)
+# Preserve the existing CTest groups without building three overlapping binaries.
+add_test(NAME isa_viewer_test COMMAND isa_viewer_test --gtest_filter=IsaViewerTest.*)
+add_test(NAME isa_model_test COMMAND isa_viewer_test --gtest_filter=InstructionStyle.*:IsaRows.*:CodeColumns.*)
+add_test(NAME textelement_test COMMAND isa_viewer_test --gtest_filter=TextLineElementTest.*)
+set_tests_properties(isa_viewer_test isa_model_test textelement_test PROPERTIES
+    ENVIRONMENT "ASAN_OPTIONS=detect_leaks=0;QT_QPA_PLATFORM=offscreen")
 
 # ============================================================================
 # Wave Utils Tests - Pure utility functions from wave/token and sourcefile No Qt dependencies - tests mip shifting,

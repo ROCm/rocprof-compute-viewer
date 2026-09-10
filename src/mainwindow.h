@@ -38,6 +38,7 @@
 #include <string_view>
 #include <unordered_set>
 #include <vector>
+#include "code/isa_context.h"
 #include "graphics/hotspot_view.h"
 #include "graphics/plot_alignment.h"
 #include "util/custom_layouts.h"
@@ -53,7 +54,8 @@ class MainWindow;
 }
 QT_END_NAMESPACE
 
-class MainWindow : public QMainWindow
+class MainWindow : public QMainWindow,
+                   public Isa::Context
 {
     Q_OBJECT
     friend class OptionsDialogH;
@@ -182,6 +184,14 @@ public:
     void updateFont();
 
     static QString default_font;
+
+    QFont codeFont(const QFont& fallback) const override;
+    int currentIteration() const override;
+    bool hiddenLatencyAvailable() const override;
+    void scalePainter(QPainter& painter) const override;
+    double painterScale() const override;
+    void selectInstruction(const ASMLine& instruction) override;
+    void listingChanged() override;
 
     /// CLI override paths (set from main.cpp before window creation)
     static std::string cli_code_json_override;

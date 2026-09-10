@@ -25,22 +25,15 @@
 #include <QListView>
 #include <QMouseEvent>
 #include <QPainter>
-#include <QPainterPath>
+#include <QScopedValueRollback>
 #include <QScrollBar>
-#include <sstream>
-#include <unordered_set>
+#include <QToolButton>
+#include <QVBoxLayout>
 #include <vector>
 #include "analysis/annotation.h"
+#include "codecolumns.h"
 #include "config/appconfig.h"
-#include "data/datastore.h"
-#include "data/wavemanager.h"
 #include "graphics/canvas.h"
-#include "labelminimap.h"
-#include "mainwindow.h"
-#include "sourcefile.h"
-#include "util/custom_layouts.h"
-
-#define ASM_MAX_LINE_WIDTH 420
 
 int QCodelist::line_height = 20;
 QCodelist* QCodelist::singleton = nullptr;
@@ -57,12 +50,6 @@ static const std::array<std::pair<const char*, Canvas::DrawType>, 2> kBuiltinRow
 // Sentinel value stashed in Qt::UserRole for built-in rows; annotation rows
 // store their Category id as a QString.
 static constexpr int kBuiltinUserRole = 0; // value isn't read; we check QVariant type
-
-static bool hiddenLatencyAnalysisAvailable()
-{
-    auto* mw = MainWindow::window;
-    return mw && mw->data_store && mw->data_store->hidden_latency_analyzed;
-}
 
 class DrawTypeSelector : public QComboBox
 {
@@ -109,7 +96,7 @@ void DrawTypeSelector::rebuildAnnotationRows()
 
     while (count() > static_cast<int>(kBuiltinRows.size())) removeItem(count() - 1);
 
-    const bool hiddenLatencyAvailable = hiddenLatencyAnalysisAvailable();
+    const bool hiddenLatencyAvailable = parent->context().hiddenLatencyAvailable();
     const int enabled = static_cast<int>(Qt::ItemIsSelectable | Qt::ItemIsEnabled);
     const int disabled = static_cast<int>(Qt::NoItemFlags);
     int selectRow = -1;
@@ -180,82 +167,202 @@ void CycleModeSelector::changeStrategy(const QString& text)
     for (int i = 0; i < (int) CyclesLabel::Strategy::LAST; i++)
         if (strategy_names.at(i) == text.toStdString()) CyclesLabel::setStrategy(CyclesLabel::Strategy(i));
 
-    parent->scheduleRedraw();
+    parent->refreshLayout();
 }
 
-void QCodelist::scheduleRedraw()
+void QCodelist::refreshLayout()
 {
-    update();
-    updateGeometry();
-    if (connector) connector->update();
-
-    for (auto& line : ASMCodeline::line_vec)
-        if (auto element = line->elements.at(ASMCodeline::Element::ELATENCY).get()) element->InvalidateCache();
+    const QFont code_font = host.codeFont(font());
+    const int top_row = scrollposy / line_height;
+    const int previous_height = line_height;
+    line_height = QFontMetrics(code_font).height();
+    if (code_font != elements.at(Element::EASM)->font()) clearRowInteraction();
 
     for (auto& elem : elements)
         if (elem)
         {
+            elem->setFont(code_font);
             elem->InvalidateCache();
             elem->update();
         }
 
-    scrollbar->setMaximum(std::max<int>(line_height * (ASMCodeline::line_vec.size() + 2) - height(), 0));
+    updateAutomaticColumnWidths();
+    updateScrollRange();
+    if (line_height != previous_height) scrollbar->setValue(top_row * line_height);
+    update();
+    if (connector) connector->update();
 }
 
-QCodelist::QCodelist(QWidget* parent)
+QCodelist::QCodelist(Isa::Context& context, QWidget* parent) : QWidget(parent), host(context)
 {
     singleton = this;
-    layout_main = new QBox(this);
-    this->setLayout(layout_main);
-
-    layout_main->addWidget(new QLabel("Instruction"), 0, Element::EASM + 1);
-    layout_main->addWidget(new QLabel("Hitcount "), 0, Element::EHIT + 1);
-    layout_main->addWidget(new CycleModeSelector(this), 0, Element::ELATENCY + 1);
-    layout_main->addWidget(new QLabel(" Idle "), 0, Element::EIDLE + 1);
-    layout_main->addWidget(new QLabel(" Samples "), 0, Element::EPCSamples + 1);
-    layout_main->addWidget(new QLabel(" Issued "), 0, Element::EPCIssued + 1);
-    layout_main->addWidget(new QLabel(" Stalls "), 0, Element::EPCStalls + 1);
-    layout_main->addWidget(new QLabel(" Codeobj"), 0, Element::ECODEOBJ + 1);
-    layout_main->addWidget(new QLabel(" Vaddr"), 0, Element::EADDRESS + 1);
-    layout_main->addWidget(new QLabel(" Source link"), 0, Element::ESOURCEREF + 1);
+    auto* layout = new QVBoxLayout(this);
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->setSpacing(0);
+    columns = new CodeColumns(this);
+    layout->addWidget(columns);
 
     connector = new Canvas();
     drawselector = new DrawTypeSelector(this);
-    layout_main->addWidget(connector, 1, 0);
-    layout_main->addWidget(drawselector, 0, 0);
+    columns->addColumn("View", connector, drawselector);
 
-    elements.at(Element::EASM) = new QASMElementList();
+    static const std::array<const char*, Element::ENUMTYPES> titles = {
+        "Instruction", "Hitcount", "Latency", "Idle", "Samples", "Stalls", "Issued", "Codeobj", "Vaddr", "Source link"};
+    elements.at(Element::EASM) = new QASMElementList(*this);
     for (int e = 0; e < Element::ENUMTYPES; e++)
     {
-        if (e != Element::EASM) elements.at(e) = new QElementList(Element(e));
-        layout_main->addWidget(elements.at(e), 1, e + 1);
+        if (e != Element::EASM) elements.at(e) = new QElementList(Element(e), rows);
+        QWidget* control = nullptr;
+        if (e == Element::EASM)
+            control = createInstructionHeader();
+        else if (e == Element::ELATENCY)
+            control = new CycleModeSelector(this);
+        columns->addColumn(titles[e], elements.at(e), control);
     }
 
-    // Apply column visibility from config
-    AppConfig& config = AppConfig::getInstance();
-    for (int e = Element::EHIT; e < Element::ENUMTYPES; e++)
-        setColumnVisibility(static_cast<Element>(e), config.getColumnVisible(e));
-
-    // Set column stretch factors - column 0 can shrink, others get more stretch
-    layout_main->setColumnStretch(0, 0);
-    layout_main->setColumnStretch(Element::EASM + 1, 3);
-    layout_main->setColumnStretch(Element::EHIT + 1, 0);
-    layout_main->setColumnStretch(Element::ELATENCY + 1, 1);
-    layout_main->setColumnStretch(Element::EIDLE + 1, 0);
-
-    scrollbar = new QScrollBar(Qt::Vertical);
-    // layout_main->addWidget(scrollbar, 1, (int)Element::ENUMTYPES+1);
-
+    scrollbar = new QScrollBar(Qt::Vertical, this);
+    scrollbar->hide(); // MainWindow places it beside the enclosing horizontal scroll area.
     connect(scrollbar, &QScrollBar::valueChanged, this, &QCodelist::onScroll);
+    refreshLayout();
+    updateColumnVisibility();
+    connect(
+        columns,
+        &CodeColumns::columnResized,
+        this,
+        [this](int column, int width)
+        {
+            if (!updating_columns) AppConfig::getInstance().setColumnWidth(column - 1, width);
+            updateScrollRange();
+        }
+    );
+    connect(columns, &CodeColumns::autoSizeRequested, this, &QCodelist::autoSizeColumn);
+    connect(columns, &CodeColumns::bodyHeightChanged, this, &QCodelist::updateScrollRange);
 
-    this->setAutoFillBackground(true);
+    setAttribute(Qt::WA_OpaquePaintEvent);
 }
 
 QCodelist::~QCodelist()
 {
     if (singleton == this) singleton = nullptr;
-    if (connector) delete connector;
-    if (layout_main) delete layout_main;
+}
+
+QWidget* QCodelist::createInstructionHeader()
+{
+    auto* header = new QWidget();
+    auto* layout = new QHBoxLayout(header);
+    layout->setSizeConstraint(QLayout::SetNoConstraint);
+    layout->setContentsMargins(2, 0, 0, 0);
+    layout->setSpacing(2);
+    layout->addWidget(new QLabel("Instruction"), 1);
+    folding_selector = new QComboBox(header);
+    folding_selector->setObjectName("isaFoldingMode");
+    folding_selector->addItems({"No folding", "Fold by labels"});
+    folding_selector->setCurrentIndex(rows.foldingEnabled() ? 1 : 0);
+    folding_selector->setToolTip(
+        "Fold sections using the triangle beside each label. No folding keeps every instruction visible."
+    );
+    folding_selector->setAccessibleName("Instruction folding mode");
+    connect(
+        folding_selector,
+        qOverload<int>(&QComboBox::currentIndexChanged),
+        this,
+        [this](int index) { setFoldingEnabled(index == 1); }
+    );
+    layout->addWidget(folding_selector);
+
+    expand_sections = new QToolButton(header);
+    expand_sections->setObjectName("isaExpandAll");
+    expand_sections->setText("+");
+    expand_sections->setAutoRaise(true);
+    expand_sections->setToolTip("Expand all sections");
+    expand_sections->setAccessibleName("Expand all sections");
+    expand_sections->setEnabled(rows.foldingEnabled());
+    connect(expand_sections, &QToolButton::clicked, this, &QCodelist::expandAll);
+    layout->addWidget(expand_sections);
+    return header;
+}
+
+void QCodelist::updateAutomaticColumnWidths()
+{
+    const QScopedValueRollback<bool> guard(updating_columns, true);
+    // Header controls contribute to automatic widths, so update their metrics
+    // before measuring. Only explicit user resizes should persist pixel widths.
+    columns->setHeaderFontSize(elements.at(Element::EASM)->font().pointSize());
+    const auto& config = AppConfig::getInstance();
+    for (int column = 0; column <= Element::ENUMTYPES; ++column)
+    {
+        const int saved = config.getColumnWidth(column - 1);
+        if (saved > 0)
+            columns->setColumnWidth(column, saved);
+        else
+            autoSizeColumn(column);
+    }
+}
+
+void QCodelist::autoSizeColumn(int column)
+{
+    int width = column == 0 ? std::max(connector->sizeHint().width(), 180) : elements.at(column - 1)->contentWidth();
+    width = std::max(width, columns->headerWidthHint(column));
+    {
+        const QScopedValueRollback<bool> guard(updating_columns, true);
+        columns->setColumnWidth(column, width);
+    }
+    if (!updating_columns) AppConfig::getInstance().setColumnWidth(column - 1, -1);
+}
+
+void QCodelist::updateScrollRange()
+{
+    if (!scrollbar || !columns) return;
+    scrollbar->setSingleStep(line_height);
+    scrollbar->setPageStep(columns->bodyHeight());
+    scrollbar->setRange(0, std::max(0, rows.count() * line_height - columns->bodyHeight()));
+}
+
+void QCodelist::clearRowInteraction()
+{
+    for (auto* element : elements)
+        if (element)
+        {
+            element->clearHover();
+            element->clearHighlight();
+        }
+}
+
+void QCodelist::rowsChanged(int anchor_line, int offset)
+{
+    while (anchor_line >= 0 && rows.rowOf(anchor_line) < 0) --anchor_line;
+    updateScrollRange();
+    scrollbar->setValue(std::max(0, rows.rowOf(anchor_line)) * line_height + offset);
+    onScroll(scrollbar->value());
+}
+
+void QCodelist::setFoldingEnabled(bool enabled)
+{
+    if (enabled == rows.foldingEnabled()) return;
+    const int anchor = rows.lineAt(scrollposy / line_height);
+    const int offset = scrollposy % line_height;
+    clearRowInteraction();
+    rows.setFoldingEnabled(enabled);
+    folding_selector->setCurrentIndex(enabled ? 1 : 0);
+    expand_sections->setEnabled(enabled);
+    rowsChanged(anchor, offset);
+}
+
+void QCodelist::toggleSection(int label)
+{
+    const int anchor = rows.lineAt(scrollposy / line_height);
+    const int offset = scrollposy % line_height;
+    clearRowInteraction();
+    if (rows.toggle(label)) rowsChanged(anchor, offset);
+}
+
+void QCodelist::expandAll()
+{
+    const int anchor = rows.lineAt(scrollposy / line_height);
+    const int offset = scrollposy % line_height;
+    clearRowInteraction();
+    rows.expandAll();
+    rowsChanged(anchor, offset);
 }
 
 void QCodelist::setColumnVisibility(ASMCodeline::Element elem, bool visible)
@@ -270,14 +377,8 @@ void QCodelist::setColumnVisibility(ASMCodeline::Element elem, bool visible)
     if (elem == Element::EPCSamples || elem == Element::EPCStalls || elem == Element::EPCIssued)
         visible &= HorizontalHotspot::is_pcs_enabled;
 
-    if (auto* element = elements.at(elem)) element->setVisible(visible);
-
-    // Also hide/show the header label
-    if (layout_main)
-    {
-        if (auto* item = layout_main->itemAtPosition(0, elem + 1))
-            if (auto* widget = item->widget()) widget->setVisible(visible);
-    }
+    const QScopedValueRollback<bool> guard(updating_columns, true);
+    columns->setColumnVisible(elem + 1, visible);
 
     updateGeometry();
     update();
@@ -288,7 +389,7 @@ void QCodelist::updateColumnVisibility()
     // Re-apply visibility settings from config, which will also apply data-type filters
     AppConfig& config = AppConfig::getInstance();
     for (int e = Element::EHIT; e < Element::ENUMTYPES; e++)
-        setColumnVisibility(static_cast<Element>(e), config.getColumnVisible(e));
+        setColumnVisibility(static_cast<Element>(e), config.getColumnVisible(e, e != Element::ESOURCEREF));
 }
 
 void QCodelist::setDrawType(Canvas::DrawType type)
@@ -347,16 +448,19 @@ void QCodelist::refreshLatencyAnnotations()
     }
 
     HorizontalHotspot::PublishCategories(max_sqtt_latency, max_pcs_latency);
-    scheduleRedraw();
+    refreshLayout();
 }
 
 void QCodelist::Populate(const std::vector<CodeData>& code)
 {
-    QPalette pal = QPalette();
-    pal.setColor(QPalette::Window, WindowColors::Background());
-    this->setPalette(pal);
-
+    clearRowInteraction();
     ASMCodeline::Populate(code);
+    std::vector<std::string_view> instructions;
+    instructions.reserve(ASMCodeline::line_vec.size());
+    for (const auto& line : ASMCodeline::line_vec)
+        instructions.push_back(line->elements.at(Element::EASM)->getStdText());
+    rows.reset(instructions);
+    onScroll(scrollbar->value());
 
     // Repopulating rebuilds ASMCodeline with fresh line_index values, so any
     // externally-published category keyed by the old indices (e.g. Memory
@@ -392,14 +496,13 @@ void QCodelist::Populate(const std::vector<CodeData>& code)
     // Update column visibility based on data availability flags
     updateColumnVisibility();
 
-    // Update label minimap
-    if (MainWindow::window && MainWindow::window->label_minimap) MainWindow::window->label_minimap->Populate();
+    host.listingChanged();
 }
 
 void QCodelist::resizeEvent(QResizeEvent* event)
 {
     Super::resizeEvent(event);
-    scheduleRedraw();
+    updateScrollRange();
 }
 
 int QCodelist::lineheight() { return line_height; };
@@ -418,171 +521,37 @@ void QCodelist::Highlight(int lbegin, int lend, bool bIntoView, const Color& col
     auto elem = elements.at(ASMCodeline::Element::EASM);
     QWARNING(elem, "No code element", return );
 
-    auto scroll = elem->Highlight(color, lbegin, lend);
+    if (lbegin < 0 || lend < lbegin || lend >= static_cast<int>(ASMCodeline::line_vec.size())) return;
+    if (bIntoView)
+    {
+        clearRowInteraction();
+        if (rows.reveal(lbegin, lend)) rowsChanged(lbegin, 0);
+    }
+    const int begin_row = rows.rowOf(lbegin);
+    const int end_row = rows.rowOf(lend);
+    if (begin_row < 0 || end_row < 0) return;
+    auto scroll = elem->Highlight(color, begin_row, end_row);
 
     if (scroll && bIntoView) scrollbar->setValue(*scroll);
 }
 
 void QCodelist::wheelEvent(QWheelEvent* event)
 {
-    this->Super::wheelEvent(event);
-    scrollbar->setValue(scrollbar->value() - event->angleDelta().y());
+    const int delta = event->pixelDelta().isNull() ? event->angleDelta().y() : event->pixelDelta().y();
+    if (event->modifiers().testFlag(Qt::ShiftModifier) || delta == 0)
+    {
+        event->ignore(); // Let the enclosing scroll area handle horizontal scrolling.
+        return;
+    }
+    scrollbar->setValue(scrollbar->value() - delta);
+    event->accept();
 }
 
 void QCodelist::paintEvent(QPaintEvent* event)
 {
     this->Super::paintEvent(event);
-
     QPainter painter(this);
-    QFont font = painter.font();
-    font.setPointSize(MainWindow::font());
-
-    QFontMetrics fm(font);
-
-    if (fm.height() != line_height)
-    {
-        line_height = fm.height();
-
-        scrollbar->setPageStep(line_height * 10);
-        scrollbar->setSingleStep(line_height);
-
-        scheduleRedraw();
-    }
-
-    const int heighty = lineheight();
-    auto elementpos = [this]()
-    {
-        for (auto& element : elements)
-            if (element) return element->pos();
-        return QPoint();
-    }();
-
-    Color color = WindowColors::StripeBackground();
-    color.setAlpha(254);
-
-    for (auto& line : ASMCodeline::line_vec)
-        if (line && line->line_index % 2)
-        {
-            int posy = heighty * (1 + line->line_index) - scrollposy + elementpos.y() + 1;
-            if (posy < -2 * heighty) continue;
-            if (posy > height() + heighty) break;
-
-            painter.fillRect(QRect(elementpos.x(), posy, width() - elementpos.x(), heighty), color);
-        }
-
-    this->QWidget::paintEvent(event);
-}
-
-QElementList::QElementList(ASMCodeline::Element _elem) : elementtype(_elem)
-{
-    if (!isASM()) setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Ignored);
-}
-
-void QElementList::updateCache(QFontMetrics& fm)
-{
-    int width = 0;
-
-    for (auto& line : ASMCodeline::line_vec)
-        if (auto element = line->elements.at(elementtype).get())
-        {
-            element->InvalidateCache();
-            width = std::max(width, element->width(fm));
-        }
-
-    width += 2 + 2 * fm.height() - 2 * fm.overlinePos();
-
-    width_cache = std::min(std::max(width, width_cache), ASM_MAX_LINE_WIDTH);
-    updateGeometry();
-    cachevalid = true;
-}
-
-void QElementList::paintEvent(QPaintEvent* event)
-{
-    this->Super::paintEvent(event);
-
-    const int heighty = QCodelist::lineheight();
-
-    QPainter painter(this);
-    {
-        QFont font = MainWindow::default_font.isEmpty() ? painter.font() : QFont(MainWindow::default_font);
-        font.setPointSize(MainWindow::font());
-        painter.setFont(font);
-    }
-    QFontMetrics fm(painter.font());
-    int overline = fm.height() - fm.overlinePos();
-
-    if (!cachevalid) updateCache(fm);
-
-    if (timer.timer && ASMCodeline::line_vec.size())
-    {
-        int b = highlight_begin * heighty - scrollposy;
-        int e = (highlight_end + 1) * heighty - scrollposy;
-
-        if (b < height() && e > 0 && b < e)
-        {
-            QPainterPath path;
-            path.addRoundedRect(QRectF(0, b, width(), e - b), 3, 3);
-
-            QColor color = WindowColors::LineSlowHighlight();
-            QBrush brush(color);
-            painter.fillPath(path, brush);
-        }
-    }
-
-    painter.setPen(QPen(WindowColors::textColor(), 1));
-
-    for (auto& line : ASMCodeline::line_vec)
-    {
-        int posy = heighty * (1 + line->line_index) - scrollposy;
-        if (posy < -2 * heighty) continue;
-        if (posy > height() + heighty) break;
-
-        if (auto element = line->elements.at(elementtype).get())
-        {
-            int posx = isASM() ? 0 : std::max(0, width_cache - element->width(fm));
-            element->paint(painter, posx, posy, heighty, overline);
-        }
-    }
-}
-
-LineElement* QElementList::getelement(int index)
-{
-    if (index >= 0 && index < ASMCodeline::line_vec.size())
-        return ASMCodeline::line_vec.at(index)->elements.at(elementtype).get();
-
-    return nullptr;
-};
-
-int QElementList::line_height() { return QCodelist::lineheight(); };
-
-QSize QElementList::sizeHint() const { return QSize(std::max(width_cache + 8, 48), Super::sizeHint().height()); }
-
-QSize QASMElementList::sizeHint() const { return QSize(std::max(width_cache + 8, 128), Super::sizeHint().height()); }
-
-QSize QASMElementList::minimumSizeHint() const
-{
-    return QSize(std::max(std::min(width_cache + 8, 256), 128), Super::minimumSizeHint().height());
-}
-
-void QASMElementList::mouseMoveEvent(class QMouseEvent* event)
-{
-    this->Super::mouseMoveEvent(event);
-
-    auto* asm_elem = dynamic_cast<ASMLine*>(getelement(getLineIndex(event->pos().y())));
-    if (!asm_elem) return;
-
-    std::stringstream tooltip;
-    tooltip << "<div style= \"white-space: nowrap;\"><table>\n<tr><th>"
-            << "l:" << asm_elem->line_number << " cid:" << asm_elem->codeobj << " vaddr:0x" << std::hex
-            << asm_elem->addr << std::dec << "</th>\n<th>&nbsp;|&nbsp;</th>\n<th>" << asm_elem->getStdText()
-            << "</th>\n</tr>";
-
-    auto callstack = asm_elem->callstack();
-    for (auto& [file, line] : callstack)
-        tooltip << "<tr>\n<td>" << file << "</td>\n<td>&nbsp;|&nbsp;</td>\n<td>" << line << "</td>\n</tr>\n";
-
-    tooltip << "</table></div>";
-    this->setToolTip(tooltip.str().c_str());
+    painter.fillRect(rect(), WindowColors::Background());
 }
 
 #include "qcodelist.moc"

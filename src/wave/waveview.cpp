@@ -21,6 +21,7 @@
 // SOFTWARE.
 
 #include "waveview.h"
+#include <QLabel>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPainterPath>

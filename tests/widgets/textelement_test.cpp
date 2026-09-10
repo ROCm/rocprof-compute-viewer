@@ -20,183 +20,85 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+#include "code/textelement.h"
 #include <gtest/gtest.h>
-#include <QApplication>
 #include <QFontMetrics>
 #include <QImage>
 #include <QPainter>
+#include "config/config.hpp"
 
-// ============================================================================
-// TextLineElement - Minimal implementation for testing
-// Line element with text rendering, caching, and hover states
-// ============================================================================
-
-#include <QString>
-#include <string>
-
-class TextLineElement
+namespace
 {
-public:
-    TextLineElement(const std::string& _str) : stdtext(_str), text(_str.c_str()) {}
+QImage render(TextLineElement& element, const QFont& font)
+{
+    QFontMetrics fm(font);
+    const int overline = fm.height() - fm.overlinePos();
+    QImage image(
+        fm.horizontalAdvance(element.getText()) + 4 * overline, 2 * fm.height(), QImage::Format_ARGB32_Premultiplied
+    );
+    image.fill(WindowColors::Background());
+    QPainter painter(&image);
+    const QPen pen(WindowColors::textColor());
+    painter.setFont(font);
+    painter.setPen(pen);
+    element.paint(painter, overline, fm.height(), fm.height(), overline);
+    EXPECT_EQ(painter.pen(), pen);
+    EXPECT_EQ(painter.font(), font);
+    painter.end();
+    return image;
+}
+} // namespace
 
-    int width(QFontMetrics& fm)
+TEST(TextLineElementTest, MeasurementsFollowFontChangesIncludingShrinking)
+{
+    for (const std::string text : {std::string(), std::string("日本語テスト"), std::string(1000, 'A')})
     {
-        if (width_cache <= 1) width_cache = fm.horizontalAdvance(this->text);
-        return width_cache;
+        TextLineElement element(text);
+        for (int size : {10, 24, 10})
+        {
+            QFont font;
+            font.setPointSize(size);
+            QFontMetrics fm(font);
+            EXPECT_EQ(element.width(fm), fm.horizontalAdvance(QString::fromStdString(text)));
+        }
     }
+}
 
-    const QString& getText() const { return this->text; }
-    const std::string& getStdText() const { return stdtext; }
-    void InvalidateCache() const { width_cache = -1; }
-
-    void setRefHighlight(bool value, bool click)
+TEST(TextLineElementTest, HighlightGeometryDoesNotDependOnPremeasuringText)
+{
+    for (bool dark : {false, true})
     {
-        bRefHighlight = value;
-        bHighlightMode = click;
+        WindowColors::setDark(dark);
+        TextLineElement cold("v_add_f32 v0, v1, v2");
+        TextLineElement warm("v_add_f32 v0, v1, v2");
+        QFont font;
+        font.setPointSize(14);
+        QFontMetrics fm(font);
+        warm.width(fm);
+        cold.setRefHighlight(true, true);
+        warm.setRefHighlight(true, true);
+        cold.setMouseHover(true);
+        warm.setMouseHover(true);
+        EXPECT_EQ(render(cold, font), render(warm, font));
     }
+}
 
-    void setMouseHover(bool value) { bHovering = value; }
-    bool isHovering() const { return bHovering; }
-    bool isRefHighlight() const { return bRefHighlight; }
-    bool isHighlightMode() const { return bHighlightMode; }
-    int getCachedWidth() const { return width_cache; }
-
-protected:
-    mutable int width_cache = -1;
-    std::string stdtext;
-    QString text;
-
-    bool bHovering = false;
-    bool bRefHighlight = false;
-    bool bHighlightMode = false;
-};
-
-// ============================================================================
-// TextLineElement Tests
-// ============================================================================
-
-class TextLineElementTest : public ::testing::Test
+TEST(TextLineElementTest, HoverAndReferenceHighlightsRenderAndClear)
 {
-protected:
-    void SetUp() override
+    for (bool dark : {false, true})
     {
-        // QApplication is required for QFontMetrics
+        WindowColors::setDark(dark);
+        TextLineElement element("s_load_dwordx4 s[0:3], s[4:5], 0");
+        const QFont font;
+        const auto plain = render(element, font);
+        for (bool hover : {false, true})
+        {
+            element.setRefHighlight(!hover, false);
+            element.setMouseHover(hover);
+            EXPECT_NE(render(element, font), plain);
+            element.setRefHighlight(false, false);
+            element.setMouseHover(false);
+            EXPECT_EQ(render(element, font), plain);
+        }
     }
-};
-
-TEST_F(TextLineElementTest, ConstructorSetsText)
-{
-    TextLineElement elem("Hello World");
-
-    EXPECT_EQ(elem.getStdText(), "Hello World");
-    EXPECT_EQ(elem.getText(), QString("Hello World"));
-}
-
-TEST_F(TextLineElementTest, EmptyStringConstructor)
-{
-    TextLineElement elem("");
-
-    EXPECT_EQ(elem.getStdText(), "");
-    EXPECT_TRUE(elem.getText().isEmpty());
-}
-
-TEST_F(TextLineElementTest, WidthCalculationCachesResult)
-{
-    TextLineElement elem("Test String");
-    QFont font;
-    QFontMetrics fm(font);
-
-    // First call calculates width
-    int width1 = elem.width(fm);
-    EXPECT_GT(width1, 0);
-
-    // Cache should now be populated
-    EXPECT_EQ(elem.getCachedWidth(), width1);
-
-    // Second call should return same value (from cache)
-    int width2 = elem.width(fm);
-    EXPECT_EQ(width1, width2);
-}
-
-TEST_F(TextLineElementTest, InvalidateCacheResetsWidth)
-{
-    TextLineElement elem("Test");
-    QFont font;
-    QFontMetrics fm(font);
-
-    elem.width(fm);
-    EXPECT_GT(elem.getCachedWidth(), 0);
-
-    elem.InvalidateCache();
-    EXPECT_EQ(elem.getCachedWidth(), -1);
-}
-
-TEST_F(TextLineElementTest, HoverStateManagement)
-{
-    TextLineElement elem("Hover Test");
-
-    EXPECT_FALSE(elem.isHovering());
-
-    elem.setMouseHover(true);
-    EXPECT_TRUE(elem.isHovering());
-
-    elem.setMouseHover(false);
-    EXPECT_FALSE(elem.isHovering());
-}
-
-TEST_F(TextLineElementTest, RefHighlightStates)
-{
-    TextLineElement elem("Highlight Test");
-
-    EXPECT_FALSE(elem.isRefHighlight());
-    EXPECT_FALSE(elem.isHighlightMode());
-
-    // Set highlight without click
-    elem.setRefHighlight(true, false);
-    EXPECT_TRUE(elem.isRefHighlight());
-    EXPECT_FALSE(elem.isHighlightMode());
-
-    // Set highlight with click
-    elem.setRefHighlight(true, true);
-    EXPECT_TRUE(elem.isRefHighlight());
-    EXPECT_TRUE(elem.isHighlightMode());
-
-    // Clear highlight
-    elem.setRefHighlight(false, false);
-    EXPECT_FALSE(elem.isRefHighlight());
-    EXPECT_FALSE(elem.isHighlightMode());
-}
-
-TEST_F(TextLineElementTest, UnicodeTextSupport)
-{
-    TextLineElement elem("日本語テスト");
-    QFont font;
-    QFontMetrics fm(font);
-
-    EXPECT_EQ(elem.getStdText(), "日本語テスト");
-    // Width should be calculated for unicode
-    int width = elem.width(fm);
-    EXPECT_GT(width, 0);
-}
-
-TEST_F(TextLineElementTest, LongTextWidth)
-{
-    std::string longText(1000, 'A');
-    TextLineElement elem(longText);
-    QFont font;
-    QFontMetrics fm(font);
-
-    int width = elem.width(fm);
-    EXPECT_GT(width, 100); // Should be quite wide
-}
-
-// ============================================================================
-// Main
-// ============================================================================
-
-int main(int argc, char** argv)
-{
-    QApplication app(argc, argv);
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
 }

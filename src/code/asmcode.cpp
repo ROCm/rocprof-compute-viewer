@@ -21,24 +21,14 @@
 // SOFTWARE.
 
 #include "asmcode.h"
-#include <QPaintEvent>
 #include <QPainter>
-#include <QPainterPath>
-#include <QPushButton>
-#include <QScrollArea>
-#include <QScrollBar>
+#include <QTextLayout>
 #include <algorithm>
 #include <sstream>
 #include "config/config.hpp"
-#include "graphics/canvas.h"
-#include "mainwindow.h"
+#include "qcodelist.h"
 #include "sourcefile.h"
 #include "util/diagnostic_log.h"
-#include "wave/waveview.h"
-
-#define SHORT_CPPLINE_MAXCHARS 32
-
-using namespace std;
 
 std::map<int, std::shared_ptr<ASMCodeline>> ASMCodeline::line_map{};
 std::vector<std::shared_ptr<ASMCodeline>> ASMCodeline::line_vec{};
@@ -51,7 +41,7 @@ line_index(line_vec.size()), line_number(_line_number)
     QASSERT(codedata.line, "Empty line in codedata!");
     auto& line = *codedata.line;
 
-    static std::vector<int> empty{};
+    static const std::vector<int> empty{};
     auto& latency = codedata.exec ? codedata.exec->latency : empty;
     auto& idle = codedata.exec ? codedata.exec->idle : empty;
 
@@ -66,8 +56,8 @@ line_index(line_vec.size()), line_number(_line_number)
     elements.at(Element::EPCStalls) = std::make_unique<NumberLabel>(codedata.line->pcstalls);
 
     std::string cppline = line.cppline;
-    if (cppline.size() > SHORT_CPPLINE_MAXCHARS)
-        cppline = "[...]" + cppline.substr(cppline.size() - SHORT_CPPLINE_MAXCHARS);
+    constexpr size_t max_source_chars = 32;
+    if (cppline.size() > max_source_chars) cppline = "[...]" + cppline.substr(cppline.size() - max_source_chars);
 
     std::stringstream ss;
     ss << std::hex << line.addr << ' ';
@@ -84,25 +74,26 @@ ASMCodeline::~ASMCodeline() {}
 
 int CyclesLabel::width(QFontMetrics& fm)
 {
-    if (local_strategy != global_strategy)
-    {
-        local_strategy = global_strategy;
-        updateStrategy();
-        InvalidateCache();
-    }
-
+    refreshText();
     return this->Super::width(fm);
 }
 
 void CyclesLabel::paint(class QPainter& painter, int posx, int posy, int stepy, int overline)
 {
-    if (local_strategy != global_strategy)
+    refreshText();
+    this->Super::paint(painter, posx, posy, stepy, overline);
+}
+
+void CyclesLabel::refreshText()
+{
+    const int iteration = QCodelist::singleton ? QCodelist::singleton->context().currentIteration() : -1;
+    if (local_strategy != global_strategy || (global_strategy == Strategy::ITERATION && cached_iteration != iteration))
     {
         local_strategy = global_strategy;
+        cached_iteration = iteration;
         updateStrategy();
         InvalidateCache();
     }
-    this->Super::paint(painter, posx, posy, stepy, overline);
 }
 
 void CyclesLabel::updateStrategy()
@@ -126,12 +117,12 @@ void CyclesLabel::updateStrategy()
             for (int v : cycles) value += v;
             break;
         case Strategy::MAX:
-            for (int64_t v : cycles) value = max(value, v);
+            for (int64_t v : cycles) value = std::max(value, v);
             break;
         case Strategy::ITERATION:
         {
-            int iter = MainWindow::window->iteration_current.second;
-            value = (iter >= 0 && iter < cycles.size()) ? cycles.at(MainWindow::window->iteration_current.second) : 0;
+            int iter = QCodelist::singleton ? QCodelist::singleton->context().currentIteration() : -1;
+            value = (iter >= 0 && iter < cycles.size()) ? cycles.at(iter) : 0;
             break;
         }
         case Strategy::SUM_ALL:
@@ -151,6 +142,7 @@ void CyclesLabel::updateStrategy()
 void ASMCodeline::Populate(const std::vector<CodeData>& code)
 {
     Clear();
+    line_vec.reserve(code.size());
 
     for (auto& line : code)
     {
@@ -198,81 +190,65 @@ void ASMLine::setMouseHover(bool value)
 }
 
 ASMLine::ASMLine(int _line_number, const CodeData::Line& line) :
-TextLineElement(line.inst), line_number(_line_number), codeobj(line.codeobj_id), addr(line.addr)
+TextLineElement(line.inst),
+line_number(_line_number),
+codeobj(line.codeobj_id),
+addr(line.addr),
+instruction_kind(Isa::classifyInstruction(line.inst))
 {
-    line_ref.clear();
-
-    size_t start = 0;
-    size_t end = std::string::npos;
-
-    std::string_view separator = " -> ";
-
-    try
+    const auto mnemonic = Isa::instructionMnemonic(stdtext);
+    if (!mnemonic.empty())
     {
-        while (start != std::string::npos)
-        {
-            size_t end = line.cppline.find(separator, start);
-            auto substr = line.cppline.substr(start, end - start);
-            start = end;
-            if (start != std::string::npos) start += separator.size();
-            if (substr.empty()) continue;
+        // Only ASCII indentation precedes the mnemonic. Cache UTF-16 bounds
+        // once per instruction rather than parsing during every repaint.
+        mnemonic_start = static_cast<int>(mnemonic.data() - stdtext.data());
+        mnemonic_length = QString::fromUtf8(mnemonic.data(), static_cast<int>(mnemonic.size())).size();
+    }
 
-            try
-            {
-                auto shared = SourceLine::all_lines.at(std::string(substr));
-                if (!shared) continue;
-                line_ref.push_back(shared);
-                shared->add_latency(
-                    line.type, {line.latency_sum, line.stall_sum, line.idle_sum}, {line.pcsamples, line.pcstalls}
-                );
-            }
-            catch (std::exception&)
-            {
-                RCV_LOG();
-            }
-        }
-    }
-    catch (std::exception&)
+    constexpr std::string_view separator = " -> ";
+    std::string_view references = line.cppline;
+    while (!references.empty())
     {
-        QWARNING(false, "Error parsing source reference in ASMLine", return );
+        const auto end = references.find(separator);
+        const auto reference = references.substr(0, end);
+        references = end == std::string_view::npos ? std::string_view{} : references.substr(end + separator.size());
+        // Missing snapshots are normal, not exceptional. Avoid throwing for
+        // every instruction in a large listing with partial debug information.
+        const auto found = SourceLine::all_lines.find(std::string(reference));
+        if (found == SourceLine::all_lines.end() || !found->second) continue;
+        const auto& source = found->second;
+        line_ref.push_back(source);
+        source->add_latency(
+            line.type, {line.latency_sum, line.stall_sum, line.idle_sum}, {line.pcsamples, line.pcstalls}
+        );
     }
+}
+
+void ASMLine::drawText(QPainter& painter, int x, int baseline)
+{
+    if (instruction_kind == Isa::InstructionKind::Other)
+    {
+        Super::drawText(painter, x, baseline);
+        return;
+    }
+
+    // Shape the visible line once, applying color to just the mnemonic. This
+    // preserves operand spacing (including tabs) without splitting or drawing
+    // the string twice. No layouts or widgets are retained for offscreen rows.
+    QTextLayout layout(text, painter.font(), painter.device());
+    QTextLayout::FormatRange mnemonic;
+    mnemonic.start = mnemonic_start;
+    mnemonic.length = mnemonic_length;
+    mnemonic.format.setForeground(Isa::instructionColor(instruction_kind, WindowColors::isDark(), painter.pen().color())
+    );
+    layout.setFormats({mnemonic});
+    layout.beginLayout();
+    const auto line = layout.createLine();
+    layout.endLayout();
+    layout.draw(&painter, QPointF(x, baseline - line.ascent()));
 }
 
 void ASMLine::onMousePress()
 {
-    QASSERT(MainWindow::window, "Invalid window");
-
-    MainWindow::window->SetSearchText(getStdText());
-
-    int iteration = MainWindow::window ? MainWindow::window->iteration_current.second : -1;
-    int64_t clock = WaveInstance::GetMainClock(line_number, iteration);
-    if (clock >= 0) MainWindow::window->ScrollViewsTo(clock);
-
-    // First, we attempt to scroll to the current file being displayed
-    if (auto* sourcetab = MainWindow::window->source_filetab)
-    {
-        auto* source = dynamic_cast<QScrollArea*>(sourcetab->currentWidget());
-        if (source)
-        {
-            for (auto& ref : line_ref)
-            {
-                if (auto locked = ref.lock())
-                {
-                    if (locked->parent == source->widget())
-                    {
-                        locked->scrollTo();
-                        return;
-                    }
-                }
-            }
-        }
-    }
-
-    // If current widget is not one of our source files, we scroll to the first one
-    for (auto& ref : line_ref)
-        if (auto locked = ref.lock())
-        {
-            locked->scrollTo();
-            return;
-        }
+    if (QCodelist::singleton) QCodelist::singleton->context().selectInstruction(*this);
 }
