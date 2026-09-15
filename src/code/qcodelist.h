@@ -25,7 +25,10 @@
 #include <QComboBox>
 #include <QWidget>
 #include "asmcode.h"
+#include "config/config.hpp"
 #include "graphics/canvas.h"
+#include "isa_context.h"
+#include "isa_rows.h"
 #include "util/highlight.h"
 
 class QElementList : public QTextElement
@@ -35,25 +38,26 @@ class QElementList : public QTextElement
     using Super = QTextElement;
 
 public:
-    explicit QElementList(ASMCodeline::Element _elem);
+    QElementList(ASMCodeline::Element element, const Isa::Rows& rows);
     virtual ~QElementList(){};
 
     virtual void paintEvent(QPaintEvent* event) override;
     virtual QSize sizeHint() const override;
-    virtual QSize minimumSizeHint() const override { return sizeHint(); };
+    virtual QSize minimumSizeHint() const override { return QSize(48, 0); };
 
     const ASMCodeline::Element elementtype;
     bool isASM() const { return elementtype == ASMCodeline::Element::EASM; }
 
-    void InvalidateCache() { cachevalid = false; };
+    void InvalidateCache() { width_cache = -1; };
+    int contentWidth();
+    int getLineIndex(int posy) override;
     virtual LineElement* getelement(int index) override;
     virtual int line_height() override;
 
 protected:
-    void updateCache(class QFontMetrics& fm);
-
+    const Isa::Rows& rows;
     int width_cache = -1;
-    bool cachevalid = false;
+    QFont width_font;
 };
 
 class QASMElementList : public QElementList
@@ -63,10 +67,12 @@ class QASMElementList : public QElementList
     using Super = QElementList;
 
 public:
-    QASMElementList() : Super(ASMCodeline::Element::EASM) { setAttribute(Qt::WA_AlwaysShowToolTips, true); };
+    explicit QASMElementList(class QCodelist& viewer);
+    void mousePressEvent(QMouseEvent* event) override;
     virtual void mouseMoveEvent(class QMouseEvent* event) override;
-    virtual QSize sizeHint() const override;
-    virtual QSize minimumSizeHint() const override;
+
+private:
+    QCodelist& viewer;
 };
 
 class QCodelist : public QWidget
@@ -78,16 +84,19 @@ class QCodelist : public QWidget
     using Super = QWidget;
 
 public:
-    explicit QCodelist(QWidget* parent = nullptr);
+    explicit QCodelist(Isa::Context& context, QWidget* parent = nullptr);
     virtual ~QCodelist();
 
     virtual void paintEvent(QPaintEvent* event) override;
     virtual void wheelEvent(QWheelEvent* event) override;
     virtual void resizeEvent(QResizeEvent* event) override;
+    bool event(QEvent* event) override;
+    bool eventFilter(QObject* watched, QEvent* event) override;
     void Populate(const std::vector<CodeData>& code);
 
     void onScroll(int value);
-    void scheduleRedraw();
+    // Apply the configured font and recompute column/scroll geometry before painting.
+    void refreshLayout();
 
     void Highlight(int lbegin, int lend, bool bIntoView, const Color& color = WindowColors::LineSlowHighlight());
 
@@ -101,10 +110,15 @@ public:
     /// after Registry::publish/clear/clearAll.
     void refreshAnnotations();
 
+    const Isa::Rows& rowMapping() const { return rows; }
+    Isa::Context& context() const { return host; }
+    void setFoldingEnabled(bool enabled);
+    void toggleSection(int label);
+    void expandAll();
+
     std::array<QElementList*, Element::ENUMTYPES> elements{};
 
     class QScrollBar* scrollbar = nullptr;
-    class QGridLayout* layout_main = nullptr;
     class Canvas* connector = nullptr;
     class DrawTypeSelector* drawselector = nullptr;
     std::vector<Canvas::WaitList> waitcnt{};
@@ -117,6 +131,20 @@ public:
     int64_t max_pcs_latency = 1;
 
 private:
+    void updateScrollRange();
+    void updateAutomaticColumnWidths();
+    void fitInstructionColumn();
+    void autoSizeColumn(int column);
+    void clearRowInteraction();
+    void rowsChanged(int anchor_line, int offset);
+    QWidget* createInstructionHeader();
+
+    Isa::Context& host;
+    Isa::Rows rows;
+    class CodeColumns* columns = nullptr;
+    QComboBox* folding_selector = nullptr;
+    class QToolButton* expand_sections = nullptr;
+    bool updating_columns = false;
     int scrollposy = 0;
 };
 
@@ -129,6 +157,9 @@ class CycleModeSelector : public QComboBox
 public:
     CycleModeSelector(QCodelist* _parent);
     void changeStrategy(const QString& text);
+    QSize sizeHint() const override;
+    void paintEvent(QPaintEvent* event) override;
+    void showPopup() override;
 
     QCodelist* parent = nullptr;
 };

@@ -72,6 +72,7 @@ public:
     void setScroll(int posy)
     {
         scrollposy = posy;
+        hovered_line_index = -1;
         update();
     }
 

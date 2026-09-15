@@ -48,8 +48,10 @@ struct LabelInfo
 /**
  * @brief Widget that displays a minimap of all labels in the code
  *
- * Labels are identified by text starting with "label" or "; _"
+ * Uses the ISA viewer's label rules,
+ * including "; <symbol>" function headers.
  * Each entry shows: name, address, codeobj, and latency percentage
+ *
  * Clicking an entry scrolls the code view to that label
  */
 class LabelMinimap : public QWidget
@@ -74,7 +76,8 @@ public:
     /**
      * @brief Check if a text line represents a label
      * @param text The instruction text to check
-     * @return true if the text is a label (starts with "label" or "; _")
+     *
+     * @return true if the text is a branch label or a function header
      */
     static bool IsLabel(const std::string& text);
 

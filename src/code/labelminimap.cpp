@@ -29,7 +29,7 @@
 #include <cstring>
 #include <sstream>
 #include "config/config.hpp"
-#include "mainwindow.h"
+#include "isa_rows.h"
 #include "qcodelist.h"
 
 LabelMinimap::LabelMinimap(QWidget* parent) : QWidget(parent)
@@ -59,40 +59,13 @@ LabelMinimap::LabelMinimap(QWidget* parent) : QWidget(parent)
 
 LabelMinimap::~LabelMinimap() {}
 
-bool LabelMinimap::IsLabel(const std::string& text)
-{
-    if (text.empty()) return false;
-
-    // Find the first non-whitespace character
-    size_t start = 0;
-    while (start < text.size() && (text[start] == ' ' || text[start] == '\t')) start++;
-
-    if (start >= text.size()) return false;
-
-    // Check if starts with "label" (after whitespace)
-    if (text.size() - start >= 5 && text.compare(start, 5, "label") == 0) return true;
-
-    // Check if starts with "; _" (after whitespace)
-    if (text.size() - start >= 3 && text.compare(start, 3, "; _") == 0) return true;
-
-    return false;
-}
+bool LabelMinimap::IsLabel(const std::string& text) { return Isa::isLabel(text); }
 
 std::string LabelMinimap::ExtractLabelName(const std::string& text)
 {
-    // Find the first non-whitespace character
-    size_t start = 0;
-    while (start < text.size() && (text[start] == ' ' || text[start] == '\t')) start++;
-
-    if (start >= text.size()) return text;
-
-    if (text.size() - start >= 3 && text.compare(start, 2, "; ") == 0)
-    {
-        return text.substr(start + 2); // Return everything after "; "
-    }
-
-    // Otherwise return from the start of non-whitespace
-    return text.substr(start);
+    auto start = text.find_first_not_of(" \t\r\n");
+    if (start != std::string::npos && text[start] == ';') start = text.find_first_not_of(" \t\r\n", start + 1);
+    return start == std::string::npos ? std::string{} : text.substr(start);
 }
 
 int64_t LabelMinimap::calculateLabelLatency(size_t labelIndex) const
@@ -285,15 +258,10 @@ void LabelMinimap::onLabelClicked(int row, int column)
     // Scroll the QCodelist to the label
     if (auto* codelist = QCodelist::singleton)
     {
-        int scrollPos = QCodelist::lineheight() * lineIndex;
-
-        if (codelist->scrollbar)
-        {
-            int viewHeight = codelist->height();
-            int targetPos = std::max(0, scrollPos - viewHeight / 3);
-            codelist->scrollbar->setValue(targetPos);
-        }
-
         codelist->Highlight(lineIndex, lineIndex, true);
+        // Highlight reveals a folded section before we position its label.
+        const int row = codelist->rowMapping().rowOf(lineIndex);
+        if (row >= 0 && codelist->scrollbar)
+            codelist->scrollbar->setValue(std::max(0, row * QCodelist::lineheight() - codelist->height() / 3));
     }
 }

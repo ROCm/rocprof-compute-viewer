@@ -112,6 +112,8 @@ If debug symbols are present, rocprofv3 snapshots the related source files, whic
 * Hover or Click on an ISA line to highlight the corresponding source line. The opposite way is also possible.
   * Clicking on a source line permanently highlights the ISA lines until the user clicks on the same or another line.
 * Hidden latency analysis runs automatically for gfx10+ thread traces and can also be run from Analyze -> Hidden Latency. After it runs, the instruction latency dropdown can show Total latency or Nonhidden Latency, and source hotspots can optionally include or exclude hidden latency.
+* Drag header dividers to resize columns; widths are remembered. Double-click a divider to restore automatic sizing. Only classified instruction mnemonics are tinted by type; operands keep their normal color, and all text keeps its normal weight. Decoder SKIP families and unclassified instructions remain unstyled. SALU, VALU, and matrix operations use progressively darker greens; branches/calls are purple and control/scratch operations wine-colored, with theme-aware contrast.
+* The visible dropdown in the Instruction header defaults to **Fold by labels**, with every section expanded. Click a label's triangle to collapse or expand the instructions up to the next label. The **+** button expands all sections; **No folding** expands everything and hides the triangles. Navigation to a hidden instruction reveals its section. No additional toolbar row is needed.
 
 ### Occupancy and Dispatches plots tab
 * Keys:

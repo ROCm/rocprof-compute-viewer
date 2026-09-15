@@ -35,7 +35,6 @@
 #include "../analysis/annotation.h"
 #include "../config/config.hpp"
 #include "asmcode.h"
-#include "mainwindow.h"
 #include "qcodelist.h"
 #include "sourcefile.h"
 #include "util/custom_layouts.h"

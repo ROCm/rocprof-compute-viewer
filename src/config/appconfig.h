@@ -60,6 +60,9 @@ public:
     // Instruction Column Visibility (uses ASMCodeline::Element values)
     bool getColumnVisible(int element, bool bDefault = true) const;
     void setColumnVisible(int element, bool enabled);
+    // Width in pixels, or -1 for automatic sizing. Element -1 is the annotation column.
+    int getColumnWidth(int element) const;
+    void setColumnWidth(int element, int width);
 
 private:
     AppConfig();

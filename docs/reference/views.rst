@@ -168,6 +168,16 @@ The ISA view is available under Compute Unit and Utilization tabs. The ISA view 
 
   - Clicking on a source line keeps the corresponding ISA line highlighted until you click on the same or another line.
 
+- Drag a divider in the column header to change its width. Widths are remembered across sessions, including for hidden columns. Double-click a divider to restore automatic sizing. Wide listings can be scrolled horizontally; hovering over an instruction shows its full text and source references.
+
+- Only classified instruction mnemonics are colored; operands, labels, and comments keep their normal color, and all text keeps its normal weight. Scalar ALU operations are light green, vector operations medium green, and matrix operations (``v_wmma_`` and ``v_mfma_``) dark green. Scalar memory is yellow-brown, waits/barriers and scheduling instructions grey, vector/flat/image memory cyan, LDS orange, and branches/calls purple. Trace/control instructions and scratch memory share a wine/red tint. Colors adapt to light and dark themes. Decoder SKIP families (``s_wait_dep*``, ``s_wait_alu*``, ``s_set_vgpr*``, ``s_delay*``, and ``buffer_nop*``) and unclassified instructions retain their normal color and weight.
+
+- The visible dropdown in the **Instruction** header controls section folding without adding a toolbar row. **Fold by labels** is the default, with all sections initially expanded. Click the triangle beside a label to hide or reveal the instructions up to the next label. Function-name labels also delimit sections. A collapsed label shows the number of hidden rows; its cost is not a section total. Arrows with hidden endpoints are omitted.
+
+  - The small **+** button (**Expand all sections**) leaves label folding enabled with nothing collapsed. **No folding** expands everything and removes the triangles. Loading another listing also starts with every section expanded.
+
+  - Search results, source-line clicks, and jumps from the Labels view automatically reveal their target section. Source-selection-based folding is not part of this initial implementation.
+
 .. _global-view:
 
 Global view

@@ -30,7 +30,10 @@ AppConfig& AppConfig::getInstance()
     return instance;
 }
 
-AppConfig::AppConfig() : settings("AMD", "Rocprof-Compute-Viewer") {}
+// Keep the native store in the application, but honor the temporary INI store
+// selected by tests. The organization/application-only constructor always uses
+// NativeFormat, ignoring QSettings::setDefaultFormat().
+AppConfig::AppConfig() : settings(QSettings::defaultFormat(), QSettings::UserScope, "AMD", "Rocprof-Compute-Viewer") {}
 
 // Graph Options
 bool AppConfig::getLoadWaveStates() const { return settings.value("GraphOptions/LoadWaveStates", true).toBool(); }
@@ -114,4 +117,20 @@ bool AppConfig::getColumnVisible(int element, bool bDefault) const
 void AppConfig::setColumnVisible(int element, bool enabled)
 {
     settings.setValue(QString("InstructionColumns/Element%1").arg(element), enabled);
+}
+
+int AppConfig::getColumnWidth(int element) const
+{
+    bool ok = false;
+    const int width = settings.value(QString("InstructionColumnWidths/Element%1").arg(element), -1).toInt(&ok);
+    return ok && width >= 48 && width <= 4096 ? width : -1;
+}
+
+void AppConfig::setColumnWidth(int element, int width)
+{
+    const auto key = QString("InstructionColumnWidths/Element%1").arg(element);
+    if (width < 48 || width > 4096)
+        settings.remove(key);
+    else
+        settings.setValue(key, width);
 }

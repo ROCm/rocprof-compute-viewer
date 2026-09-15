@@ -31,7 +31,6 @@
 #include <string>
 #include "../config/config.hpp"
 #include "asmcode.h"
-#include "mainwindow.h"
 #include "qcodelist.h"
 #include "util/custom_layouts.h"
 
@@ -85,8 +84,7 @@ void SourceFile::paintEvent(class QPaintEvent* event)
 
     QPainter painter(this);
 
-    QFont font = MainWindow::default_font.isEmpty() ? painter.font() : QFont(MainWindow::default_font);
-    font.setPointSize(MainWindow::font());
+    const QFont font = QCodelist::singleton ? QCodelist::singleton->context().codeFont(painter.font()) : painter.font();
     painter.setFont(font);
 
     QFontMetrics fm(font);
@@ -196,7 +194,7 @@ void SourceLine::onMousePress()
     for (auto& ref : refs)
         if (auto refptr = ref.lock())
         {
-            QCodelist::singleton->Highlight(refptr->line_number, refptr->line_number, true);
+            QCodelist::singleton->Highlight(refptr->line_index, refptr->line_index, true);
             return;
         }
 };

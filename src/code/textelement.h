@@ -22,7 +22,7 @@
 
 #pragma once
 
-#include <QComboBox>
+#include <QFontMetrics>
 #include <QWidget>
 #include <optional>
 #include "util/custom_layouts.h"
@@ -31,6 +31,7 @@
 class LineElement
 {
 public:
+    virtual ~LineElement() = default;
     virtual int width(class QFontMetrics& fm) = 0;
     virtual void paint(class QPainter& painter, int posx, int posy, int stepy, int overline) = 0;
     virtual const std::string& getStdText() const = 0;
@@ -49,12 +50,10 @@ public:
     explicit QTextElement();
     virtual ~QTextElement(){};
 
-    void setScroll(int posy)
-    {
-        this->scrollposy = posy;
-        update();
-    };
-    int getLineIndex(int posy);
+    void setScroll(int posy);
+    virtual int getLineIndex(int posy);
+    void clearHover();
+    void clearHighlight();
 
     void enterEvent(IF_QT6_ELSE(QEnterEvent, QEvent) * event) override;
     void leaveEvent(QEvent* event) override;
@@ -101,7 +100,11 @@ public:
     virtual void setMouseHover(bool value) override { bHovering = value; };
 
 protected:
+    // Keep full-line hover/reference backgrounds shared with styled text.
+    virtual void drawText(QPainter& painter, int x, int baseline);
+
     mutable int width_cache = -1;
+    mutable std::optional<QFontMetrics> width_metrics;
     std::string stdtext;
     QString text;
 

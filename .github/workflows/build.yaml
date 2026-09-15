@@ -264,7 +264,7 @@ jobs:
 
     - name: Build Tests
       if: ${{ matrix.system.host != 'mac' }}
-      timeout-minutes: 5
+      timeout-minutes: 15
       run: cmake --build "${{github.workspace}}/build-tests" --config "${{env.BUILD_TYPE}}" --parallel 16
 
     - name: Run Tests
