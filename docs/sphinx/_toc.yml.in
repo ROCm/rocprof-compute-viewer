@@ -4,10 +4,8 @@ defaults:
   numbered: False
 root: index
 subtrees:
-- caption: Quick reference
-  entries:
-  - file: quick-reference/rcv-at-a-glance
-    title: RCV at a glance
+- entries:
+  - file: what_is_rcv
 - caption: Install
   entries:
   - file: install/installation
