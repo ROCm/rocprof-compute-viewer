@@ -1,12 +1,12 @@
 .. meta::
   :description: A high-level overview of ROCprof Compute Viewer: the pipeline it fits into, its input formats, and which view answers which performance question.
-  :keywords: ROCprof Compute Viewer overview, RCV overview, RCV at a glance, ATT, thread trace visualization, wavefront execution timeline
+  :keywords: What is RCV, ROCprof Compute Viewer overview, RCV overview, RCV at a glance, ATT, thread trace visualization, wavefront execution timeline
 
-.. _rcv-at-a-glance:
+.. _what-is-rcv:
 
-**********************************
-ROCprof Compute Viewer at a glance
-**********************************
+************
+What is RCV?
+************
 
 ROCprof Compute Viewer (RCV) is the visualization front end for :doc:`Advanced Thread Trace (ATT) <rocprofiler-sdk:how-to/using-thread-trace>` data: it renders decoded, instruction-level wavefront execution traces so you can see exactly which instruction stalled, for how long, and why. Use RCV once a coarser-grained tool (kernel-level counters or API traces) has identified which kernel is slow; RCV narrows the analysis down to the specific instruction responsible.
 
