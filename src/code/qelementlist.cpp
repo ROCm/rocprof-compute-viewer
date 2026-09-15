@@ -24,8 +24,13 @@ int QElementList::contentWidth()
     QFontMetrics fm(font);
     int result = 0;
     for (const auto& line : ASMCodeline::line_vec)
+    {
+        // Long symbol names should not reserve blank space beside every instruction.
+        // They remain available in the tooltip and when the column is widened.
+        if (isASM() && rows.sectionAt(line->line_index)) continue;
         if (const auto& element = line->elements.at(elementtype)) result = std::max(result, element->width(fm));
-    const int padding = 8 + 2 * (fm.height() - fm.overlinePos());
+    }
+    const int padding = 4 + 2 * (fm.height() - fm.overlinePos());
     width_cache = std::clamp(result + padding + (isASM() ? fold_gutter : 0), isASM() ? 160 : 48, default_max_width);
     return width_cache;
 }

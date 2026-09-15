@@ -27,6 +27,7 @@
 #include <QPainter>
 #include <QScopedValueRollback>
 #include <QScrollBar>
+#include <QStylePainter>
 #include <QToolButton>
 #include <QVBoxLayout>
 #include <vector>
@@ -158,8 +159,39 @@ void DrawTypeSelector::onIndexChanged(int index)
 CycleModeSelector::CycleModeSelector(QCodelist* _parent) : parent(_parent)
 {
     for (auto& name : strategy_names) addItem(QString(name.c_str()));
+    setToolTip(currentText());
+    setAccessibleName("Latency display mode");
 
     QObject::connect(this, &QComboBox::currentTextChanged, this, &CycleModeSelector::changeStrategy);
+}
+
+QSize CycleModeSelector::sizeHint() const
+{
+    QStyleOptionComboBox option;
+    initStyleOption(&option);
+    option.currentText = "Latency";
+    // The closed control is a column title. Long mode names belong in the popup.
+    const QSize contents = fontMetrics().size(Qt::TextSingleLine, option.currentText) + QSize(6, 2);
+    QSize hint = style()->sizeFromContents(QStyle::CT_ComboBox, &option, contents, this);
+    hint.setHeight(Super::sizeHint().height());
+    return hint;
+}
+
+void CycleModeSelector::paintEvent(QPaintEvent*)
+{
+    QStylePainter painter(this);
+    QStyleOptionComboBox option;
+    initStyleOption(&option);
+    option.currentText = "Latency";
+    painter.drawComplexControl(QStyle::CC_ComboBox, option);
+    painter.drawControl(QStyle::CE_ComboBoxLabel, option);
+}
+
+void CycleModeSelector::showPopup()
+{
+    // Some styles otherwise constrain the popup to the compact header width.
+    view()->setMinimumWidth(Super::sizeHint().width());
+    Super::showPopup();
 }
 
 void CycleModeSelector::changeStrategy(const QString& text)
@@ -167,6 +199,7 @@ void CycleModeSelector::changeStrategy(const QString& text)
     for (int i = 0; i < (int) CyclesLabel::Strategy::LAST; i++)
         if (strategy_names.at(i) == text.toStdString()) CyclesLabel::setStrategy(CyclesLabel::Strategy(i));
 
+    setToolTip(text);
     parent->refreshLayout();
 }
 
@@ -232,12 +265,14 @@ QCodelist::QCodelist(Isa::Context& context, QWidget* parent) : QWidget(parent), 
         [this](int column, int width)
         {
             if (!updating_columns) AppConfig::getInstance().setColumnWidth(column - 1, width);
+            fitInstructionColumn();
             updateScrollRange();
         }
     );
     connect(columns, &CodeColumns::autoSizeRequested, this, &QCodelist::autoSizeColumn);
     connect(columns, &CodeColumns::bodyHeightChanged, this, &QCodelist::updateScrollRange);
 
+    if (parentWidget()) parentWidget()->installEventFilter(this);
     setAttribute(Qt::WA_OpaquePaintEvent);
 }
 
@@ -284,19 +319,37 @@ QWidget* QCodelist::createInstructionHeader()
 
 void QCodelist::updateAutomaticColumnWidths()
 {
-    const QScopedValueRollback<bool> guard(updating_columns, true);
-    // Header controls contribute to automatic widths, so update their metrics
-    // before measuring. Only explicit user resizes should persist pixel widths.
-    columns->setHeaderFontSize(elements.at(Element::EASM)->font().pointSize());
-    const auto& config = AppConfig::getInstance();
-    for (int column = 0; column <= Element::ENUMTYPES; ++column)
     {
-        const int saved = config.getColumnWidth(column - 1);
-        if (saved > 0)
-            columns->setColumnWidth(column, saved);
-        else
-            autoSizeColumn(column);
+        const QScopedValueRollback<bool> guard(updating_columns, true);
+        // Keep headers slightly smaller than the data, but scale both together.
+        // Measure controls before columns so shrinking the font also shrinks widths.
+        columns->setHeaderFontSize(std::max(5, elements.at(Element::EASM)->font().pointSize() - 1));
+        const auto& config = AppConfig::getInstance();
+        for (int column = 0; column <= Element::ENUMTYPES; ++column)
+        {
+            const int saved = config.getColumnWidth(column - 1);
+            if (saved > 0)
+                columns->setColumnWidth(column, saved);
+            else
+                autoSizeColumn(column);
+        }
     }
+    fitInstructionColumn();
+}
+
+void QCodelist::fitInstructionColumn()
+{
+    if (!columns || updating_columns || AppConfig::getInstance().getColumnWidth(Element::EASM) > 0) return;
+    const int column = Element::EASM + 1;
+    const int header_width = columns->headerWidthHint(column);
+    const int preferred = std::max(elements.at(Element::EASM)->contentWidth(), header_width);
+    // Restore the old layout's ability to shrink the instruction column before
+    // adding horizontal scrolling. Never shrink a manually resized column.
+    const int minimum = std::min(preferred, std::max(256, header_width));
+    const int other_columns = columns->minimumWidth() - columns->columnWidth(column);
+    const int available = parentWidget() ? parentWidget()->width() : width();
+    const QScopedValueRollback<bool> guard(updating_columns, true);
+    columns->setColumnWidth(column, std::clamp(available - other_columns, minimum, preferred));
 }
 
 void QCodelist::autoSizeColumn(int column)
@@ -307,7 +360,11 @@ void QCodelist::autoSizeColumn(int column)
         const QScopedValueRollback<bool> guard(updating_columns, true);
         columns->setColumnWidth(column, width);
     }
-    if (!updating_columns) AppConfig::getInstance().setColumnWidth(column - 1, -1);
+    if (!updating_columns)
+    {
+        AppConfig::getInstance().setColumnWidth(column - 1, -1);
+        fitInstructionColumn();
+    }
 }
 
 void QCodelist::updateScrollRange()
@@ -377,8 +434,11 @@ void QCodelist::setColumnVisibility(ASMCodeline::Element elem, bool visible)
     if (elem == Element::EPCSamples || elem == Element::EPCStalls || elem == Element::EPCIssued)
         visible &= HorizontalHotspot::is_pcs_enabled;
 
-    const QScopedValueRollback<bool> guard(updating_columns, true);
-    columns->setColumnVisible(elem + 1, visible);
+    {
+        const QScopedValueRollback<bool> guard(updating_columns, true);
+        columns->setColumnVisible(elem + 1, visible);
+    }
+    fitInstructionColumn();
 
     updateGeometry();
     update();
@@ -504,7 +564,28 @@ void QCodelist::Populate(const std::vector<CodeData>& code)
 void QCodelist::resizeEvent(QResizeEvent* event)
 {
     Super::resizeEvent(event);
+    fitInstructionColumn();
     updateScrollRange();
+}
+
+bool QCodelist::event(QEvent* event)
+{
+    if (event->type() == QEvent::ParentAboutToChange && parentWidget()) parentWidget()->removeEventFilter(this);
+    const bool handled = Super::event(event);
+    if (event->type() == QEvent::ParentChange && parentWidget())
+    {
+        parentWidget()->installEventFilter(this);
+        fitInstructionColumn();
+    }
+    return handled;
+}
+
+bool QCodelist::eventFilter(QObject* watched, QEvent* event)
+{
+    // A scroll area's viewport can resize while its oversized child stays the
+    // same size, so observing only our own resizeEvent misses these changes.
+    if (watched == parentWidget() && event->type() == QEvent::Resize) fitInstructionColumn();
+    return Super::eventFilter(watched, event);
 }
 
 int QCodelist::lineheight() { return line_height; };

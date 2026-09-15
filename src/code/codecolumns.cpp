@@ -57,7 +57,7 @@ void CodeColumns::setHeaderFontSize(int point_size)
 {
     QFont font = header->font();
     if (font.pointSize() == point_size) return;
-    // Keep the UI font family, but size both titles and selectors like the rows.
+    // Keep the UI font family and synchronize title and selector sizes.
     font.setPointSize(point_size);
     header->setFont(font);
     layoutColumns();

@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Advanced Micro Devices, Inc. All rights reserved.
 
 #include <gtest/gtest.h>
+#include <QAbstractItemView>
 #include <QApplication>
 #include <QDir>
 #include <QHeaderView>
@@ -461,8 +462,8 @@ TEST_F(IsaViewerTest, AutomaticLatencyWidthTracksFontSizeAndKeepsManualWidths)
         context.font.setPointSize(size);
         view->refreshLayout();
         QApplication::processEvents();
-        EXPECT_EQ(selector->font().pointSize(), size);
-        EXPECT_EQ(header->font().pointSize(), size);
+        EXPECT_LT(header->font().pointSize(), size);
+        EXPECT_EQ(selector->font().pointSize(), header->font().pointSize());
         EXPECT_GE(selector->width(), selector->sizeHint().width());
         // Automatic sizing must not become a persisted pixel override.
         EXPECT_EQ(config.getColumnWidth(ASMCodeline::ELATENCY), -1);
@@ -480,6 +481,75 @@ TEST_F(IsaViewerTest, AutomaticLatencyWidthTracksFontSizeAndKeepsManualWidths)
     QApplication::processEvents();
     EXPECT_EQ(header->sectionSize(latency_column), 300);
     EXPECT_EQ(config.getColumnWidth(ASMCodeline::ELATENCY), 300);
+}
+
+TEST_F(IsaViewerTest, CompactLatencyHeaderKeepsFullChoicesInPopup)
+{
+    auto* selector = view->findChild<CycleModeSelector*>();
+    ASSERT_NE(selector, nullptr);
+    const int compact_width = view->elements[ASMCodeline::ELATENCY]->width();
+    EXPECT_LT(compact_width, selector->QComboBox::sizeHint().width());
+    selector->showPopup();
+    QApplication::processEvents();
+    auto* popup = selector->view();
+    for (int i = 0; i < selector->count(); ++i)
+        EXPECT_GE(popup->viewport()->width(), popup->fontMetrics().horizontalAdvance(selector->itemText(i)));
+    const QModelIndex last_mode = selector->model()->index(selector->count() - 1, 0);
+    QTest::mouseClick(popup->viewport(), Qt::LeftButton, Qt::NoModifier, popup->visualRect(last_mode).center());
+    EXPECT_EQ(CyclesLabel::global_strategy, CyclesLabel::Strategy::MAX);
+    EXPECT_EQ(selector->toolTip(), selector->currentText());
+    EXPECT_EQ(view->elements[ASMCodeline::ELATENCY]->width(), compact_width);
+}
+
+TEST_F(IsaViewerTest, FunctionNamesDoNotWidenInstructionColumns)
+{
+    const std::string instruction = "v_add_f32 v0, v1, v2";
+    view->Populate(makeCode({"; kernel", instruction, "label_exit:", "s_endpgm"}));
+    const int compact_width = view->elements[ASMCodeline::EASM]->width();
+    view->Populate(makeCode({"; kernel_" + std::string(200, 'x'), instruction, "label_exit:", "s_endpgm"}));
+    EXPECT_EQ(view->elements[ASMCodeline::EASM]->width(), compact_width);
+
+    // Instruction operands, unlike label names, still contribute to automatic sizing.
+    view->Populate(makeCode({"; kernel", "v_mfma_f32_16x16x4f32 a[0:3], v0, v1, a[0:3]", "label_exit:", "s_endpgm"}));
+    EXPECT_GT(view->elements[ASMCodeline::EASM]->width(), compact_width);
+}
+
+TEST_F(IsaViewerTest, AutomaticInstructionWidthFitsViewportWithoutOverridingManualWidths)
+{
+    view->Populate(makeCode({"; kernel", "buffer_load_dword v0, v[1:2], s[4:7], s8 offen offset:4095"}));
+    auto* columns = view->findChild<CodeColumns*>();
+    auto* header = view->findChild<QHeaderView*>();
+    ASSERT_NE(columns, nullptr);
+    ASSERT_NE(header, nullptr);
+    const int instruction_column = ASMCodeline::EASM + 1;
+    const int natural_width = header->sectionSize(instruction_column);
+    const int minimum_width = std::max(256, columns->headerWidthHint(instruction_column));
+    ASSERT_LT(minimum_width, natural_width);
+    const int other_width = header->length() - natural_width;
+
+    QScrollArea area;
+    area.setWidgetResizable(true);
+    area.setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    area.setWidget(view.get());
+    area.resize(other_width + (minimum_width + natural_width) / 2 + 2 * area.frameWidth(), 350);
+    area.show();
+    QApplication::processEvents();
+    EXPECT_EQ(area.horizontalScrollBar()->maximum(), 0);
+    EXPECT_LT(header->sectionSize(instruction_column), natural_width);
+    EXPECT_GE(header->sectionSize(instruction_column), minimum_width);
+    EXPECT_EQ(AppConfig::getInstance().getColumnWidth(ASMCodeline::EASM), -1);
+    const QString directory = qEnvironmentVariable("RCV_TEST_SCREENSHOT_DIR");
+    if (!directory.isEmpty()) EXPECT_TRUE(area.grab().save(QDir(directory).filePath("isa-compact.png")));
+
+    area.resize(other_width + natural_width + 2 * area.frameWidth(), 350);
+    QApplication::processEvents();
+    EXPECT_EQ(header->sectionSize(instruction_column), natural_width);
+    header->resizeSection(instruction_column, natural_width + 40);
+    area.resize(area.width() - 50, 350);
+    QApplication::processEvents();
+    EXPECT_EQ(header->sectionSize(instruction_column), natural_width + 40);
+    EXPECT_GT(area.horizontalScrollBar()->maximum(), 0);
+    area.takeWidget(); // The fixture retains ownership.
 }
 
 TEST_F(IsaViewerTest, FontRefreshPreservesFoldedScrollAnchorBeforePainting)

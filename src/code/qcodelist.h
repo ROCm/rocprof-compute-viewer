@@ -90,6 +90,8 @@ public:
     virtual void paintEvent(QPaintEvent* event) override;
     virtual void wheelEvent(QWheelEvent* event) override;
     virtual void resizeEvent(QResizeEvent* event) override;
+    bool event(QEvent* event) override;
+    bool eventFilter(QObject* watched, QEvent* event) override;
     void Populate(const std::vector<CodeData>& code);
 
     void onScroll(int value);
@@ -131,6 +133,7 @@ public:
 private:
     void updateScrollRange();
     void updateAutomaticColumnWidths();
+    void fitInstructionColumn();
     void autoSizeColumn(int column);
     void clearRowInteraction();
     void rowsChanged(int anchor_line, int offset);
@@ -154,6 +157,9 @@ class CycleModeSelector : public QComboBox
 public:
     CycleModeSelector(QCodelist* _parent);
     void changeStrategy(const QString& text);
+    QSize sizeHint() const override;
+    void paintEvent(QPaintEvent* event) override;
+    void showPopup() override;
 
     QCodelist* parent = nullptr;
 };
