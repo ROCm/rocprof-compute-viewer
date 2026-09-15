@@ -29,8 +29,8 @@
 #include <cstring>
 #include <sstream>
 #include "config/config.hpp"
-#include "qcodelist.h"
 #include "isa_rows.h"
+#include "qcodelist.h"
 
 LabelMinimap::LabelMinimap(QWidget* parent) : QWidget(parent)
 {
@@ -59,26 +59,13 @@ LabelMinimap::LabelMinimap(QWidget* parent) : QWidget(parent)
 
 LabelMinimap::~LabelMinimap() {}
 
-bool LabelMinimap::IsLabel(const std::string& text)
-{
-    return Isa::isLabel(text);
-}
+bool LabelMinimap::IsLabel(const std::string& text) { return Isa::isLabel(text); }
 
 std::string LabelMinimap::ExtractLabelName(const std::string& text)
 {
-    // Find the first non-whitespace character
-    size_t start = 0;
-    while (start < text.size() && (text[start] == ' ' || text[start] == '\t')) start++;
-
-    if (start >= text.size()) return text;
-
-    if (text.size() - start >= 3 && text.compare(start, 2, "; ") == 0)
-    {
-        return text.substr(start + 2); // Return everything after "; "
-    }
-
-    // Otherwise return from the start of non-whitespace
-    return text.substr(start);
+    auto start = text.find_first_not_of(" \t\r\n");
+    if (start != std::string::npos && text[start] == ';') start = text.find_first_not_of(" \t\r\n", start + 1);
+    return start == std::string::npos ? std::string{} : text.substr(start);
 }
 
 int64_t LabelMinimap::calculateLabelLatency(size_t labelIndex) const

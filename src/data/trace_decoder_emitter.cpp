@@ -703,14 +703,7 @@ void TraceDecoderEmitter::buildCodeFromISACache(const std::vector<CodeData>& cod
             auto label_it = label_at_line.find(code_line);
             if (label_it != label_at_line.end())
             {
-                // LabelMinimap::IsLabel only matches text starting with
-                // "label" or "; _". rocprofv3's code.json convention is
-                // "; _Z..." (mangled C++ name). Mirror that so the same
-                // minimap code path lights up for trace_decoder inputs.
-                // Force a leading underscore for unmangled (C / non-_Z)
-                // symbols so the "; _" prefix rule still matches.
-                const std::string& nm = label_it->second;
-                std::string label_text = (!nm.empty() && nm[0] == '_') ? ("; " + nm) : ("; _" + nm);
+                // Match code.json's function headers without altering symbol names.
                 store.code.push_back(CodeData(
                     label_index++,
                     0,
@@ -721,7 +714,7 @@ void TraceDecoderEmitter::buildCodeFromISACache(const std::vector<CodeData>& cod
                     0,
                     0,
                     0,
-                    label_text,
+                    "; " + label_it->second,
                     "",
                     std::vector<int64_t>()
                 ));

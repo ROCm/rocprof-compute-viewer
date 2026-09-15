@@ -137,6 +137,45 @@ TEST_F(IsaViewerTest, NavigationRevealsHiddenInstructionsAndLabels)
     EXPECT_EQ(view->rowMapping().count(), 5);
 }
 
+TEST_F(IsaViewerTest, SmallListingsDefaultToNoFoldingButAllowManualFolding)
+{
+    auto* selector = view->findChild<QComboBox*>("isaFoldingMode");
+    auto* expand = view->findChild<QToolButton*>("isaExpandAll");
+    ASSERT_NE(selector, nullptr);
+    ASSERT_NE(expand, nullptr);
+    for (const auto& code : std::vector<std::vector<std::string>>{
+             {},
+             {                      "s_endpgm"},
+             { "; vector_add_kernel", "s_endpgm"}
+    })
+    {
+        view->setFoldingEnabled(true); // A previous listing must not determine the new default.
+        view->Populate(makeCode(code));
+        EXPECT_EQ(selector->currentText(), "No folding");
+        EXPECT_FALSE(expand->isEnabled());
+        view->toggleSection(0);
+        EXPECT_EQ(view->rowMapping().count(), code.size());
+    }
+
+    // The single section can still be folded explicitly, and layout refreshes
+    // must not replace the user's choice with the loading default.
+    selector->setCurrentIndex(1);
+    QTest::mouseClick(view->elements[ASMCodeline::EASM], Qt::LeftButton, Qt::NoModifier, QPoint(7, 6));
+    view->refreshLayout();
+    EXPECT_EQ(view->rowMapping().count(), 1);
+    EXPECT_EQ(view->rowMapping().rowOf(1), -1);
+    QTest::mouseClick(expand, Qt::LeftButton);
+    EXPECT_EQ(view->rowMapping().count(), 2);
+
+    selector->setCurrentIndex(0);
+    view->Populate(makeCode({"; first_kernel", "s_endpgm", "; second_kernel", "s_endpgm"}));
+    EXPECT_EQ(selector->currentText(), "Fold by labels");
+    EXPECT_TRUE(expand->isEnabled());
+    EXPECT_EQ(view->rowMapping().count(), 4);
+    QTest::mouseClick(view->elements[ASMCodeline::EASM], Qt::LeftButton, Qt::NoModifier, QPoint(7, 6));
+    EXPECT_EQ(view->rowMapping().count(), 3);
+}
+
 TEST_F(IsaViewerTest, ClickingFoldedRowsNavigatesUsingDecoderInstructionIdentity)
 {
     auto* instructions = view->elements[ASMCodeline::EASM];
@@ -157,9 +196,9 @@ TEST_F(IsaViewerTest, ClickingFoldedRowsNavigatesUsingDecoderInstructionIdentity
 TEST_F(IsaViewerTest, LabelMinimapClickRevealsSectionUsingFoldedRowCoordinates)
 {
     std::vector<std::string> code(1000, "v_add_f32 v0, v1, v2");
-    code[0] = "label_a:";
+    code[0] = "; vector_add_kernel";
     code[200] = "label_b:";
-    code[600] = "label_c:";
+    code[600] = " \t;\tplain_kernel(float*, int)";
     view->Populate(makeCode(code));
     view->toggleSection(0);
     view->toggleSection(600);
@@ -171,6 +210,9 @@ TEST_F(IsaViewerTest, LabelMinimapClickRevealsSectionUsingFoldedRowCoordinates)
     auto* table = minimap.findChild<QTableWidget*>();
     ASSERT_NE(table, nullptr);
     ASSERT_EQ(table->rowCount(), 3);
+    EXPECT_EQ(table->item(0, 0)->text(), "vector_add_kernel");
+    EXPECT_EQ(table->item(1, 0)->text(), "label_b:");
+    EXPECT_EQ(table->item(2, 0)->text(), "plain_kernel(float*, int)");
     QTest::mouseClick(
         table->viewport(), Qt::LeftButton, Qt::NoModifier, table->visualItemRect(table->item(2, 0)).center()
     );

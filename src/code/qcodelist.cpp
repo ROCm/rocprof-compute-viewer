@@ -460,6 +460,8 @@ void QCodelist::Populate(const std::vector<CodeData>& code)
     for (const auto& line : ASMCodeline::line_vec)
         instructions.push_back(line->elements.at(Element::EASM)->getStdText());
     rows.reset(instructions);
+    folding_selector->setCurrentIndex(rows.foldingEnabled() ? 1 : 0);
+    expand_sections->setEnabled(rows.foldingEnabled());
     onScroll(scrollbar->value());
 
     // Repopulating rebuilds ASMCodeline with fresh line_index values, so any

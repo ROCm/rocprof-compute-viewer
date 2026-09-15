@@ -129,18 +129,29 @@ TEST(InstructionStyle, ExtractsOnlyMnemonicAndLeavesOriginalStorageIntact)
 
 TEST(IsaRows, RecognizesDecoderAndAssemblyLabels)
 {
-    for (auto text : {"label_0001:", "\tlabel_0002", "; _Z6kernelv", " .LBB0_1:", "kernel:"})
+    for (auto text :
+         {"label_0001:",
+          "\tlabel_0002",
+          "; _Z6kernelv",
+          "; vector_add_kernel",
+          "\t; plain_kernel",
+          " ;\tplain_kernel(float*, int)",
+          ";kernel",
+          " .LBB0_1:",
+          "kernel:"})
         EXPECT_TRUE(Isa::isLabel(text)) << text;
-    for (auto text : {"", "  ", "s_branch label_0001", "v_mov_b32 v0, 1", "; arbitrary comment"})
+    for (auto text :
+         {"", "  ", ";", " \t; \t\r\n", "// comment", "s_branch label_0001", "v_mov_b32 v0, 1 ; vector_add_kernel"})
         EXPECT_FALSE(Isa::isLabel(text)) << text;
 }
 
 TEST(IsaRows, LabelsStartExpandedAndFoldingPreservesStableLineIndices)
 {
     Isa::Rows rows;
-    rows.reset({"preamble", "label_a:", "v_add", "s_waitcnt", "label_b:", "s_endpgm"});
+    rows.reset({"preamble", "; vector_add_kernel", "v_add", "s_waitcnt", "; plain_kernel", "s_endpgm"});
     EXPECT_EQ(rows.count(), 6);
     EXPECT_TRUE(rows.foldingEnabled());
+    ASSERT_NE(rows.sectionAt(1), nullptr);
     EXPECT_FALSE(rows.sectionAt(1)->collapsed);
     rows.setFoldingEnabled(false);
     EXPECT_FALSE(rows.toggle(1));

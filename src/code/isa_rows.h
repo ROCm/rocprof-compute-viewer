@@ -23,6 +23,7 @@ public:
         bool collapsed = false;
     };
 
+    // New listings start expanded, with folding enabled only for multiple labels.
     void reset(const std::vector<std::string_view>& lines);
     void setFoldingEnabled(bool enabled);
     bool foldingEnabled() const { return folding_enabled; }
@@ -38,7 +39,7 @@ public:
 
 private:
     void rebuild();
-    bool folding_enabled = true; // Labels are foldable, but sections start expanded.
+    bool folding_enabled = false;
     std::vector<Section> sections;
     std::vector<int> line_sections;
     std::vector<int> visible_lines;

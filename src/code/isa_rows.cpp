@@ -12,8 +12,10 @@ bool isLabel(std::string_view text)
     const auto start = text.find_first_not_of(" \t\r\n");
     if (start == std::string_view::npos) return false;
     text.remove_prefix(start);
-    // rocprof emits branch labels and mangled function-name comments.
-    if (text.starts_with("label") || text.starts_with("; _")) return true;
+    // rocprof listings use standalone "; <symbol>" lines as function headers.
+    // Symbols need not be C++-mangled or start with an underscore.
+    if (text.front() == ';') return text.find_first_not_of(" \t\r\n", 1) != std::string_view::npos;
+    if (text.starts_with("label")) return true;
     const auto token = text.substr(0, text.find_first_of(" \t\r\n"));
     return token.size() > 1 && token.back() == ':';
 }
@@ -32,6 +34,7 @@ void Rows::reset(const std::vector<std::string_view>& lines)
         }
         if (!sections.empty()) line_sections[line] = static_cast<int>(sections.size()) - 1;
     }
+    folding_enabled = sections.size() > 1;
     rebuild();
 }
 
