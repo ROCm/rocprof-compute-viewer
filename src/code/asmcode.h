@@ -48,6 +48,7 @@ public:
         ECODEOBJ,
         EADDRESS,
         ESOURCEREF,
+        ELINENUMBER, // Append new columns to preserve the IDs used by saved settings.
         ENUMTYPES
     };
 

@@ -2508,6 +2508,7 @@ void MainWindow::loadConfigSettings()
     ui->col_codeobj_box->setChecked(config.getColumnVisible(ASMCodeline::Element::ECODEOBJ));
     ui->col_vaddr_box->setChecked(config.getColumnVisible(ASMCodeline::Element::EADDRESS));
     ui->col_sourceref_box->setChecked(config.getColumnVisible(ASMCodeline::Element::ESOURCEREF, false));
+    ui->col_line_number_box->setChecked(config.getColumnVisible(ASMCodeline::Element::ELINENUMBER, false));
 
     // Apply loaded settings
     font() = config.getFontSize();
@@ -2577,6 +2578,7 @@ void MainWindow::setupConfigConnections()
     connectColumnCheckbox(ui->col_codeobj_box, ASMCodeline::Element::ECODEOBJ);
     connectColumnCheckbox(ui->col_vaddr_box, ASMCodeline::Element::EADDRESS);
     connectColumnCheckbox(ui->col_sourceref_box, ASMCodeline::Element::ESOURCEREF);
+    connectColumnCheckbox(ui->col_line_number_box, ASMCodeline::Element::ELINENUMBER);
 }
 
 void MainWindow::setPlotAlignment(PlotAlignment alignment)

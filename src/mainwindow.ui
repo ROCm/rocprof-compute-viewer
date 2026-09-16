@@ -1025,6 +1025,19 @@
                    </property>
                   </widget>
                  </item>
+                 <item>
+                  <widget class="QCheckBox" name="col_line_number_box">
+                   <property name="toolTip">
+                    <string>ISA line number from the decoder, unchanged when sections are folded.</string>
+                   </property>
+                   <property name="text">
+                    <string>Line number</string>
+                   </property>
+                   <property name="checked">
+                    <bool>false</bool>
+                   </property>
+                  </widget>
+                 </item>
                 </layout>
                </widget>
               </item>

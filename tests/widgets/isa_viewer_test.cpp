@@ -428,6 +428,49 @@ TEST_F(IsaViewerTest, WidthsPersistAcrossPopulationVisibilityAndViewerRecreation
     EXPECT_EQ(view->elements[ASMCodeline::EASM]->width(), 275);
 }
 
+TEST_F(IsaViewerTest, OptionalLineNumbersPreserveDecoderIdsThroughFoldingAndReload)
+{
+    constexpr auto element = ASMCodeline::ELINENUMBER;
+    constexpr int header_column = element + 1;
+    auto settings = TestConfig::openSettings();
+    settings.remove(QString("InstructionColumns/Element%1").arg(element));
+    auto code = makeCode({"label_entry:", "v_add_f32 v0, v1, v2", "label_exit:", "s_endpgm"});
+    code[0].line->index = 0; // Zero is a valid ID, not an empty numeric cell.
+    view->Populate(code);
+    auto* column = view->elements[element];
+    auto* header = view->findChild<QHeaderView*>();
+    ASSERT_NE(header, nullptr);
+    EXPECT_TRUE(column->isHidden());
+    EXPECT_TRUE(header->isSectionHidden(header_column));
+
+    auto& config = AppConfig::getInstance();
+    config.setColumnVisible(element, true);
+    view->updateColumnVisibility();
+    EXPECT_FALSE(column->isHidden());
+    EXPECT_FALSE(header->isSectionHidden(header_column));
+    view->toggleSection(0);
+    const std::vector<std::string> visible_ids{"0", "106", "109"};
+    for (int row = 0; row < static_cast<int>(visible_ids.size()); ++row)
+    {
+        const int line = column->getLineIndex(row * QCodelist::lineheight() + 1);
+        ASSERT_NE(column->getelement(line), nullptr);
+        EXPECT_EQ(column->getelement(line)->getStdText(), visible_ids[row]);
+    }
+    view->expandAll();
+    EXPECT_EQ(column->getelement(column->getLineIndex(QCodelist::lineheight() + 1))->getStdText(), "103");
+
+    header->resizeSection(header_column, 120);
+    view.reset();
+    view = std::make_unique<QCodelist>(context);
+    view->Populate(code);
+    EXPECT_FALSE(view->elements[element]->isHidden());
+    EXPECT_EQ(view->elements[element]->width(), 120);
+    config.setColumnVisible(element, false);
+    view->updateColumnVisibility();
+    EXPECT_TRUE(view->elements[element]->isHidden());
+    EXPECT_TRUE(view->findChild<QHeaderView*>()->isSectionHidden(header_column));
+}
+
 TEST_F(IsaViewerTest, DraggingAndDoubleClickingDividerRestoresAutomaticSizing)
 {
     auto* header = view->findChild<QHeaderView*>();

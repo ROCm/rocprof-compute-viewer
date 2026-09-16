@@ -240,7 +240,17 @@ QCodelist::QCodelist(Isa::Context& context, QWidget* parent) : QWidget(parent), 
     columns->addColumn("View", connector, drawselector);
 
     static const std::array<const char*, Element::ENUMTYPES> titles = {
-        "Instruction", "Hitcount", "Latency", "Idle", "Samples", "Stalls", "Issued", "Codeobj", "Vaddr", "Source link"};
+        "Instruction",
+        "Hitcount",
+        "Latency",
+        "Idle",
+        "Samples",
+        "Stalls",
+        "Issued",
+        "Codeobj",
+        "Vaddr",
+        "Source link",
+        "Line number"};
     elements.at(Element::EASM) = new QASMElementList(*this);
     for (int e = 0; e < Element::ENUMTYPES; e++)
     {
@@ -449,7 +459,9 @@ void QCodelist::updateColumnVisibility()
     // Re-apply visibility settings from config, which will also apply data-type filters
     AppConfig& config = AppConfig::getInstance();
     for (int e = Element::EHIT; e < Element::ENUMTYPES; e++)
-        setColumnVisibility(static_cast<Element>(e), config.getColumnVisible(e, e != Element::ESOURCEREF));
+        setColumnVisibility(
+            static_cast<Element>(e), config.getColumnVisible(e, e != Element::ESOURCEREF && e != Element::ELINENUMBER)
+        );
 }
 
 void QCodelist::setDrawType(Canvas::DrawType type)
