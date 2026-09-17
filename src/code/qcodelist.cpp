@@ -250,8 +250,7 @@ QCodelist::QCodelist(Isa::Context& context, QWidget* parent) : QWidget(parent), 
         "Issued",
         "Codeobj",
         "Vaddr",
-        "Source link"
-    };
+        "Source link"};
     elements.at(Element::EASM) = new QASMElementList(*this);
     for (int e = 0; e < Element::ENUMTYPES; e++)
     {

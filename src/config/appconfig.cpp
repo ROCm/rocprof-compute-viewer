@@ -110,10 +110,14 @@ void AppConfig::setShowIdleTime(bool enabled) { settings.setValue("DisplayOption
 
 // Named column settings intentionally ignore the legacy ElementN keys.
 bool AppConfig::getColumnVisible(const QString& column, bool bDefault) const
-{ return settings.value(QString("InstructionColumns/%1").arg(column), bDefault).toBool(); }
+{
+    return settings.value(QString("InstructionColumns/%1").arg(column), bDefault).toBool();
+}
 
 void AppConfig::setColumnVisible(const QString& column, bool enabled)
-{ settings.setValue(QString("InstructionColumns/%1").arg(column), enabled); }
+{
+    settings.setValue(QString("InstructionColumns/%1").arg(column), enabled);
+}
 
 int AppConfig::getColumnWidth(const QString& column) const
 {
