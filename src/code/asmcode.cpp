@@ -35,6 +35,25 @@ std::vector<std::shared_ptr<ASMCodeline>> ASMCodeline::line_vec{};
 
 CyclesLabel::Strategy CyclesLabel::global_strategy = CyclesLabel::Strategy::SUM_ALL;
 
+const char* ASMCodeline::columnSettingsKey(int element)
+{
+    static const std::map<int, const char*> keys = {
+        {-1,          "View"       },
+        {ELINENUMBER, "LineNumber" },
+        {EASM,        "Instruction"},
+        {EHIT,        "Hitcount"   },
+        {ELATENCY,    "Latency"    },
+        {EIDLE,       "Idle"       },
+        {EPCSamples,  "Samples"    },
+        {EPCStalls,   "Stalls"     },
+        {EPCIssued,   "Issued"     },
+        {ECODEOBJ,    "CodeObject" },
+        {EADDRESS,    "Address"    },
+        {ESOURCEREF,  "SourceLink" }
+    };
+    return keys.at(element);
+}
+
 ASMCodeline::ASMCodeline(const CodeData& codedata, int _line_number) :
 line_index(line_vec.size()), line_number(_line_number)
 {
@@ -64,6 +83,7 @@ line_index(line_vec.size()), line_number(_line_number)
     elements.at(Element::ECODEOBJ) = std::make_unique<TextLineElement>(std::to_string(line.codeobj_id));
     elements.at(Element::EADDRESS) = std::make_unique<TextLineElement>(ss.str());
     elements.at(Element::ESOURCEREF) = std::make_unique<TextLineElement>(cppline);
+    elements.at(Element::ELINENUMBER) = std::make_unique<TextLineElement>(std::to_string(line_number));
 
     hotspot.add_latency(line.type, {line.latency_sum, line.stall_sum, line.idle_sum}, {line.pcsamples, line.pcstalls});
 

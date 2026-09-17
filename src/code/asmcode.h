@@ -38,7 +38,8 @@ class ASMCodeline
 public:
     enum Element
     {
-        EASM = 0,
+        ELINENUMBER = 0,
+        EASM,
         EHIT,
         ELATENCY,
         EIDLE,
@@ -50,6 +51,9 @@ public:
         ESOURCEREF,
         ENUMTYPES
     };
+
+    // Stable settings names, not display titles. Element -1 is the canvas column.
+    static const char* columnSettingsKey(int element);
 
     explicit ASMCodeline(const CodeData& codedata, int line_number);
     virtual ~ASMCodeline();

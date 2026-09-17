@@ -108,27 +108,27 @@ bool AppConfig::getShowIdleTime() const { return settings.value("DisplayOptions/
 
 void AppConfig::setShowIdleTime(bool enabled) { settings.setValue("DisplayOptions/ShowIdleTime", enabled); }
 
-// Instruction Column Visibility
-bool AppConfig::getColumnVisible(int element, bool bDefault) const
+// Named column settings intentionally ignore the legacy ElementN keys.
+bool AppConfig::getColumnVisible(const QString& column, bool bDefault) const
 {
-    return settings.value(QString("InstructionColumns/Element%1").arg(element), bDefault).toBool();
+    return settings.value(QString("InstructionColumns/%1").arg(column), bDefault).toBool();
 }
 
-void AppConfig::setColumnVisible(int element, bool enabled)
+void AppConfig::setColumnVisible(const QString& column, bool enabled)
 {
-    settings.setValue(QString("InstructionColumns/Element%1").arg(element), enabled);
+    settings.setValue(QString("InstructionColumns/%1").arg(column), enabled);
 }
 
-int AppConfig::getColumnWidth(int element) const
+int AppConfig::getColumnWidth(const QString& column) const
 {
     bool ok = false;
-    const int width = settings.value(QString("InstructionColumnWidths/Element%1").arg(element), -1).toInt(&ok);
+    const int width = settings.value(QString("InstructionColumnWidths/%1").arg(column), -1).toInt(&ok);
     return ok && width >= 48 && width <= 4096 ? width : -1;
 }
 
-void AppConfig::setColumnWidth(int element, int width)
+void AppConfig::setColumnWidth(const QString& column, int width)
 {
-    const auto key = QString("InstructionColumnWidths/Element%1").arg(element);
+    const auto key = QString("InstructionColumnWidths/%1").arg(column);
     if (width < 48 || width > 4096)
         settings.remove(key);
     else
