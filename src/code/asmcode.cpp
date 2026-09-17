@@ -35,6 +35,25 @@ std::vector<std::shared_ptr<ASMCodeline>> ASMCodeline::line_vec{};
 
 CyclesLabel::Strategy CyclesLabel::global_strategy = CyclesLabel::Strategy::SUM_ALL;
 
+const char* ASMCodeline::columnSettingsKey(int element)
+{
+    static const std::map<int, const char*> keys = {
+        {-1,          "View"       },
+        {ELINENUMBER, "LineNumber" },
+        {EASM,        "Instruction"},
+        {EHIT,        "Hitcount"   },
+        {ELATENCY,    "Latency"    },
+        {EIDLE,       "Idle"       },
+        {EPCSamples,  "Samples"    },
+        {EPCStalls,   "Stalls"     },
+        {EPCIssued,   "Issued"     },
+        {ECODEOBJ,    "CodeObject" },
+        {EADDRESS,    "Address"    },
+        {ESOURCEREF,  "SourceLink" }
+    };
+    return keys.at(element);
+}
+
 ASMCodeline::ASMCodeline(const CodeData& codedata, int _line_number) :
 line_index(line_vec.size()), line_number(_line_number)
 {

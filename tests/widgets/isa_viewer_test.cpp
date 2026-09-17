@@ -59,8 +59,8 @@ protected:
         AppConfig::getInstance().setFontSize(9);
         for (int i = -1; i < ASMCodeline::ENUMTYPES; ++i)
         {
-            AppConfig::getInstance().setColumnWidth(i, -1);
-            AppConfig::getInstance().setColumnVisible(i, true);
+            AppConfig::getInstance().setColumnWidth(ASMCodeline::columnSettingsKey(i), -1);
+            AppConfig::getInstance().setColumnVisible(ASMCodeline::columnSettingsKey(i), true);
         }
         WindowColors::setDark(false);
         HorizontalHotspot::is_sqtt_enabled = true;
@@ -415,7 +415,7 @@ TEST_F(IsaViewerTest, WidthsPersistAcrossPopulationVisibilityAndViewerRecreation
     ASSERT_NE(header, nullptr);
     header->resizeSection(ASMCodeline::EASM + 1, 275);
     header->resizeSection(ASMCodeline::EADDRESS + 1, 125);
-    EXPECT_EQ(AppConfig::getInstance().getColumnWidth(ASMCodeline::EASM), 275);
+    EXPECT_EQ(AppConfig::getInstance().getColumnWidth("Instruction"), 275);
     view->setColumnVisibility(ASMCodeline::EADDRESS, false);
     view->refreshLayout();
     view->setColumnVisibility(ASMCodeline::EADDRESS, true);
@@ -433,7 +433,7 @@ TEST_F(IsaViewerTest, OptionalLineNumbersPreserveDecoderIdsThroughFoldingAndRelo
     constexpr auto element = ASMCodeline::ELINENUMBER;
     constexpr int header_column = element + 1;
     auto settings = TestConfig::openSettings();
-    settings.remove(QString("InstructionColumns/Element%1").arg(element));
+    settings.remove("InstructionColumns/LineNumber");
     auto code = makeCode({"label_entry:", "v_add_f32 v0, v1, v2", "label_exit:", "s_endpgm"});
     code[0].line->index = 0; // Zero is a valid ID, not an empty numeric cell.
     view->Populate(code);
@@ -442,12 +442,17 @@ TEST_F(IsaViewerTest, OptionalLineNumbersPreserveDecoderIdsThroughFoldingAndRelo
     ASSERT_NE(header, nullptr);
     EXPECT_TRUE(column->isHidden());
     EXPECT_TRUE(header->isSectionHidden(header_column));
+    EXPECT_EQ(view->elements[ASMCodeline::EASM]->x(), view->connector->geometry().right() + 1);
 
     auto& config = AppConfig::getInstance();
-    config.setColumnVisible(element, true);
+    config.setColumnVisible("LineNumber", true);
     view->updateColumnVisibility();
     EXPECT_FALSE(column->isHidden());
     EXPECT_FALSE(header->isSectionHidden(header_column));
+    EXPECT_EQ(header->visualIndex(header_column), 1);
+    EXPECT_EQ(column->x(), view->connector->geometry().right() + 1);
+    EXPECT_EQ(view->elements[ASMCodeline::EASM]->x(), column->geometry().right() + 1);
+    EXPECT_EQ(header->sectionViewportPosition(header_column), column->x());
     view->toggleSection(0);
     const std::vector<std::string> visible_ids{"0", "106", "109"};
     for (int row = 0; row < static_cast<int>(visible_ids.size()); ++row)
@@ -460,15 +465,20 @@ TEST_F(IsaViewerTest, OptionalLineNumbersPreserveDecoderIdsThroughFoldingAndRelo
     EXPECT_EQ(column->getelement(column->getLineIndex(QCodelist::lineheight() + 1))->getStdText(), "103");
 
     header->resizeSection(header_column, 120);
+    EXPECT_EQ(config.getColumnWidth("LineNumber"), 120);
+    EXPECT_EQ(view->elements[ASMCodeline::EASM]->x(), column->x() + 120);
     view.reset();
     view = std::make_unique<QCodelist>(context);
     view->Populate(code);
     EXPECT_FALSE(view->elements[element]->isHidden());
     EXPECT_EQ(view->elements[element]->width(), 120);
-    config.setColumnVisible(element, false);
+    EXPECT_EQ(view->elements[element]->x(), view->connector->geometry().right() + 1);
+    EXPECT_EQ(view->elements[ASMCodeline::EASM]->x(), view->elements[element]->geometry().right() + 1);
+    config.setColumnVisible("LineNumber", false);
     view->updateColumnVisibility();
     EXPECT_TRUE(view->elements[element]->isHidden());
     EXPECT_TRUE(view->findChild<QHeaderView*>()->isSectionHidden(header_column));
+    EXPECT_EQ(view->elements[ASMCodeline::EASM]->x(), view->connector->geometry().right() + 1);
 }
 
 TEST_F(IsaViewerTest, DraggingAndDoubleClickingDividerRestoresAutomaticSizing)
@@ -482,10 +492,10 @@ TEST_F(IsaViewerTest, DraggingAndDoubleClickingDividerRestoresAutomaticSizing)
     QTest::mouseMove(header->viewport(), divider + QPoint(75, 0));
     QTest::mouseRelease(header->viewport(), Qt::LeftButton, Qt::NoModifier, divider + QPoint(75, 0));
     EXPECT_EQ(view->elements[ASMCodeline::EHIT]->width(), automatic_width + 75);
-    EXPECT_EQ(AppConfig::getInstance().getColumnWidth(ASMCodeline::EHIT), automatic_width + 75);
+    EXPECT_EQ(AppConfig::getInstance().getColumnWidth("Hitcount"), automatic_width + 75);
     QTest::mouseDClick(header->viewport(), Qt::LeftButton, Qt::NoModifier, divider + QPoint(75, 0));
     EXPECT_EQ(view->elements[ASMCodeline::EHIT]->width(), automatic_width);
-    EXPECT_EQ(AppConfig::getInstance().getColumnWidth(ASMCodeline::EHIT), -1);
+    EXPECT_EQ(AppConfig::getInstance().getColumnWidth("Hitcount"), -1);
     context.font.setPointSize(19);
     view->refreshLayout();
     QApplication::processEvents();
@@ -509,7 +519,7 @@ TEST_F(IsaViewerTest, AutomaticLatencyWidthTracksFontSizeAndKeepsManualWidths)
         EXPECT_EQ(selector->font().pointSize(), header->font().pointSize());
         EXPECT_GE(selector->width(), selector->sizeHint().width());
         // Automatic sizing must not become a persisted pixel override.
-        EXPECT_EQ(config.getColumnWidth(ASMCodeline::ELATENCY), -1);
+        EXPECT_EQ(config.getColumnWidth("Latency"), -1);
         return header->sectionSize(latency_column);
     };
     const int large_width = check_font(11);
@@ -523,7 +533,7 @@ TEST_F(IsaViewerTest, AutomaticLatencyWidthTracksFontSizeAndKeepsManualWidths)
     view->refreshLayout();
     QApplication::processEvents();
     EXPECT_EQ(header->sectionSize(latency_column), 300);
-    EXPECT_EQ(config.getColumnWidth(ASMCodeline::ELATENCY), 300);
+    EXPECT_EQ(config.getColumnWidth("Latency"), 300);
 }
 
 TEST_F(IsaViewerTest, CompactLatencyHeaderKeepsFullChoicesInPopup)
@@ -580,7 +590,7 @@ TEST_F(IsaViewerTest, AutomaticInstructionWidthFitsViewportWithoutOverridingManu
     EXPECT_EQ(area.horizontalScrollBar()->maximum(), 0);
     EXPECT_LT(header->sectionSize(instruction_column), natural_width);
     EXPECT_GE(header->sectionSize(instruction_column), minimum_width);
-    EXPECT_EQ(AppConfig::getInstance().getColumnWidth(ASMCodeline::EASM), -1);
+    EXPECT_EQ(AppConfig::getInstance().getColumnWidth("Instruction"), -1);
     const QString directory = qEnvironmentVariable("RCV_TEST_SCREENSHOT_DIR");
     if (!directory.isEmpty()) EXPECT_TRUE(area.grab().save(QDir(directory).filePath("isa-compact.png")));
 
@@ -620,8 +630,8 @@ TEST_F(IsaViewerTest, FontRefreshPreservesFoldedScrollAnchorBeforePainting)
     EXPECT_EQ(view->scrollbar->value(), 80 * QFontMetrics(instruction->font()).height());
     EXPECT_GT(view->elements[ASMCodeline::ELATENCY]->width(), latency_width);
     EXPECT_EQ(instruction->width(), 275);
-    EXPECT_EQ(AppConfig::getInstance().getColumnWidth(ASMCodeline::EASM), 275);
-    EXPECT_EQ(AppConfig::getInstance().getColumnWidth(ASMCodeline::ELATENCY), -1);
+    EXPECT_EQ(AppConfig::getInstance().getColumnWidth("Instruction"), 275);
+    EXPECT_EQ(AppConfig::getInstance().getColumnWidth("Latency"), -1);
 }
 
 TEST_F(IsaViewerTest, OnlyMnemonicIsColoredWithoutChangingFontWeightOrPainterState)

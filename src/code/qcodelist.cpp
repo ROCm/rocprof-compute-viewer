@@ -240,6 +240,7 @@ QCodelist::QCodelist(Isa::Context& context, QWidget* parent) : QWidget(parent), 
     columns->addColumn("View", connector, drawselector);
 
     static const std::array<const char*, Element::ENUMTYPES> titles = {
+        "Line number",
         "Instruction",
         "Hitcount",
         "Latency",
@@ -249,8 +250,8 @@ QCodelist::QCodelist(Isa::Context& context, QWidget* parent) : QWidget(parent), 
         "Issued",
         "Codeobj",
         "Vaddr",
-        "Source link",
-        "Line number"};
+        "Source link"
+    };
     elements.at(Element::EASM) = new QASMElementList(*this);
     for (int e = 0; e < Element::ENUMTYPES; e++)
     {
@@ -274,7 +275,8 @@ QCodelist::QCodelist(Isa::Context& context, QWidget* parent) : QWidget(parent), 
         this,
         [this](int column, int width)
         {
-            if (!updating_columns) AppConfig::getInstance().setColumnWidth(column - 1, width);
+            if (!updating_columns)
+                AppConfig::getInstance().setColumnWidth(ASMCodeline::columnSettingsKey(column - 1), width);
             fitInstructionColumn();
             updateScrollRange();
         }
@@ -337,7 +339,7 @@ void QCodelist::updateAutomaticColumnWidths()
         const auto& config = AppConfig::getInstance();
         for (int column = 0; column <= Element::ENUMTYPES; ++column)
         {
-            const int saved = config.getColumnWidth(column - 1);
+            const int saved = config.getColumnWidth(ASMCodeline::columnSettingsKey(column - 1));
             if (saved > 0)
                 columns->setColumnWidth(column, saved);
             else
@@ -349,7 +351,9 @@ void QCodelist::updateAutomaticColumnWidths()
 
 void QCodelist::fitInstructionColumn()
 {
-    if (!columns || updating_columns || AppConfig::getInstance().getColumnWidth(Element::EASM) > 0) return;
+    if (!columns || updating_columns ||
+        AppConfig::getInstance().getColumnWidth(ASMCodeline::columnSettingsKey(Element::EASM)) > 0)
+        return;
     const int column = Element::EASM + 1;
     const int header_width = columns->headerWidthHint(column);
     const int preferred = std::max(elements.at(Element::EASM)->contentWidth(), header_width);
@@ -372,7 +376,7 @@ void QCodelist::autoSizeColumn(int column)
     }
     if (!updating_columns)
     {
-        AppConfig::getInstance().setColumnWidth(column - 1, -1);
+        AppConfig::getInstance().setColumnWidth(ASMCodeline::columnSettingsKey(column - 1), -1);
         fitInstructionColumn();
     }
 }
@@ -458,9 +462,12 @@ void QCodelist::updateColumnVisibility()
 {
     // Re-apply visibility settings from config, which will also apply data-type filters
     AppConfig& config = AppConfig::getInstance();
-    for (int e = Element::EHIT; e < Element::ENUMTYPES; e++)
+    for (int e = 0; e < Element::ENUMTYPES; e++)
         setColumnVisibility(
-            static_cast<Element>(e), config.getColumnVisible(e, e != Element::ESOURCEREF && e != Element::ELINENUMBER)
+            static_cast<Element>(e),
+            config.getColumnVisible(
+                ASMCodeline::columnSettingsKey(e), e != Element::ESOURCEREF && e != Element::ELINENUMBER
+            )
         );
 }
 

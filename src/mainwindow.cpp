@@ -2499,16 +2499,18 @@ void MainWindow::loadConfigSettings()
     ui->show_idle_time_box->setChecked(config.getShowIdleTime());
 
     // Instruction Column Visibility
-    ui->col_hitcount_box->setChecked(config.getColumnVisible(ASMCodeline::Element::EHIT));
-    ui->col_latency_box->setChecked(config.getColumnVisible(ASMCodeline::Element::ELATENCY));
-    ui->col_idle_box->setChecked(config.getColumnVisible(ASMCodeline::Element::EIDLE));
-    ui->col_samples_box->setChecked(config.getColumnVisible(ASMCodeline::Element::EPCSamples));
-    ui->col_stalls_box->setChecked(config.getColumnVisible(ASMCodeline::Element::EPCStalls));
-    ui->col_issued_box->setChecked(config.getColumnVisible(ASMCodeline::Element::EPCIssued));
-    ui->col_codeobj_box->setChecked(config.getColumnVisible(ASMCodeline::Element::ECODEOBJ));
-    ui->col_vaddr_box->setChecked(config.getColumnVisible(ASMCodeline::Element::EADDRESS));
-    ui->col_sourceref_box->setChecked(config.getColumnVisible(ASMCodeline::Element::ESOURCEREF, false));
-    ui->col_line_number_box->setChecked(config.getColumnVisible(ASMCodeline::Element::ELINENUMBER, false));
+    const auto columnVisible = [&config](ASMCodeline::Element element, bool default_visible = true)
+    { return config.getColumnVisible(ASMCodeline::columnSettingsKey(element), default_visible); };
+    ui->col_hitcount_box->setChecked(columnVisible(ASMCodeline::Element::EHIT));
+    ui->col_latency_box->setChecked(columnVisible(ASMCodeline::Element::ELATENCY));
+    ui->col_idle_box->setChecked(columnVisible(ASMCodeline::Element::EIDLE));
+    ui->col_samples_box->setChecked(columnVisible(ASMCodeline::Element::EPCSamples));
+    ui->col_stalls_box->setChecked(columnVisible(ASMCodeline::Element::EPCStalls));
+    ui->col_issued_box->setChecked(columnVisible(ASMCodeline::Element::EPCIssued));
+    ui->col_codeobj_box->setChecked(columnVisible(ASMCodeline::Element::ECODEOBJ));
+    ui->col_vaddr_box->setChecked(columnVisible(ASMCodeline::Element::EADDRESS));
+    ui->col_sourceref_box->setChecked(columnVisible(ASMCodeline::Element::ESOURCEREF, false));
+    ui->col_line_number_box->setChecked(columnVisible(ASMCodeline::Element::ELINENUMBER, false));
 
     // Apply loaded settings
     font() = config.getFontSize();
@@ -2652,7 +2654,7 @@ void MainWindow::saveShowIdleTimeSetting(int state)
 
 void MainWindow::saveColumnVisibilitySetting(int element, bool visible)
 {
-    AppConfig::getInstance().setColumnVisible(element, visible);
+    AppConfig::getInstance().setColumnVisible(ASMCodeline::columnSettingsKey(element), visible);
     if (QCodelist::singleton)
         QCodelist::singleton->setColumnVisibility(static_cast<ASMCodeline::Element>(element), visible);
 }

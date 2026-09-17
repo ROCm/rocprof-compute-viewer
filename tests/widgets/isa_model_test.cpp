@@ -8,6 +8,8 @@
 #include <QScrollArea>
 #include <QScrollBar>
 #include <climits>
+#include <set>
+#include "code/asmcode.h"
 #include "code/codecolumns.h"
 #include "code/instruction_style.h"
 #include "code/isa_rows.h"
@@ -226,6 +228,31 @@ TEST(IsaRows, VisibleRangeIsBoundedByViewportNotListingSize)
     EXPECT_EQ(rows.lineAt(101), 24000);
     EXPECT_EQ(rows.rowOf(24000), 101);
     EXPECT_EQ(rows.visibleRange(2000, 400, 20), std::make_pair(100, 120));
+}
+
+TEST(CodeColumns, SettingsKeysUseStableNamesForEveryElement)
+{
+    const std::pair<int, const char*> columns[] = {
+        {-1,                       "View"       },
+        {ASMCodeline::ELINENUMBER, "LineNumber" },
+        {ASMCodeline::EASM,        "Instruction"},
+        {ASMCodeline::EHIT,        "Hitcount"   },
+        {ASMCodeline::ELATENCY,    "Latency"    },
+        {ASMCodeline::EIDLE,       "Idle"       },
+        {ASMCodeline::EPCSamples,  "Samples"    },
+        {ASMCodeline::EPCStalls,   "Stalls"     },
+        {ASMCodeline::EPCIssued,   "Issued"     },
+        {ASMCodeline::ECODEOBJ,    "CodeObject" },
+        {ASMCodeline::EADDRESS,    "Address"    },
+        {ASMCodeline::ESOURCEREF,  "SourceLink" }
+    };
+    std::set<std::string> keys;
+    for (const auto& [element, key] : columns)
+    {
+        EXPECT_STREQ(ASMCodeline::columnSettingsKey(element), key);
+        EXPECT_TRUE(keys.insert(ASMCodeline::columnSettingsKey(element)).second);
+    }
+    EXPECT_EQ(keys.size(), ASMCodeline::ENUMTYPES + 1);
 }
 
 TEST(CodeColumns, ResizesBodyAndHeaderTogetherAndRestoresHiddenWidths)
