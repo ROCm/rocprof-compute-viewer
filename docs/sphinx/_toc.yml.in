@@ -4,6 +4,8 @@ defaults:
   numbered: False
 root: index
 subtrees:
+- entries:
+  - file: what_is_rcv
 - caption: Install
   entries:
   - file: install/installation

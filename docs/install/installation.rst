@@ -40,17 +40,13 @@ The following table lists the supported operating systems, recommended Qt versio
      - 5.15
      - Partial
 
-By default, the project builds with Qt 6.8. To build with Qt 5, use:
+By default, the project builds with Qt 6.8. To select a different version, pass the matching CMake flags:
 
 .. code-block:: shell
 
-    cmake -DQT_VERSION_MAJOR=5 ..
-
-For Qt 6.4, use:
-
-.. code-block:: shell
-
-    cmake -DQT_VERSION_MINOR=4 ..
+    -DQT_VERSION_MAJOR=5                       # Qt 5 (any minor)
+    -DQT_VERSION_MAJOR=6 -DQT_VERSION_MINOR=4  # Qt 6.4
+    -DQT_VERSION_MAJOR=6 -DQT_VERSION_MINOR=8  # Qt 6.8 (default)
 
 Building on macOS Homebrew
 ---------------------------
@@ -90,7 +86,7 @@ Building on Linux
 
      .. code-block:: shell
 
-        sudo apt install -y libgl1 qtbase5-dev qt5-qmake cmake build-essential
+        sudo apt install -y libgl1 qt6-base-dev qmake6 build-essential
 
    - For other distributions, see `Getting Started with Qt <https://doc.qt.io/qt-5/gettingstarted.html>`_.
 
@@ -100,9 +96,10 @@ Building on Linux
 
     mkdir build
     cd build
+    # Ubuntu 22.04 (Qt 5)
     cmake .. -DQT_VERSION_MAJOR=5
-    # for qt6.4, use
-    # cmake .. -DQT_VERSION_MAJOR=6 -DQT_VERSION_MINOR=4
+    # Ubuntu 24.04 (Qt 6.4+; omit for the project default of Qt 6.8)
+    # cmake .. -DQT_VERSION_MINOR=4
     make -j
 
 Building on Windows Subsystem for Linux (WSL)
@@ -122,7 +119,7 @@ To build on Windows, use Qt Tools with Qt 6.8 (or later). See `Installing Qt on 
 Trace-decoder support
 ----------------------
 
-Trace-decoder support lets RCV open directories of raw ``.att``/``.out`` files captured directly through the rocprofiler-sdk API, without needing ``rocprofv3`` to convert them to JSON first. This is RCV's own link to the decoder and is independent of the decoder bundled with ``rocprofv3`` since ROCm 7.13.
+Trace-decoder support lets RCV open directories of raw ``.att``/``.out`` files captured directly through the rocprofiler-sdk API, without needing ``rocprofv3`` to convert them to JSON first; it is not required for the JSON path. This is RCV's own link to the decoder and is independent of the decoder bundled with ``rocprofv3`` since ROCm 7.13. It requires the decoder's V2 API (``SOVERSION 0.2``, built with ``VERSION_MINOR=2``).
 
 By default, CMake fetches and builds the decoder automatically when ``TRACE_DECODER_ROOT`` is not provided, except on macOS where fetching is disabled by default. To build a JSON-only viewer without the decoder, pass ``-DRCV_FETCH_TRACE_DECODER=OFF``. To use a prebuilt decoder instead, pass ``-DTRACE_DECODER_ROOT=<path>``.
 
