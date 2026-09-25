@@ -39,6 +39,7 @@ external/
 .vscode/*
 .vs
 .vs/*
+.idea/
 
 # Qt-es
 object_script.*.Release
@@ -95,3 +96,19 @@ compile_commands.json
 /_build
 docs/sphinx/_toc.yml
 *.codex
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Environment files
+.env
+.env.*
+
+# Temporary files
+*.tmp
+*.swp
+
+# Security
+secrets.*
+credentials.*
