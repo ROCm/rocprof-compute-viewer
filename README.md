@@ -483,3 +483,11 @@ Current pipe priority is: WMMA > VALU > VMEM/LDS/FLAT > SMEM/SALU > Others. Othe
 Total latency includes hidden latency. Nonhidden Latency subtracts it. After analysis runs, the Instructions view, source hotspots, and Flamegraph view can display or weight by total or nonhidden latency.
 
 Marker flamegraphs have one limitation: nonhidden marker widths distribute hidden latency from per-ISA-line totals. If the same instruction line appears under multiple marker scopes, or hidden work crosses marker boundaries, marker-level nonhidden widths are approximate. Total-latency marker flamegraphs are unaffected.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines and the [ROCm contribution guide](https://rocm.docs.amd.com/en/latest/contribute/contributing.html) for the broader process.
+
+## Security
+
+See [SECURITY.md](SECURITY.md) for the security policy and how to report a vulnerability.
