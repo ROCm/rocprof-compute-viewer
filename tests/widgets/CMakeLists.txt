@@ -1,7 +1,7 @@
 # Widget Tests. GoogleTest is provided by the parent tests/CMakeLists.txt.
 
 # Find Qt6 components needed for widget testing
-find_package(Qt6 REQUIRED COMPONENTS Widgets Test)
+find_package(Qt6 REQUIRED COMPONENTS Widgets Test Network OpenGLWidgets)
 
 # Path to the src directory
 set(SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../src)
@@ -95,3 +95,31 @@ target_link_libraries(wave_utils_test GTest::gtest_main)
 rcv_enable_asan(wave_utils_test)
 add_test(NAME wave_utils_test COMMAND wave_utils_test)
 set_tests_properties(wave_utils_test PROPERTIES ENVIRONMENT "ASAN_OPTIONS=detect_leaks=0")
+
+# Global View: load event-only JSON and exercise the real timeline widgets.
+add_executable(global_view_test
+    global_view_test.cpp
+    ${SRC_DIR}/wave/waveglobal.cpp
+    ${SRC_DIR}/wave/measure.cpp
+    ${SRC_DIR}/wave/othersimd.cpp
+    ${SRC_DIR}/data/json_emitter.cpp
+    ${SRC_DIR}/data/load_validation.cpp
+    ${SRC_DIR}/data/record_dispatcher.cpp
+    ${SRC_DIR}/data/record_handlers.cpp
+    ${SRC_DIR}/data/datastore.cpp
+    ${SRC_DIR}/data/dispatch_resolver.cpp
+    ${SRC_DIR}/data/shaderdata.cpp
+    ${SRC_DIR}/data/marker_walker.cpp
+    ${SRC_DIR}/data/marker_colors.cpp
+    ${SRC_DIR}/data/sqtt_funcmap_json.cpp
+    ${SRC_DIR}/code/codeload.cpp
+    ${SRC_DIR}/config/config.cpp
+    ${UTIL_DIR}/custom_layouts.cpp
+    ${UTIL_DIR}/jsonrequest.cpp)
+target_include_directories(global_view_test PRIVATE ${SRC_DIR})
+target_link_libraries(global_view_test GTest::gtest Qt6::Widgets Qt6::Network Qt6::OpenGLWidgets)
+if(RCV_HAS_TRACE_DECODER)
+    target_link_libraries(global_view_test rocprof-trace-decoder::rocprof-trace-decoder-static)
+endif()
+add_test(NAME global_view_test COMMAND global_view_test)
+set_tests_properties(global_view_test PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")

@@ -65,6 +65,7 @@
 #include "data/datastore.h"
 #include "data/input_detector.h"
 #include "data/json_emitter.h"
+#include "data/load_validation.h"
 #include "data/record_handlers.h"
 #ifdef RCV_HAS_TRACE_DECODER
 #    include "data/rocpd_emitter.h"
@@ -1393,11 +1394,12 @@ MainWindow::LoadResult MainWindow::LoadInputImpl(InputInfo input_info, const std
         return load_result;
     }
 
-    if (!data_store || (data_store->wave_hierarchy.empty() && data_store->occupancy_by_se.empty() &&
-                        data_store->code.empty() && data_store->spm.empty()))
+    // Input-format support was checked above; validate the data produced by the loader.
+    const auto validation = validateLoadedData(input_info, data_store.get(), true);
+    if (validation.status != LoadValidationStatus::Success)
     {
         load_result.status = LoadStatus::LoadFailed;
-        load_result.message = "Input did not produce usable viewer data.";
+        load_result.message = QString::fromStdString(validation.message);
     }
 
     return load_result;
