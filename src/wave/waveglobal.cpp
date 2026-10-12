@@ -29,6 +29,7 @@
 #include <QScrollArea>
 #include <QScrollBar>
 #include <QToolTip>
+#include <set>
 #include "code/qcodelist.h"
 #include "config/config.hpp"
 #include "data/dispatch_resolver.h"
@@ -278,8 +279,8 @@ void QLabelPanel::paintEvent(QPaintEvent* event)
         if (textY >= 0 && textY - fm.ascent() < height())
         {
             QString seStr = QString("%1").arg(grp.se, 2, 10, QChar('0'));
-            QString saStr = QString::number(grp.sa);
-            QString cuStr = QString("%1").arg(grp.cu, 2, 10, QChar('0'));
+            QString saStr = grp.sa >= 0 ? QString::number(grp.sa) : QString("-");
+            QString cuStr = grp.cu >= 0 ? QString("%1").arg(grp.cu, 2, 10, QChar('0')) : QString("-");
             QString smStr = (grp.simd >= 0) ? QString::number(grp.simd) : QString("-");
 
             painter.drawText(COL_SE, textY, seStr);
@@ -540,9 +541,15 @@ QGlobalView::QGlobalView(DataStore& store)
     int current_se = -1, current_sa = -1, current_cu = -1;
     int cu_slot_count = 0;
 
+    std::set<int> shader_engines;
+    for (const auto& [se, records] : store.occupancy_by_se)
+        if (!records.empty()) shader_engines.insert(se);
+
     std::map<int, DispatchRecordVec> dispatches_by_se;
     for (const auto& [se, records] : store.dispatch_records_by_se)
     {
+        if (records.empty()) continue;
+        shader_engines.insert(se);
         dispatches_by_se[se] = std::make_shared<std::vector<dispatch_record_t>>(records);
         for (const auto& rec : records)
         {
@@ -564,15 +571,18 @@ QGlobalView::QGlobalView(DataStore& store)
         );
         if (!sorted->empty())
         {
+            shader_engines.insert(se);
             trace_events_by_se[se] = sorted;
             begintime = std::min(begintime, sorted->front().time);
             maxtime = std::max(maxtime, sorted->back().time);
         }
     }
 
-    for (auto& [se, records] : store.occupancy_by_se)
+    const std::vector<occupancy_record_t> no_occupancy;
+    for (int se : shader_engines)
     {
-        if (records.empty()) continue;
+        const auto it = store.occupancy_by_se.find(se);
+        const auto& records = it != store.occupancy_by_se.end() ? it->second : no_occupancy;
 
         std::map<int, std::vector<WaveTraceData>> traces{};
         const bool has_decoder_extras = store.occupancy_has_dispatcher_info || !store.wave_records.empty() ||
@@ -607,7 +617,17 @@ QGlobalView::QGlobalView(DataStore& store)
 
             accumulateOccupancySample(data, se, traces, begintime, maxtime, &extra);
         }
+        const size_t previous_rows = views.size();
         materializeTraces(traces, views, layout, tool, maxtime, current_se, current_sa, current_cu, cu_slot_count);
+        // SE-level events still need a timeline when no wave occupancy was captured.
+        if (views.size() == previous_rows && (trace_events_by_se.count(se) || dispatches_by_se.count(se)))
+        {
+            std::vector<WaveTraceData> no_waves;
+            auto* row = new QOutsideWaveView(se, -1, -1, -1, -1, no_waves, tool);
+            row->setToolTip(QString("Shader engine %1 events").arg(se));
+            views.push_back(row);
+            layout->addWidget(row);
+        }
         layout->addStretch();
     }
 
@@ -639,6 +659,7 @@ void QGlobalView::SetShaderData(const ShaderDataManager& manager)
 
     for (auto* view : views)
     {
+        if (view->slot < 0) continue;
         const HWID hwid = hwidFromGlobalView(*view);
         auto records = manager.GetRecords(hwid);
         if (records) view->SetShaderData(std::move(records));
@@ -651,6 +672,7 @@ void QGlobalView::SetMarkers(const ShaderDataManager& manager)
 
     for (auto* view : views)
     {
+        if (view->slot < 0) continue;
         const HWID hwid = hwidFromGlobalView(*view);
         auto spans = manager.GetMarkers(hwid);
         if (spans) view->SetMarkers(std::move(spans));
@@ -671,7 +693,7 @@ void QGlobalView::syncLabelPanelExtraHeights()
     if (!labelPanel) return;
     for (size_t i = 0; i < views.size(); ++i)
         labelPanel->setRowExtraHeight(
-            static_cast<int>(i), views[i]->markerTrackHeightPx() + views[i]->markerBottomPadPx()
+            static_cast<int>(i), views[i]->sizeHint().height() - static_cast<int>(HEIGHT()) - 1
         );
     labelPanel->recalculatePositions();
     labelPanel->update();
@@ -1107,7 +1129,7 @@ void QOutsideWaveView::paintEvent(QPaintEvent* event)
     pen.setWidth(1);
     pen.setColor(QColor(60, 60, 60));
     painter.setPen(pen);
-    const int sep_y = markerTrackHeightPx() + static_cast<int>(QGlobalView::HEIGHT());
+    const int sep_y = waves.empty() ? height() - 1 : markerTrackHeightPx() + static_cast<int>(QGlobalView::HEIGHT());
     painter.drawLine(0, sep_y, sizeHint().width(), sep_y);
 
     this->Super::paintEvent(event);
@@ -1141,8 +1163,13 @@ int64_t QOutsideWaveView::DrawWave(QPainter& painter, int64_t start, const WaveT
 
 QSize QOutsideWaveView::sizeHint() const
 {
+    if (waves.empty())
+        return QSize(
+            std::max<int64_t>(256, QGlobalView::ClockToPos(QGlobalView::MaxTime()) + 1),
+            std::max<int>(QGlobalView::HEIGHT() * 24, fontMetrics().height() + 4) + 1
+        );
     int baseheight = QGlobalView::HEIGHT() + markerTrackHeightPx() + markerBottomPadPx();
-    return QSize(waves.size() ? QGlobalView::ClockToPos(QGlobalView::MaxTime()) : 256, baseheight + 1);
+    return QSize(QGlobalView::ClockToPos(QGlobalView::MaxTime()), baseheight + 1);
 };
 
 void QOutsideWaveView::mouseMoveEvent(QMouseEvent* event)
