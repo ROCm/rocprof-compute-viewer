@@ -1108,7 +1108,6 @@ void QOutsideWaveView::paintEvent(QPaintEvent* event)
 
     // Draw shaderdata triangle markers on top of waves
     DrawShaderDataMarkers(painter, event->rect());
-    DrawDecoderEvents(painter, event->rect());
 
     // Subtle separator between the marker track (top) and the wave (below) so
     // the two layers read as distinct.
@@ -1131,6 +1130,8 @@ void QOutsideWaveView::paintEvent(QPaintEvent* event)
     painter.setPen(pen);
     const int sep_y = waves.empty() ? height() - 1 : markerTrackHeightPx() + static_cast<int>(QGlobalView::HEIGHT());
     painter.drawLine(0, sep_y, sizeHint().width(), sep_y);
+
+    DrawDecoderEvents(painter, event->rect());
 
     this->Super::paintEvent(event);
 }

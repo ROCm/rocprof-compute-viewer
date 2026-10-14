@@ -2056,6 +2056,7 @@ void MainWindow::CreateGlobalView()
     addEventFilter("Flush events", WaveOverlay::DecoderEventGroupFlush);
     addEventFilter("Code object", WaveOverlay::DecoderEventGroupCodeObject);
     addEventFilter("SQTT", WaveOverlay::DecoderEventGroupSQTT);
+    addEventFilter("SPM", WaveOverlay::DecoderEventGroupSPM);
     addEventFilter("GC Rinse", WaveOverlay::DecoderEventGroupGCRinse);
     addEventFilter("Others", WaveOverlay::DecoderEventGroupOther);
     eventFilterLayout->addStretch();
