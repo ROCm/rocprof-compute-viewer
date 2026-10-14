@@ -62,6 +62,40 @@ TEST(AxisConversionTest, ToString)
     EXPECT_EQ(axisToString(Axis::Time), "TIME");
 }
 
+TEST(AxisConversionTest, SaAliasesSeWithoutChangingLegacySyntax)
+{
+    EXPECT_EQ(NUM_DIMS, 4u);
+    EXPECT_EQ(axisFromString("SA"), Axis::SE);
+    EXPECT_EQ(axisFromString("sa"), Axis::SE);
+    EXPECT_EQ(axisFromString("SE"), Axis::SE);
+    EXPECT_EQ(axisFromString("1"), Axis::SE);
+    EXPECT_EQ(axisFromString("2"), Axis::CU);
+    EXPECT_EQ(axisFromString("3"), Axis::Time);
+    EXPECT_EQ(axisFromString("WGP"), Axis::CU);
+    EXPECT_EQ(axisFromString("INSTANCE"), Axis::CU);
+    CounterContext context;
+    context.setCounter(
+        "COUNTER",
+        std::make_shared<Tensor>(Shape(2, 3, 1, 2), std::vector<float>{1, 2, 10, 20, 100, 200, 3, 4, 30, 40, 300, 400})
+    );
+    Parser parser;
+    const auto legacy = parser.parseExpression("select[COUNTER, 1, axis=SE]")->evaluate(context);
+    const auto alias = parser.parseExpression("select[COUNTER, 1, axis=SA]")->evaluate(context);
+    EXPECT_EQ(legacy.data(), (std::vector<float>{10, 20, 30, 40}));
+    EXPECT_EQ(alias.data(), legacy.data());
+    EXPECT_EQ(alias.xccIndices(), (std::vector<size_t>{0, 1}));
+    context.setCounter("GLOBAL_CACHE_COUNTER", std::make_shared<Tensor>(Shape(2, 1, 128, 2), 0));
+    EXPECT_EQ(
+        parser.parseExpression("sum[COUNTER, axis=SE]")->evaluate(context).data(),
+        parser.parseExpression("sum[COUNTER, axis=SA]")->evaluate(context).data()
+    );
+    EXPECT_FLOAT_EQ(parser.parseExpression("NUM_SE")->evaluate(context).scalar(), 3);
+    EXPECT_FLOAT_EQ(parser.parseExpression("NUM_SA")->evaluate(context).scalar(), 3);
+    EXPECT_EQ(
+        parser.parseExpression("linear(NUM_SA, axis=SA)")->evaluate(context).data(), (std::vector<float>{0, 1, 2})
+    );
+}
+
 // ============================================================================
 // Test Shape
 // ============================================================================

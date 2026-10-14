@@ -179,6 +179,7 @@ public:
     virtual bool isBuiltin(const std::string&) const override { return false; }
 
 protected:
+    bool supportsTraceAlignment() const override { return clock_aligned; }
     virtual void addRawCounters() override;
     virtual void addDerivedSeries(
         const std::string& name,
@@ -192,4 +193,5 @@ private:
     std::vector<std::shared_ptr<DerivedCounter::Tensor>> sampled_counters{};
     std::shared_ptr<DerivedCounter::Tensor> sampled_clock{};
     std::shared_ptr<DerivedCounter::Tensor> sampled_spm_clock{};
+    bool clock_aligned = false;
 };

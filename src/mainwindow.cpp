@@ -104,10 +104,9 @@ LoadedSpm loadSpmForTrace(const std::string& path, const DataStore* trace)
     for (const auto& [se, records] : trace->realtime_by_se)
         for (const auto& record : records) anchors.push_back({se, record.shader_clock, record.realtime_clock});
 
-    if (anchors.empty())
-        throw std::runtime_error("SPM clock alignment failed: the loaded trace has no REALTIME records.");
+    if (anchors.empty()) return result;
     result.clocks_out_of_range = !spmClockRangesOverlap(result.data, anchors);
-    if (!alignSpmClock(result.data, anchors)) throw std::runtime_error("SPM clock alignment failed.");
+    alignSpmClock(result.data, anchors);
     return result;
 }
 } // namespace

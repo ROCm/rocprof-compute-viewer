@@ -43,6 +43,7 @@ void SPMCounterPlotView::LoadCounterData(const DataStore& store)
     sampled_counters.clear();
     sampled_clock.reset();
     sampled_spm_clock.reset();
+    clock_aligned = store.spm.clock_aligned;
 
     if (store.spm.empty()) return;
 
