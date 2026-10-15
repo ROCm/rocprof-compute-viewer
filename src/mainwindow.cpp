@@ -106,7 +106,16 @@ LoadedSpm loadSpmForTrace(const std::string& path, const DataStore* trace)
 
     if (anchors.empty()) return result;
     result.clocks_out_of_range = !spmClockRangesOverlap(result.data, anchors);
-    alignSpmClock(result.data, anchors);
+    if (trace->gfxip >= 12)
+    {
+        std::vector<SpmSampleEvent> events;
+        for (const auto& [se, records] : trace->trace_events_by_se)
+            for (const auto& record : records)
+                if (record.type == ROCPROF_TRACE_DECODER_EVENT_SPM_SAMPLE) events.push_back({se, record.time});
+        alignSpmClockFromEvents(result.data, anchors, events);
+    }
+    else
+        alignSpmClock(result.data, anchors);
     return result;
 }
 } // namespace

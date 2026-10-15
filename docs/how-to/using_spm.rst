@@ -14,7 +14,7 @@ by itself or alongside a matching SQTT trace.
 Collect SPM
 ===========
 
-Include ``SQ_CYCLES`` when available. RCV uses it to:
+On gfx9/MI300, include ``SQ_CYCLES`` when available. RCV uses it to:
 
 - convert each XCC's SPM timestamps into shader-clock cycles;
 - follow shader-clock frequency changes;
@@ -55,16 +55,26 @@ Attach SPM to SQTT
 3. Select the rocprofv3 results JSON containing the SPM collection.
 
 For clock alignment, the SQTT input must contain realtime records
-(``realtime.json`` or decoder ``REALTIME`` records). RCV aligns every XCC
-independently using the first SQTT realtime anchor and ``SQ_CYCLES``.
+(``realtime.json`` or decoder ``REALTIME`` records). On gfx9/MI300, RCV aligns
+every XCC independently using the first SQTT realtime anchor and ``SQ_CYCLES``.
 
-If the realtime ranges do not overlap, RCV displays a warning. With
-``SQ_CYCLES``, it still performs the alignment.
+On gfx12 and later, RCV uses the SQTT ``SPM sample taken`` events instead of
+``SQ_CYCLES``. It interpolates between nearby realtime records from the same
+SE to estimate each event's realtime timestamp, then matches the nearest SPM
+sample. Matched samples use the event's shader-clock cycle. Samples whose
+events were lost or could not be matched unambiguously use linear interpolation
+between matches, or the nearest pair of matches at the ends of the capture.
+Extrapolation beyond the realtime records is approximate, particularly for
+closely spaced samples. This requires at least two realtime records and two
+matched samples from one SE.
 
-Without ``SQ_CYCLES``, alignment requires two realtime anchors from the same
-SE and overlapping SPM and trace timestamp ranges. If alignment is unavailable,
-SPM still loads alongside the trace using timestamps relative to its first
-sample. Its plot then uses an independent time scale.
+If the realtime ranges do not overlap, RCV displays a warning. On older devices
+with ``SQ_CYCLES``, it still performs the alignment.
+
+On older devices without ``SQ_CYCLES``, alignment requires two realtime anchors
+from the same SE and overlapping SPM and trace timestamp ranges. If alignment
+is unavailable, SPM still loads alongside the trace using timestamps relative
+to its first sample. Its plot then uses an independent time scale.
 
 Open standalone SPM
 ===================

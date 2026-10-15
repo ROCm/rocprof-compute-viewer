@@ -55,7 +55,7 @@ struct SpmData
     std::vector<uint64_t> timestamps;
     // Row-major [XCC][sample], padded with the final valid clock value.
     // Contains shader-clock values after alignment, or relative SPM timestamp
-    // values when no thread-trace realtime records are available.
+    // values when clock alignment is unavailable.
     std::vector<float> clock;
     // One bit per [XCC][sample]. Empty means every sample is valid.
     SpmValidityMask sample_valid;
@@ -79,6 +79,15 @@ struct SpmClockAnchor
     uint64_t realtime_clock = 0;
 };
 
+struct SpmSampleEvent
+{
+    int se = 0;
+    int64_t shader_clock = 0;
+};
+
 SpmData loadSpmJson(const std::string& path);
 bool spmClockRangesOverlap(const SpmData& spm, const std::vector<SpmClockAnchor>& anchors);
 bool alignSpmClock(SpmData& spm, const std::vector<SpmClockAnchor>& anchors);
+bool alignSpmClockFromEvents(
+    SpmData& spm, const std::vector<SpmClockAnchor>& anchors, const std::vector<SpmSampleEvent>& events
+);

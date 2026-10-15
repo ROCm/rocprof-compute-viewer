@@ -26,6 +26,7 @@
 #include <cmath>
 #include <cstdint>
 #include <fstream>
+#include <iterator>
 #include <limits>
 #include <map>
 #include <set>
@@ -562,4 +563,131 @@ bool alignSpmClock(SpmData& spm, const std::vector<SpmClockAnchor>& anchors)
     spm.clock = std::move(aligned_clock);
     spm.clock_aligned = true;
     return true;
+}
+
+bool alignSpmClockFromEvents(
+    SpmData& spm, const std::vector<SpmClockAnchor>& anchors, const std::vector<SpmSampleEvent>& events
+)
+{
+    if (spm.empty() || spm.sample_count == 0 || events.empty()) return false;
+
+    std::map<int, std::vector<SpmClockAnchor>> realtime_by_se;
+    for (const auto& anchor : anchors) realtime_by_se[anchor.se].push_back(anchor);
+
+    // Use one SE's shader clock throughout, as in the SQ_CYCLES alignment path.
+    for (auto& [se, realtime] : realtime_by_se)
+    {
+        std::sort(
+            realtime.begin(),
+            realtime.end(),
+            [](const auto& a, const auto& b) { return a.shader_clock < b.shader_clock; }
+        );
+        realtime.erase(
+            std::unique(
+                realtime.begin(),
+                realtime.end(),
+                [](const auto& a, const auto& b) { return a.shader_clock == b.shader_clock; }
+            ),
+            realtime.end()
+        );
+        if (realtime.size() < 2) continue;
+
+        std::vector<SpmClockAnchor> sample_anchors;
+        for (const auto& event : events)
+        {
+            if (event.se != se) continue;
+            auto upper = std::lower_bound(
+                realtime.begin(),
+                realtime.end(),
+                event.shader_clock,
+                [](const auto& anchor, int64_t clock) { return anchor.shader_clock < clock; }
+            );
+            // Outside the realtime records, extrapolate using the nearest pair.
+            const size_t right = std::clamp<size_t>(upper - realtime.begin(), 1, realtime.size() - 1);
+            const auto& a = realtime[right - 1];
+            const auto& b = realtime[right];
+            if (b.realtime_clock <= a.realtime_clock) continue;
+            const long double fraction = (static_cast<long double>(event.shader_clock) - a.shader_clock) /
+                                         (static_cast<long double>(b.shader_clock) - a.shader_clock);
+            const long double offset = std::round(fraction * (b.realtime_clock - a.realtime_clock));
+            if (offset < -static_cast<long double>(a.realtime_clock) ||
+                offset >= static_cast<long double>(std::numeric_limits<uint64_t>::max() - a.realtime_clock))
+                continue;
+            const uint64_t estimate = offset < 0 ? a.realtime_clock - static_cast<uint64_t>(-offset)
+                                                 : a.realtime_clock + static_cast<uint64_t>(offset);
+            sample_anchors.push_back({se, event.shader_clock, estimate});
+        }
+        std::sort(
+            sample_anchors.begin(),
+            sample_anchors.end(),
+            [](const auto& a, const auto& b) { return a.shader_clock < b.shader_clock; }
+        );
+        sample_anchors.erase(
+            std::unique(
+                sample_anchors.begin(),
+                sample_anchors.end(),
+                [](const auto& a, const auto& b) { return a.shader_clock == b.shader_clock; }
+            ),
+            sample_anchors.end()
+        );
+        if (sample_anchors.size() < 2) continue;
+
+        std::vector<float> aligned_clock = spm.clock;
+        bool aligned = false;
+        for (size_t xcc = 0; xcc < spm.xccCount(); ++xcc)
+        {
+            const size_t count = spm.validSamples(xcc);
+            if (count == 0) continue;
+            aligned = false;
+            if (count < 2) break;
+            const uint64_t* timestamps = spm.timestamps.data() + xcc * spm.sample_count;
+            std::map<size_t, SpmClockAnchor> matched;
+            std::set<size_t> ambiguous;
+            for (const auto& anchor : sample_anchors)
+            {
+                const size_t sample = nearestTimestamp(timestamps, count, anchor.realtime_clock);
+                uint64_t interval = std::numeric_limits<uint64_t>::max();
+                if (sample > 0) interval = timestamps[sample] - timestamps[sample - 1];
+                if (sample + 1 < count) interval = std::min(interval, timestamps[sample + 1] - timestamps[sample]);
+                // Use the shorter neighboring interval to reject uncertain
+                // matches around closely spaced samples and capture boundaries.
+                if (std::abs(signedTimestampDelta(anchor.realtime_clock, timestamps[sample])) >
+                    static_cast<long double>(interval) / 2)
+                    continue;
+                if (!matched.emplace(sample, anchor).second) ambiguous.insert(sample);
+            }
+            // Multiple events nearest the same sample do not identify a unique
+            // match. Leave it to interpolation instead of shifting later events.
+            for (const size_t sample : ambiguous) matched.erase(sample);
+            if (matched.size() < 2) break;
+            if (std::adjacent_find(
+                    matched.begin(),
+                    matched.end(),
+                    [](const auto& a, const auto& b) { return a.second.shader_clock >= b.second.shader_clock; }
+                ) != matched.end())
+                break;
+
+            auto left = matched.begin();
+            auto right = std::next(left);
+            for (size_t sample = 0; sample < count; ++sample)
+            {
+                while (sample > right->first && std::next(right) != matched.end()) left = right++;
+                const long double fraction = signedTimestampDelta(timestamps[sample], timestamps[left->first]) /
+                                             (timestamps[right->first] - timestamps[left->first]);
+                // Matched samples keep the exact event clock. Missing events
+                // are interpolated; samples outside the matches use the end pair.
+                aligned_clock[xcc * spm.sample_count + sample] =
+                    left->second.shader_clock +
+                    fraction * (static_cast<long double>(right->second.shader_clock) - left->second.shader_clock);
+            }
+            for (size_t sample = count; sample < spm.sample_count; ++sample)
+                aligned_clock[xcc * spm.sample_count + sample] = aligned_clock[xcc * spm.sample_count + count - 1];
+            aligned = true;
+        }
+        if (!aligned) continue;
+        spm.clock = std::move(aligned_clock);
+        spm.clock_aligned = true;
+        return true;
+    }
+    return false;
 }

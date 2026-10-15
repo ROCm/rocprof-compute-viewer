@@ -65,6 +65,19 @@ DerivedCounter::Tensor tensor(const SpmCounterData& counter, size_t samples)
     );
 }
 
+SpmData clockSamples(std::vector<uint64_t> timestamps)
+{
+    SpmData data;
+    data.sample_count = timestamps.size();
+    data.timestamps = std::move(timestamps);
+    for (const auto timestamp : data.timestamps) data.clock.push_back(timestamp - data.timestamps.front());
+    SpmCounterData counter;
+    counter.name = "SQ_WAVES";
+    counter.values.assign(data.sample_count, 1);
+    data.counters.push_back(std::move(counter));
+    return data;
+}
+
 } // namespace
 
 TEST(SpmJson, LoadsPerXccClocksAndCounterDimensions)
@@ -601,11 +614,11 @@ TEST(SpmJson, Navi4ClockNeedsTwoAnchorsWithoutSqCycles)
     EXPECT_TRUE(data.clock_aligned);
 }
 
-TEST(SpmJson, WithoutSqCyclesUnrelatedRealtimeKeepsRelativePlotTimes)
+TEST(SpmJson, WithoutSqCyclesDifferentClockDomainsKeepRelativePlotTimes)
 {
     EditableSpmCapture capture;
-    // Timestamp endpoints from spm2, whose SQTT REALTIME range is unrelated
-    // to the SPM timestamp range despite belonging to the same dispatch.
+    // Timestamp endpoints from spm2: the same dispatch was collected with
+    // different SPM and SQTT timestamp sources, so raw values cannot be matched.
     for (auto& batch : capture.batches())
         for (auto& record : batch["records"])
             record["timestamp"] = record["timestamp"] == 1000 ? uint64_t{4234154057} : uint64_t{4251141354};
@@ -674,4 +687,288 @@ TEST(SpmJson, ClockAnchorHardwareSeMapsToCombinedArrayIndex)
     }
     ));
     EXPECT_EQ(data.clock, (std::vector<float>{2000, 2070}));
+}
+
+TEST(SpmJson, SampleEventsUseNearbyRealtimeAndExactShaderClocks)
+{
+    auto data = clockSamples({1000, 1100, 1200, 1300, 1400});
+    data.counters.front().name = "SQ_CYCLES"; // Must not determine gfx12+ alignment.
+    const auto values = data.counters.front().values;
+    const std::vector<SpmClockAnchor> anchors{
+        {0, 500, 1400},
+        {0, 100, 1000},
+        {0, 200, 1200}
+    };
+    const std::vector<SpmSampleEvent> events{
+        {0, 105},
+        {0, 160},
+        {0, 205},
+        {0, 350},
+        {0, 490}
+    };
+
+    ASSERT_TRUE(alignSpmClockFromEvents(data, anchors, events));
+    EXPECT_EQ(data.clock, (std::vector<float>{105, 160, 205, 350, 490}));
+    EXPECT_EQ(data.counters.front().values, values);
+    EXPECT_EQ(data.timestamps, (std::vector<uint64_t>{1000, 1100, 1200, 1300, 1400}));
+    EXPECT_TRUE(data.clock_aligned);
+}
+
+TEST(SpmJson, MissingSampleEventsInterpolateByTimestampAndExtrapolateEnds)
+{
+    auto data = clockSamples({1000, 1010, 1030, 1060, 1100, 1110});
+    const std::vector<SpmClockAnchor> anchors{
+        {3, 1000, 1010},
+        {3, 2000, 1060},
+        {3, 2400, 1100}
+    };
+    const std::vector<SpmSampleEvent> events{
+        {3, 2400},
+        {3, 1000},
+        {3, 2000}
+    };
+
+    ASSERT_TRUE(alignSpmClockFromEvents(data, anchors, events));
+    EXPECT_EQ(data.clock, (std::vector<float>{800, 1000, 1400, 2000, 2400, 2500}));
+    EXPECT_EQ(data.sample_count, 6u);
+    EXPECT_TRUE(data.sample_valid.empty());
+}
+
+TEST(SpmJson, SampleEventsOutsideRealtimeUseNearestPair)
+{
+    auto data = clockSamples({1000, 1100, 1200, 1300});
+    const std::vector<SpmClockAnchor> anchors{
+        {0, 200, 1100},
+        {0, 200, 1100},
+        {0, 400, 1200}
+    };
+    const std::vector<SpmSampleEvent> events{
+        {0, 10 },
+        {0, 590}
+    };
+
+    ASSERT_TRUE(alignSpmClockFromEvents(data, anchors, events));
+    EXPECT_FLOAT_EQ(data.clock.front(), 10);
+    EXPECT_FLOAT_EQ(data.clock.back(), 590);
+    EXPECT_NEAR(data.clock[1], 203.333333, 0.001);
+    EXPECT_NEAR(data.clock[2], 396.666667, 0.001);
+}
+
+TEST(SpmJson, DuplicateSampleEventsAreIgnored)
+{
+    auto data = clockSamples({100, 110, 120, 130});
+    const std::vector<SpmClockAnchor> anchors{
+        {0, 1000, 100},
+        {0, 1300, 130}
+    };
+    const std::vector<SpmSampleEvent> events{
+        {0, 1000},
+        {0, 1000},
+        {0, 1300},
+        {0, 5000}
+    };
+
+    ASSERT_TRUE(alignSpmClockFromEvents(data, anchors, events));
+    EXPECT_EQ(data.clock, (std::vector<float>{1000, 1100, 1200, 1300}));
+}
+
+TEST(SpmJson, SampleEventsUseOneSeWithEnoughRealtimeAndMatches)
+{
+    auto data = clockSamples({1000, 1100});
+    const auto original_clock = data.clock;
+    const std::vector<SpmClockAnchor> anchors{
+        {0, 1000, 1000},
+        {0, 1100, 1100},
+        {1, 9000, 1000},
+        {1, 9400, 1100}
+    };
+    std::vector<SpmSampleEvent> events{
+        {0, 1000},
+        {1, 9400}
+    };
+    EXPECT_FALSE(alignSpmClockFromEvents(data, anchors, events));
+    EXPECT_EQ(data.clock, original_clock);
+
+    events.push_back({1, 9000});
+    ASSERT_TRUE(alignSpmClockFromEvents(data, anchors, events));
+    EXPECT_EQ(data.clock, (std::vector<float>{9000, 9400}));
+}
+
+TEST(SpmJson, SampleEventAlignmentPreservesXccPadding)
+{
+    auto data = loadSpmJson(SPM_TEST_DATA);
+    data.timestamps = {100, 110, 120, 102, 112, 112};
+    const auto sample_valid = data.sample_valid;
+    const std::vector<SpmClockAnchor> anchors{
+        {0, 1000, 101},
+        {0, 1200, 121}
+    };
+    const std::vector<SpmSampleEvent> events{
+        {0, 1000},
+        {0, 1100},
+        {0, 1200}
+    };
+
+    ASSERT_TRUE(alignSpmClockFromEvents(data, anchors, events));
+    EXPECT_EQ(data.clock, (std::vector<float>{1000, 1100, 1200, 1000, 1100, 1100}));
+    EXPECT_EQ(data.sample_valid, sample_valid);
+    EXPECT_EQ(data.validSamples(0), 3u);
+    EXPECT_EQ(data.validSamples(1), 2u);
+    ASSERT_TRUE(alignSpmClockFromEvents(data, anchors, events));
+    EXPECT_EQ(data.clock, (std::vector<float>{1000, 1100, 1200, 1000, 1100, 1100}));
+}
+
+TEST(SpmJson, InsufficientOrUnrelatedSampleEventsLeaveClockUnchanged)
+{
+    auto data = clockSamples({1000, 1100, 1200});
+    const auto original_clock = data.clock;
+    const std::vector<SpmClockAnchor> anchors{
+        {0, 100, 1000},
+        {0, 300, 1200}
+    };
+    const std::vector<SpmSampleEvent> events{
+        {0, 100},
+        {0, 300}
+    };
+    EXPECT_FALSE(alignSpmClockFromEvents(data, {}, events));
+    EXPECT_FALSE(alignSpmClockFromEvents(
+        data,
+        {
+            {0, 100, 1000}
+    },
+        events
+    ));
+    EXPECT_FALSE(alignSpmClockFromEvents(data, anchors, {}));
+    EXPECT_FALSE(alignSpmClockFromEvents(
+        data,
+        anchors,
+        {
+            {0, 100}
+    }
+    ));
+    EXPECT_FALSE(alignSpmClockFromEvents(
+        data,
+        anchors,
+        {
+            {1, 100},
+            {1, 300}
+    }
+    ));
+    EXPECT_FALSE(alignSpmClockFromEvents(
+        data,
+        anchors,
+        {
+            {0, 100},
+            {0, 100}
+    }
+    ));
+    EXPECT_FALSE(alignSpmClockFromEvents(
+        data,
+        {
+            {0, 100, 10000},
+            {0, 300, 10200}
+    },
+        events
+    ));
+    EXPECT_EQ(data.clock, original_clock);
+    EXPECT_FALSE(data.clock_aligned);
+}
+
+TEST(SpmJson, UnusableXccDoesNotPartiallyAlignTheCapture)
+{
+    auto data = loadSpmJson(SPM_TEST_DATA);
+    data.timestamps = {100, 110, 120, 1000, 1010, 1010};
+    const auto original_clock = data.clock;
+    EXPECT_FALSE(alignSpmClockFromEvents(
+        data,
+        {
+            {0, 1000, 100},
+            {0, 1200, 120}
+    },
+        {{0, 1000}, {0, 1200}}
+    ));
+    EXPECT_EQ(data.clock, original_clock);
+    EXPECT_FALSE(data.clock_aligned);
+}
+
+TEST(SpmJson, SampleEventMatchingPreservesSmallDeltasAtLargeTimestamps)
+{
+    constexpr uint64_t origin = uint64_t{1} << 60;
+    auto data = clockSamples({origin, origin + 10, origin + 20});
+    ASSERT_TRUE(alignSpmClockFromEvents(
+        data,
+        {
+            {0, 1000, origin     },
+            {0, 1200, origin + 20}
+    },
+        {{0, 1010}, {0, 1190}}
+    ));
+    EXPECT_EQ(data.clock, (std::vector<float>{1010, 1100, 1190}));
+}
+
+TEST(SpmJson, MissingSpmSampleDoesNotShiftLaterEvents)
+{
+    auto data = clockSamples({1000, 1200, 1300, 1400});
+    ASSERT_TRUE(alignSpmClockFromEvents(
+        data,
+        {
+            {0, 100, 1000},
+            {0, 500, 1400}
+    },
+        {{0, 100}, {0, 200}, {0, 300}, {0, 400}, {0, 500}}
+    ));
+    EXPECT_EQ(data.clock, (std::vector<float>{100, 300, 400, 500}));
+}
+
+TEST(SpmJson, ReversedEventMatchesLeaveClockUnchanged)
+{
+    auto data = clockSamples({100, 110, 120, 130});
+    const auto original_clock = data.clock;
+    EXPECT_FALSE(alignSpmClockFromEvents(
+        data,
+        {
+            {0, 100, 100},
+            {0, 200, 130},
+            {0, 300, 110},
+            {0, 400, 120}
+    },
+        {{0, 100}, {0, 200}, {0, 300}, {0, 400}}
+    ));
+    EXPECT_EQ(data.clock, original_clock);
+    EXPECT_FALSE(data.clock_aligned);
+}
+
+TEST(SpmJson, AmbiguousSpm3TailEstimatesAreExtrapolated)
+{
+    const auto original = clockSamples({3925926952546, 3925926953570, 3925926953934, 3925926953954, 3925926954042});
+    const std::vector<SpmClockAnchor> anchors{
+        {0, 17321770, 3925926951790},
+        {0, 17322021, 3925926951806}
+    };
+    const std::vector<SpmSampleEvent> events{
+        {0, 17334373},
+        {0, 17349268},
+        {0, 17353194},
+        {0, 17353529},
+        {0, 17354991}
+    };
+    // The last three estimates all lie nearest sample 2, beyond the realtime
+    // records. Assigning them consecutive indices would shift matches on loss.
+    auto data = original;
+    ASSERT_TRUE(alignSpmClockFromEvents(data, anchors, events));
+    for (size_t i = 0; i < 2; ++i) EXPECT_FLOAT_EQ(data.clock[i], static_cast<float>(events[i].shader_clock));
+    for (size_t i = 2; i < data.sample_count; ++i)
+        EXPECT_FLOAT_EQ(data.clock[i], 17349268 + (data.timestamps[i] - data.timestamps[1]) * (14895.0 / 1024));
+
+    for (size_t lost = 2; lost < events.size(); ++lost)
+    {
+        SCOPED_TRACE(lost);
+        auto remaining = events;
+        remaining.erase(remaining.begin() + lost);
+        auto with_loss = original;
+        ASSERT_TRUE(alignSpmClockFromEvents(with_loss, anchors, remaining));
+        EXPECT_EQ(with_loss.clock, data.clock);
+        EXPECT_EQ(with_loss.timestamps, original.timestamps);
+        EXPECT_EQ(with_loss.counters.front().values, original.counters.front().values);
+    }
 }
