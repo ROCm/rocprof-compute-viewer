@@ -46,11 +46,13 @@ namespace DerivedCounter
 using ValidityMask = Validity::Mask;
 
 // Axis enumeration for the tensor dimensions
-// Order: counter[NUM_XCC][NUM_SE][NUM_CU][NUM_SAMPLES]
+// Order: counter[XCC][SE or combined SA][CU][sample].
+// Only counters declaring SA use arrays_per_se * hardware_SE + local_SA.
 enum class Axis
 {
-    XCC = 0,  // First dimension
-    SE = 1,   // Second dimension
+    XCC = 0, // First dimension
+    SE = 1,  // SE or combined SA, according to the counter's dimensions
+    SA = SE,
     CU = 2,   // Third dimension
     Time = 3, // Fourth dimension (NUM_SAMPLES)
     All = -1  // Special: reduce all axes

@@ -34,9 +34,14 @@ struct SpmCounterData
 {
     std::string name;
     size_t xcc_count = 1;
+    // SE extent, or combined SE/SA extent for counters declaring SA.
     size_t se_count = 1;
+    size_t arrays_per_se = 1;
+    // CU axis: local_instance_count * WGP + INSTANCE; missing dimensions have extent 1.
     size_t instance_count = 1;
-    // Row-major [XCC][SHADER_ENGINE][INSTANCE][sample].
+    bool has_sa = false;
+    bool has_wgp = false;
+    // Row-major [XCC][arrays_per_se * hardware_SE + local_SA][CU][sample].
     std::vector<float> values;
     // One bit per value. Empty means every value is valid.
     SpmValidityMask valid;
@@ -44,12 +49,13 @@ struct SpmCounterData
 
 struct SpmData
 {
+    bool clock_aligned = false;
     size_t sample_count = 0;
     // Row-major [XCC][sample], retaining the absolute SPM timestamp.
     std::vector<uint64_t> timestamps;
     // Row-major [XCC][sample], padded with the final valid clock value.
     // Contains shader-clock values after alignment, or relative SPM timestamp
-    // values when no thread-trace realtime records are available.
+    // values when clock alignment is unavailable.
     std::vector<float> clock;
     // One bit per [XCC][sample]. Empty means every sample is valid.
     SpmValidityMask sample_valid;
@@ -73,6 +79,15 @@ struct SpmClockAnchor
     uint64_t realtime_clock = 0;
 };
 
+struct SpmSampleEvent
+{
+    int se = 0;
+    int64_t shader_clock = 0;
+};
+
 SpmData loadSpmJson(const std::string& path);
 bool spmClockRangesOverlap(const SpmData& spm, const std::vector<SpmClockAnchor>& anchors);
 bool alignSpmClock(SpmData& spm, const std::vector<SpmClockAnchor>& anchors);
+bool alignSpmClockFromEvents(
+    SpmData& spm, const std::vector<SpmClockAnchor>& anchors, const std::vector<SpmSampleEvent>& events
+);

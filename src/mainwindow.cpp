@@ -104,10 +104,18 @@ LoadedSpm loadSpmForTrace(const std::string& path, const DataStore* trace)
     for (const auto& [se, records] : trace->realtime_by_se)
         for (const auto& record : records) anchors.push_back({se, record.shader_clock, record.realtime_clock});
 
-    if (anchors.empty())
-        throw std::runtime_error("SPM clock alignment failed: the loaded trace has no REALTIME records.");
+    if (anchors.empty()) return result;
     result.clocks_out_of_range = !spmClockRangesOverlap(result.data, anchors);
-    if (!alignSpmClock(result.data, anchors)) throw std::runtime_error("SPM clock alignment failed.");
+    if (trace->gfxip >= 12)
+    {
+        std::vector<SpmSampleEvent> events;
+        for (const auto& [se, records] : trace->trace_events_by_se)
+            for (const auto& record : records)
+                if (record.type == ROCPROF_TRACE_DECODER_EVENT_SPM_SAMPLE) events.push_back({se, record.time});
+        alignSpmClockFromEvents(result.data, anchors, events);
+    }
+    else
+        alignSpmClock(result.data, anchors);
     return result;
 }
 } // namespace
@@ -2057,6 +2065,7 @@ void MainWindow::CreateGlobalView()
     addEventFilter("Flush events", WaveOverlay::DecoderEventGroupFlush);
     addEventFilter("Code object", WaveOverlay::DecoderEventGroupCodeObject);
     addEventFilter("SQTT", WaveOverlay::DecoderEventGroupSQTT);
+    addEventFilter("SPM", WaveOverlay::DecoderEventGroupSPM);
     addEventFilter("GC Rinse", WaveOverlay::DecoderEventGroupGCRinse);
     addEventFilter("Others", WaveOverlay::DecoderEventGroupOther);
     eventFilterLayout->addStretch();

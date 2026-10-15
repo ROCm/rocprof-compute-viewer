@@ -38,7 +38,7 @@ namespace DerivedCounter
 Axis axisFromString(const std::string& name)
 {
     if (name == "XCC" || name == "xcc" || name == "0") return Axis::XCC;
-    if (name == "SE" || name == "se" || name == "1") return Axis::SE;
+    if (name == "SE" || name == "se" || name == "SA" || name == "sa" || name == "1") return Axis::SE;
     if (name == "CU" || name == "cu" || name == "WGP" || name == "wgp" || name == "INSTANCE" || name == "instance" ||
         name == "2")
         return Axis::CU;
@@ -1297,27 +1297,29 @@ void CounterContext::setDerivedCounter(const std::string& name, ExprPtr expr)
 }
 
 bool CounterContext::isBuiltinScalar(const std::string& name) const
-{
-    return name == "NUM_XCC" || name == "NUM_SE" || name == "NUM_CU" || name == "NUM_SAMPLES";
-}
+{ return name == "NUM_XCC" || name == "NUM_SE" || name == "NUM_SA" || name == "NUM_CU" || name == "NUM_SAMPLES"; }
 
 float CounterContext::getBuiltinScalar(const std::string& name) const
 {
     if (m_rawCounters.empty()) throw std::runtime_error("Cannot get " + name + ": no raw counters set");
 
-    // Find the counter with the largest total size (the "full" shape)
-    const Tensor* largest = nullptr;
-    for (const auto& [_, tensor] : m_rawCounters)
-    {
-        if (!largest || tensor->shape().totalSize() > largest->shape().totalSize()) largest = tensor.get();
-    }
-    const Shape& shape = largest->shape();
+    Axis axis;
+    if (name == "NUM_XCC")
+        axis = Axis::XCC;
+    else if (name == "NUM_SE" || name == "NUM_SA")
+        axis = Axis::SE;
+    else if (name == "NUM_CU")
+        axis = Axis::CU;
+    else if (name == "NUM_SAMPLES")
+        axis = Axis::Time;
+    else
+        throw std::runtime_error("Unknown builtin scalar: " + name);
 
-    if (name == "NUM_XCC") return static_cast<float>(shape.getXCC());
-    if (name == "NUM_SE") return static_cast<float>(shape.getSE());
-    if (name == "NUM_CU") return static_cast<float>(shape.getCU());
-    if (name == "NUM_SAMPLES") return static_cast<float>(shape.getSamples());
-    throw std::runtime_error("Unknown builtin scalar: " + name);
+    // Counters have different spatial extents: a large global cache counter
+    // must not hide the shader-array extent of a smaller SQ counter.
+    size_t extent = 0;
+    for (const auto& [_, tensor] : m_rawCounters) extent = std::max(extent, tensor->shape().dimSize(axis));
+    return static_cast<float>(extent);
 }
 
 std::shared_ptr<const Tensor> CounterContext::getCounter(const std::string& name)

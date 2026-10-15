@@ -247,7 +247,7 @@ void PlotGraph::paintEvent(QPaintEvent* ev)
 
     painter.fillRect(QRect(left_space, 0, width() - left_space, height()), bkgcolor);
 
-    if (!range_aligned)
+    if (!range_aligned && supportsTraceAlignment())
     {
         if (const auto reference = MainWindow::getCUPlotAlignmentReference())
         {
@@ -458,6 +458,7 @@ void PlotGraph::mouseMoveEvent(QMouseEvent* event)
 
 bool PlotGraph::applyAlignedRange()
 {
+    if (!supportsTraceAlignment()) return false;
     const auto reference = MainWindow::getPlotAlignmentReference();
     if (!reference || reference->clocks_per_pixel <= 0 || xmax <= 0) return false;
 

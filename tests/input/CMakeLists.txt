@@ -23,10 +23,13 @@ add_test(NAME appconfig_test COMMAND appconfig_test)
 
 add_executable(spm_json_test
     spm_json_test.cpp
-    ${DATA_DIR}/spm_json.cpp)
+    ${DATA_DIR}/spm_json.cpp
+    ${SRC_DIR}/analysis/derived_counter.cpp
+    ${SRC_DIR}/analysis/spm_series.cpp)
 target_compile_definitions(
     spm_json_test PRIVATE
     SPM_TEST_DATA="${CMAKE_CURRENT_SOURCE_DIR}/data/spm_results.json"
+    SPM_NAVI4_TEST_DATA="${CMAKE_CURRENT_SOURCE_DIR}/data/spm_navi4_results.json"
     SPM_GAP_TEST_DATA="${CMAKE_CURRENT_SOURCE_DIR}/data/spm_gap_results.json")
 target_include_directories(spm_json_test PRIVATE ${SRC_DIR})
 target_link_libraries(spm_json_test GTest::gtest_main)

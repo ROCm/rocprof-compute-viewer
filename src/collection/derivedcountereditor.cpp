@@ -560,7 +560,8 @@ QString DerivedCounterEditor::helpText()
         "<ul>"
         "<li><code>linear(size, axis=TIME)</code> — Generate linear sequence 0, 1, 2, ...</li>"
         "</ul>"
-        "<p><b>Axes:</b> <code>TIME</code> (default), <code>XCC</code>, <code>SE</code>, <code>CU</code></p>"
+        "<p><b>Axes:</b> <code>TIME</code> (default), <code>XCC</code>, <code>SE</code>, <code>SA</code>, "
+        "<code>CU</code></p>"
         "<p><b>Example:</b><br/><code>delta[SQ_WAVES, axis=TIME] / delta[GRBM_GUI_ACTIVE]</code></p>"
     );
 }
