@@ -86,6 +86,7 @@ TEST(SpmJson, LoadsPerXccClocksAndCounterDimensions)
     SpmData data = loadSpmJson(path.string());
 
     EXPECT_EQ(data.counters.size(), 2u);
+    EXPECT_TRUE(data.warnings.empty());
     EXPECT_EQ(data.sample_count, 3u);
     EXPECT_EQ(data.validSamples(0), 3u);
     EXPECT_EQ(data.validSamples(1), 2u);
@@ -304,8 +305,7 @@ TEST(SpmJson, Navi4KeepsBothShaderArraysWithoutRequiringSqCycles)
     EXPECT_EQ(waves.arrays_per_se, 2u);
     EXPECT_EQ(waves.se_count, 4u);
     EXPECT_EQ(waves.instance_count, 2u);
-    EXPECT_TRUE(waves.has_wgp);
-    EXPECT_TRUE(waves.has_sa);
+    EXPECT_TRUE(data.warnings.empty());
     EXPECT_EQ(
         waves.values, (std::vector<float>{10, 20, 20, 40, 110, 220, 120, 240, 30, 60, 40, 80, 130, 260, 140, 280})
     );
@@ -315,8 +315,8 @@ TEST(SpmJson, Navi4KeepsBothShaderArraysWithoutRequiringSqCycles)
     EXPECT_EQ(ta.values, (std::vector<float>{1, 2,  2, 4,  3, 6,  4, 8,  101, 202, 102, 204, 103, 206, 104, 208,
                                              5, 10, 6, 12, 7, 14, 8, 16, 105, 210, 106, 212, 107, 214, 108, 216}));
     const auto& global = findCounter(data, "GL2C_HIT");
-    EXPECT_FALSE(global.has_sa);
-    EXPECT_FALSE(global.has_wgp);
+    EXPECT_EQ(global.arrays_per_se, 1u);
+    EXPECT_EQ(global.se_count, 1u);
     EXPECT_EQ(global.instance_count, 3u);
     EXPECT_EQ(global.values, (std::vector<float>{5, 10, 6, 12, 7, 14}));
 
@@ -412,12 +412,10 @@ TEST(SpmJson, SeOnlyAndSeSaInstanceCountersKeepTheirOwnIndexing)
     const auto data = capture.load();
     const auto& se = findCounter(data, "SE_INSTANCE");
     const auto& sa = findCounter(data, "SA_INSTANCE");
-    EXPECT_FALSE(se.has_sa);
-    EXPECT_FALSE(se.has_wgp);
+    EXPECT_TRUE(data.warnings.empty());
     EXPECT_EQ(se.arrays_per_se, 1u);
     EXPECT_EQ(se.se_count, 2u);
-    EXPECT_TRUE(sa.has_sa);
-    EXPECT_FALSE(sa.has_wgp);
+    EXPECT_EQ(sa.arrays_per_se, 2u);
     EXPECT_EQ(sa.se_count, 4u);
     DerivedCounter::CounterContext context;
     context.setCounter(se.name, std::make_shared<DerivedCounter::Tensor>(tensor(se, data.sample_count)));
@@ -561,26 +559,132 @@ TEST(SpmJson, Navi4InvalidLocalInstanceLeavesOtherInstancesAndZeroValid)
     EXPECT_FLOAT_EQ(waves[0], 0);
 }
 
-TEST(SpmJson, RejectsAmbiguousCapturesDuplicateRecordsAndInvalidDimensions)
+bool hasWarning(const SpmData& data, const std::string& text)
+{
+    return std::any_of(
+        data.warnings.begin(),
+        data.warnings.end(),
+        [&](const std::string& warning) { return warning.find(text) != std::string::npos; }
+    );
+}
+
+void expectSameCounters(const SpmData& data, const SpmData& reference)
+{
+    EXPECT_EQ(data.timestamps, reference.timestamps);
+    ASSERT_EQ(data.counters.size(), reference.counters.size());
+    for (size_t i = 0; i < data.counters.size(); ++i)
+    {
+        EXPECT_EQ(data.counters[i].se_count, reference.counters[i].se_count);
+        EXPECT_EQ(data.counters[i].instance_count, reference.counters[i].instance_count);
+        EXPECT_EQ(data.counters[i].values, reference.counters[i].values);
+        EXPECT_EQ(data.counters[i].valid, reference.counters[i].valid);
+    }
+}
+
+TEST(SpmJson, MergesAmbiguousCapturesAndKeepsFirstDuplicateWithWarnings)
 {
     EditableSpmCapture capture;
+    const auto reference = capture.load();
     auto duplicate = capture.batches().front();
     duplicate["dispatch_data"]["dispatch_info"]["dispatch_id"] = 3;
+    for (auto& record : duplicate["records"]) record["value"] = 999999;
     capture.batches().push_back(duplicate);
-    EXPECT_THROW(capture.load(), std::runtime_error);
+    auto data = capture.load();
+    expectSameCounters(data, reference);
+    EXPECT_TRUE(hasWarning(data, "multiple dispatches or streams"));
+    EXPECT_TRUE(hasWarning(data, "duplicate SPM counter records"));
+
     capture.batches().back()["dispatch_data"]["dispatch_info"]["dispatch_id"] = 2;
     capture.batches().back()["stream_id"]["handle"] = 1;
-    EXPECT_THROW(capture.load(), std::runtime_error);
+    expectSameCounters(capture.load(), reference);
     capture.batches().back()["stream_id"]["handle"] = 0;
-    EXPECT_THROW(capture.load(), std::runtime_error);
+    data = capture.load();
+    expectSameCounters(data, reference);
+    EXPECT_FALSE(hasWarning(data, "multiple dispatches or streams"));
+    EXPECT_TRUE(hasWarning(data, "duplicate SPM counter records"));
+
     capture.batches().erase(1);
-    capture.tool()["counters"][0]["dimensions"].push_back({
+    capture.root["rocprofiler-sdk-tool"].push_back(capture.tool());
+    data = capture.load();
+    expectSameCounters(data, reference);
+    EXPECT_EQ(data.warnings, (std::vector<std::string>{"SPM JSON contains 2 tool captures; only the first was loaded."}));
+}
+
+TEST(SpmJson, RecordsOutsideDeclaredDimensionsGrowExtents)
+{
+    EditableSpmCapture capture;
+    const auto reference = capture.load();
+    const std::string name = capture.tool()["counters"][0]["name"];
+    for (auto& dimension : capture.tool()["counters"][0]["dimensions"])
+        if (dimension["name"] == "DIMENSION_SHADER_ENGINE") dimension["instance_size"] = 1;
+    auto data = capture.load();
+    expectSameCounters(data, reference);
+    EXPECT_TRUE(hasWarning(data, name + " has instances outside its declared dimensions"));
+
+    capture.tool()["counters"][0].erase("instances");
+    data = capture.load();
+    expectSameCounters(data, reference);
+    EXPECT_TRUE(hasWarning(data, name + " has records outside its declared dimensions"));
+
+    // Legacy metadata without dimensions sizes every counter from its records.
+    for (auto& counter : capture.tool()["counters"])
+    {
+        counter.erase("dimensions");
+        counter.erase("instances");
+    }
+    data = capture.load();
+    expectSameCounters(data, reference);
+    EXPECT_TRUE(data.warnings.empty());
+}
+
+TEST(SpmJson, UndeclaredXccGrowsWithoutWarning)
+{
+    EditableSpmCapture capture;
+    for (auto& counter : capture.tool()["counters"]) counter.erase("instances");
+    auto batch = capture.batches().front();
+    for (auto& record : batch["records"]) record["instance_id"] = record["instance_id"].get<uint64_t>() | 1;
+    capture.batches().push_back(batch);
+    const auto data = capture.load();
+    EXPECT_EQ(data.xccCount(), 2u);
+    EXPECT_TRUE(data.warnings.empty());
+    const auto waves = tensor(findCounter(data, "SQ_WAVES"), data.sample_count);
+    EXPECT_EQ(waves.select(0, DerivedCounter::Axis::XCC).data(), waves.select(1, DerivedCounter::Axis::XCC).data());
+}
+
+TEST(SpmJson, DimensionsWithoutViewerAxisAreSummed)
+{
+    EditableSpmCapture capture;
+    const auto reference = capture.load();
+    auto& counter = capture.tool()["counters"][0];
+    const std::string name = counter["name"];
+    const uint64_t id = counter["id"]["handle"];
+    counter["dimensions"].push_back({
         {"name",          "DIMENSION_AID"},
         {"instance_size", 2              }
     });
-    EXPECT_THROW(capture.load(), std::runtime_error);
-    capture.tool()["counters"][0]["dimensions"].erase(3);
-    capture.tool()["counters"][0]["dimensions"][2]["instance_size"] = 1;
+    counter.erase("instances");
+    auto& records = capture.batches().front()["records"];
+    const auto source = records;
+    for (auto record : source)
+    {
+        if (record["counter_id"]["handle"] != id) continue;
+        record["instance_id"] = record["instance_id"].get<uint64_t>() | (uint64_t{1} << 6);
+        records.push_back(record);
+    }
+    const auto data = capture.load();
+    EXPECT_TRUE(hasWarning(data, name + " has unsupported dimension DIMENSION_AID"));
+    EXPECT_TRUE(hasWarning(data, name + " was summed over dimensions without a viewer axis"));
+    EXPECT_FALSE(hasWarning(data, "duplicate"));
+    const auto& summed = findCounter(data, name);
+    const auto& original = findCounter(reference, name);
+    ASSERT_EQ(summed.values.size(), original.values.size());
+    for (size_t i = 0; i < summed.values.size(); ++i) EXPECT_FLOAT_EQ(summed.values[i], 2 * original.values[i]);
+}
+
+TEST(SpmJson, RejectsCoordinatesBeyondTheInstanceIdRange)
+{
+    EditableSpmCapture capture;
+    capture.tool()["counters"][0]["dimensions"][0]["instance_size"] = 65;
     EXPECT_THROW(capture.load(), std::runtime_error);
 }
 
@@ -920,17 +1024,52 @@ TEST(SpmJson, MissingSpmSampleDoesNotShiftLaterEvents)
     EXPECT_EQ(data.clock, (std::vector<float>{100, 300, 400, 500}));
 }
 
-TEST(SpmJson, ReversedEventMatchesLeaveClockUnchanged)
+TEST(SpmJson, InconsistentRealtimeRecordIsDropped)
 {
     auto data = clockSamples({100, 110, 120, 130});
-    const auto original_clock = data.clock;
-    EXPECT_FALSE(alignSpmClockFromEvents(
+    // The realtime record at shader clock 200 is out of order. Without it,
+    // the events at 100 and 200 both estimate nearest sample 0 and are
+    // ambiguous; the remaining matches still align the capture.
+    ASSERT_TRUE(alignSpmClockFromEvents(
         data,
         {
             {0, 100, 100},
             {0, 200, 130},
             {0, 300, 110},
             {0, 400, 120}
+    },
+        {{0, 100}, {0, 200}, {0, 300}, {0, 400}}
+    ));
+    EXPECT_EQ(data.clock, (std::vector<float>{200, 300, 400, 500}));
+
+    // One outlier among many consistent records does not block alignment.
+    data = clockSamples({100, 110, 120, 130, 140});
+    ASSERT_TRUE(alignSpmClockFromEvents(
+        data,
+        {
+            {0, 100, 100},
+            {0, 200, 110},
+            {0, 250, 900},
+            {0, 300, 120},
+            {0, 400, 130},
+            {0, 500, 140}
+    },
+        {{0, 100}, {0, 200}, {0, 300}, {0, 400}, {0, 500}}
+    ));
+    EXPECT_EQ(data.clock, (std::vector<float>{100, 200, 300, 400, 500}));
+}
+
+TEST(SpmJson, ReversedRealtimeRecordsLeaveClockUnchanged)
+{
+    auto data = clockSamples({100, 110, 120, 130});
+    const auto original_clock = data.clock;
+    EXPECT_FALSE(alignSpmClockFromEvents(
+        data,
+        {
+            {0, 100, 130},
+            {0, 200, 120},
+            {0, 300, 110},
+            {0, 400, 100}
     },
         {{0, 100}, {0, 200}, {0, 300}, {0, 400}}
     ));

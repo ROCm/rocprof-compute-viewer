@@ -118,6 +118,14 @@ LoadedSpm loadSpmForTrace(const std::string& path, const DataStore* trace)
         alignSpmClock(result.data, anchors);
     return result;
 }
+
+QString spmWarningText(const LoadedSpm& spm)
+{
+    QStringList lines;
+    if (spm.clocks_out_of_range) lines << "SPM and SQTT realtime clocks are out of range.";
+    for (const auto& warning : spm.data.warnings) lines << QString::fromStdString(warning);
+    return lines.join('\n');
+}
 } // namespace
 
 #if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
@@ -859,8 +867,8 @@ void MainWindow::OpenSpmJson()
         try
         {
             LoadedSpm spm = loadSpmForTrace(path, data_store.get());
-            if (spm.clocks_out_of_range)
-                QMessageBox::warning(this, "SPM JSON", "SPM and SQTT realtime clocks are out of range.");
+            if (const QString warnings = spmWarningText(spm); !warnings.isEmpty())
+                QMessageBox::warning(this, "SPM JSON", warnings);
             data_store->spm = std::move(spm.data);
             current_spm_path = path;
             counter_values_tableitem.clear();
@@ -1176,7 +1184,10 @@ MainWindow::LoadResult MainWindow::LoadInputImpl(InputInfo input_info, const std
             {
                 try
                 {
-                    data_store->spm = std::move(loadSpmForTrace(input_info.spm_json_path, nullptr).data);
+                    LoadedSpm spm = loadSpmForTrace(input_info.spm_json_path, nullptr);
+                    if (const QString warnings = spmWarningText(spm); show_dialogs && !warnings.isEmpty())
+                        QMessageBox::warning(this, "SPM JSON", warnings);
+                    data_store->spm = std::move(spm.data);
                     data_store->has_thread_trace = false;
                     data_store->ui_dir = ui_dir;
                     current_spm_path = input_info.spm_json_path;
@@ -1226,9 +1237,9 @@ MainWindow::LoadResult MainWindow::LoadInputImpl(InputInfo input_info, const std
             try
             {
                 LoadedSpm spm = loadSpmForTrace(current_spm_path, data_store.get());
+                if (const QString warnings = spmWarningText(spm); show_dialogs && !warnings.isEmpty())
+                    QMessageBox::warning(this, "SPM JSON", warnings);
                 data_store->spm = std::move(spm.data);
-                if (spm.clocks_out_of_range && show_dialogs)
-                    QMessageBox::warning(this, "SPM JSON", "SPM and SQTT realtime clocks are out of range.");
             }
             catch (const std::exception& e)
             {
