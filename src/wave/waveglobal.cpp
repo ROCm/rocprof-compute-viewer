@@ -39,6 +39,7 @@
 #include "data/wavemanager.h"
 #include "mainwindow.h"
 #include "util/jsonrequest.hpp"
+#include "wave/event_track.h"
 #include "wave/overlay_utils.h"
 
 int64_t QGlobalView::begintime = 0;
@@ -53,12 +54,9 @@ static constexpr int COL_SA = 23;
 static constexpr int COL_CU = 35;
 static constexpr int COL_SM = 55;
 
-namespace
-{
-/// Return the first tick in the existing grid that is visible at or after
-/// `visible_clock_start`.  The initial tick deliberately matches the previous
-/// paint loops so the grid phase remains unchanged.
-int64_t firstVisibleTick(int64_t trace_begin, int64_t tick_spacing, int64_t visible_clock_start)
+/// The initial tick deliberately matches the previous paint loops so the grid
+/// phase remains unchanged.
+int64_t QGlobalView::FirstVisibleTick(int64_t trace_begin, int64_t tick_spacing, int64_t visible_clock_start)
 {
     int64_t tick = trace_begin + tick_spacing - (trace_begin % tick_spacing);
     if (tick >= visible_clock_start) return tick;
@@ -67,7 +65,6 @@ int64_t firstVisibleTick(int64_t trace_begin, int64_t tick_spacing, int64_t visi
     tick += (distance / tick_spacing + (distance % tick_spacing != 0)) * tick_spacing;
     return tick;
 }
-} // namespace
 
 // QTickHeader implementation
 QTickHeader::QTickHeader(QWidget* parent) : QWidget(parent) { setFixedHeight(HEADER_HEIGHT); }
@@ -121,7 +118,7 @@ void QTickHeader::paintEvent(QPaintEvent* event)
             const int64_t content_right = hOffset + std::max(0, area.right() - LEFT_MARGIN);
             const int64_t visible_clock_start = QGlobalView::PosToClock(content_left);
             const int64_t visible_clock_end = QGlobalView::PosToClock(content_right);
-            int64_t clock_iter = firstVisibleTick(bt, clock_spacing, visible_clock_start);
+            int64_t clock_iter = QGlobalView::FirstVisibleTick(bt, clock_spacing, visible_clock_start);
 
             while (clock_iter <= visible_clock_end)
             {
@@ -310,6 +307,16 @@ void QGlobalView::setScrollArea(QScrollArea* sa)
     {
         tickHeader->setScrollArea(sa);
         connect(sa->horizontalScrollBar(), &QScrollBar::valueChanged, tickHeader, &QTickHeader::onScrollChanged);
+    }
+    if (eventTrack)
+    {
+        eventTrack->setScrollArea(sa);
+        connect(
+            sa->horizontalScrollBar(),
+            &QScrollBar::valueChanged,
+            eventTrack,
+            [track = eventTrack]() { track->update(); }
+        );
     }
     if (labelPanel)
         connect(sa->verticalScrollBar(), &QScrollBar::valueChanged, labelPanel, &QLabelPanel::setVerticalOffset);
@@ -520,8 +527,9 @@ QGlobalView::QGlobalView(const std::string& filename)
             accumulateOccupancySample(data, se, traces, begintime, maxtime);
         }
         materializeTraces(traces, views, layout, tool, maxtime, current_se, current_sa, current_cu, cu_slot_count);
-        layout->addStretch();
     }
+    // One trailing stretch keeps rows packed at the top, matching the label panel.
+    layout->addStretch();
     if (begintime == INT64_MAX) begintime = 0;
     this->setLayout(layout);
     setMouseTracking(true);
@@ -545,38 +553,29 @@ QGlobalView::QGlobalView(DataStore& store)
     for (const auto& [se, records] : store.occupancy_by_se)
         if (!records.empty()) shader_engines.insert(se);
 
-    std::map<int, DispatchRecordVec> dispatches_by_se;
+    // Events and dispatches extend the timeline before bars are sized, so
+    // trailing events stay reachable.
     for (const auto& [se, records] : store.dispatch_records_by_se)
     {
-        if (records.empty()) continue;
-        shader_engines.insert(se);
-        dispatches_by_se[se] = std::make_shared<std::vector<dispatch_record_t>>(records);
+        if (!records.empty()) shader_engines.insert(se);
         for (const auto& rec : records)
         {
             begintime = std::min(begintime, rec.time);
             maxtime = std::max(maxtime, rec.time);
         }
     }
-
-    // Build trace-event spans before sizing bars so trailing events extend maxtime.
-    std::map<int, TraceEventRecordVec> trace_events_by_se;
     for (const auto& [se, records] : store.trace_events_by_se)
     {
-        auto sorted = std::make_shared<std::vector<trace_event_record_t>>();
-        *sorted = records;
-        std::sort(
-            sorted->begin(),
-            sorted->end(),
-            [](const trace_event_record_t& a, const trace_event_record_t& b) { return a.time < b.time; }
-        );
-        if (!sorted->empty())
+        if (!records.empty()) shader_engines.insert(se);
+        for (const auto& rec : records)
         {
-            shader_engines.insert(se);
-            trace_events_by_se[se] = sorted;
-            begintime = std::min(begintime, sorted->front().time);
-            maxtime = std::max(maxtime, sorted->back().time);
+            begintime = std::min(begintime, rec.time);
+            maxtime = std::max(maxtime, rec.time);
         }
     }
+    event_model = std::make_shared<EventTrackModel>();
+    const std::vector<dispatch_record_t> no_dispatches;
+    const std::vector<trace_event_record_t> no_events;
 
     const std::vector<occupancy_record_t> no_occupancy;
     for (int se : shader_engines)
@@ -604,9 +603,9 @@ QGlobalView::QGlobalView(DataStore& store)
             extra.has_dispatcher_info = has_decoder_extras && rec.start;
             if (has_decoder_extras && rec.start && rec.is_ext) extra.workgroup_id = rec.workgroup_id;
             extra.cluster_id = occupancyClusterId(rec);
-            auto dispatch_it = dispatches_by_se.find(se);
-            if (rec.start && dispatch_it != dispatches_by_se.end())
-                for (auto it = dispatch_it->second->rbegin(); it != dispatch_it->second->rend(); ++it)
+            auto dispatch_it = store.dispatch_records_by_se.find(se);
+            if (rec.start && dispatch_it != store.dispatch_records_by_se.end())
+                for (auto it = dispatch_it->second.rbegin(); it != dispatch_it->second.rend(); ++it)
                 {
                     if (it->time >= rec.time) continue;
                     if (it->me_id != rec.me_id || it->pipe_id != rec.pipe_id) continue;
@@ -617,30 +616,26 @@ QGlobalView::QGlobalView(DataStore& store)
 
             accumulateOccupancySample(data, se, traces, begintime, maxtime, &extra);
         }
-        const size_t previous_rows = views.size();
         materializeTraces(traces, views, layout, tool, maxtime, current_se, current_sa, current_cu, cu_slot_count);
-        // SE-level events still need a timeline when no wave occupancy was captured.
-        if (views.size() == previous_rows && (trace_events_by_se.count(se) || dispatches_by_se.count(se)))
-        {
-            std::vector<WaveTraceData> no_waves;
-            auto* row = new QOutsideWaveView(se, -1, -1, -1, -1, no_waves, tool);
-            row->setToolTip(QString("Shader engine %1 events").arg(se));
-            views.push_back(row);
-            layout->addWidget(row);
-        }
-        layout->addStretch();
+
+        // Runs after materializeTraces so every wave has its end time.
+        const auto dispatch_it = store.dispatch_records_by_se.find(se);
+        const auto event_it = store.trace_events_by_se.find(se);
+        event_model->AddShaderEngine(
+            se,
+            dispatch_it != store.dispatch_records_by_se.end() ? dispatch_it->second : no_dispatches,
+            event_it != store.trace_events_by_se.end() ? event_it->second : no_events,
+            traces
+        );
     }
 
+    // One trailing stretch keeps rows packed at the top, matching the label panel.
+    layout->addStretch();
     if (begintime == INT64_MAX) begintime = 0;
-
-    for (auto* view : views)
-    {
-        auto event_it = trace_events_by_se.find(view->se);
-        if (event_it != trace_events_by_se.end()) view->SetTraceEvents(event_it->second);
-
-        auto dispatch_it = dispatches_by_se.find(view->se);
-        if (dispatch_it != dispatches_by_se.end()) view->SetDispatchRecords(dispatch_it->second);
-    }
+    if (event_model->empty())
+        event_model.reset();
+    else
+        event_model->Layout(decoder_event_groups);
 
     // Mirror resolver names into the legacy static so tooltips (line ~1000) and
     // any other static-lookup users don't fall back to "kernel_<kid>".
@@ -715,7 +710,33 @@ void QGlobalView::populateLabelPanel()
 void QGlobalView::SetDecoderEventGroups(uint32_t groups)
 {
     decoder_event_groups = groups;
-    for (auto* view : views) view->update();
+    if (eventTrack)
+        eventTrack->SetDecoderEventGroups(groups);
+    else if (event_model)
+        event_model->Layout(groups);
+}
+
+void QGlobalView::SetMip(int new_mipmap_level)
+{
+    mipmap_level = new_mipmap_level;
+    for (auto* view : views)
+    {
+        const int height = view->sizeHint().height();
+        if (view->height() != height) view->setFixedHeight(height);
+        view->updateGeometry();
+    }
+    if (labelPanel) labelPanel->recalculatePositions();
+    if (tickHeader) tickHeader->update();
+    if (eventTrack) eventTrack->update();
+    this->updateGeometry();
+    this->update();
+}
+
+QSize QGlobalView::minimumSizeHint() const
+{
+    QSize size = Super::minimumSizeHint();
+    size.setWidth(std::max<int64_t>(size.width(), ClockToPos(MaxTime()) + 1));
+    return size;
 }
 
 void QGlobalView::paintEvent(QPaintEvent* event)
@@ -753,7 +774,7 @@ void QGlobalView::paintEvent(QPaintEvent* event)
 
         const int64_t visible_clock_start = PosToClock(area.left());
         const int64_t visible_clock_end = PosToClock(area.right());
-        int64_t clock_iter = firstVisibleTick(begintime, clock_spacing, visible_clock_start);
+        int64_t clock_iter = QGlobalView::FirstVisibleTick(begintime, clock_spacing, visible_clock_start);
 
         while (clock_iter <= visible_clock_end)
         {
@@ -788,18 +809,6 @@ se(_se), sa(_sa), cu(_cu), simd(_simd), slot(_slot), waves(_waves), tool(_tool)
 }
 
 void QOutsideWaveView::SetShaderData(ShaderDataRecordVec records) { shaderdata_records = std::move(records); }
-
-void QOutsideWaveView::SetTraceEvents(TraceEventRecordVec records)
-{
-    trace_events = std::move(records);
-    update();
-}
-
-void QOutsideWaveView::SetDispatchRecords(DispatchRecordVec records)
-{
-    dispatch_records = std::move(records);
-    update();
-}
 
 void QOutsideWaveView::SetMarkers(MarkerSpanVec spans)
 {
@@ -977,48 +986,6 @@ int QOutsideWaveView::FindShaderDataAt(int64_t clock_pos) const
     return FindShaderDataRecord(shaderdata_records, clock_pos, QGlobalView::Delta() * markerWidth);
 }
 
-void QOutsideWaveView::DrawDecoderEvents(QPainter& painter, const QRect& area)
-{
-    const int row_h = height();
-    const int64_t visible_clock_start = QGlobalView::PosToClock(area.left() - 2);
-    const int64_t visible_clock_end = QGlobalView::PosToClock(area.right() + 2);
-
-    WaveOverlay::drawDecoderEvents(
-        painter,
-        trace_events.get(),
-        dispatch_records.get(),
-        WaveOverlay::DecoderEventSurface::Global,
-        visible_clock_start,
-        visible_clock_end,
-        row_h,
-        [](int64_t time) { return QGlobalView::ClockToPos(time); },
-        QGlobalView::DecoderEventGroups()
-    );
-}
-
-int QOutsideWaveView::FindTraceEventAt(int64_t clock_pos) const
-{
-    const int64_t tol = std::max<int64_t>(QGlobalView::Delta() * 4, 4);
-    return WaveOverlay::findRecordIndexAtIf(
-        trace_events.get(),
-        clock_pos,
-        tol,
-        [](const trace_event_record_t& event)
-        {
-            return WaveOverlay::showTraceEvent(
-                event, WaveOverlay::DecoderEventSurface::Global, QGlobalView::DecoderEventGroups()
-            );
-        }
-    );
-}
-
-int QOutsideWaveView::FindDispatchAt(int64_t clock_pos) const
-{
-    if ((QGlobalView::DecoderEventGroups() & WaveOverlay::DecoderEventGroupDispatch) == 0) return -1;
-    const int64_t tol = std::max<int64_t>(QGlobalView::Delta() * 4, 4);
-    return WaveOverlay::findRecordIndexAt(dispatch_records.get(), clock_pos, tol);
-}
-
 int QOutsideWaveView::FindMarkerAt(int64_t clock_pos, int y) const
 {
     if (markers.empty()) return -1;
@@ -1128,10 +1095,8 @@ void QOutsideWaveView::paintEvent(QPaintEvent* event)
     pen.setWidth(1);
     pen.setColor(QColor(60, 60, 60));
     painter.setPen(pen);
-    const int sep_y = waves.empty() ? height() - 1 : markerTrackHeightPx() + static_cast<int>(QGlobalView::HEIGHT());
+    const int sep_y = markerTrackHeightPx() + static_cast<int>(QGlobalView::HEIGHT());
     painter.drawLine(0, sep_y, sizeHint().width(), sep_y);
-
-    DrawDecoderEvents(painter, event->rect());
 
     this->Super::paintEvent(event);
 }
@@ -1164,11 +1129,6 @@ int64_t QOutsideWaveView::DrawWave(QPainter& painter, int64_t start, const WaveT
 
 QSize QOutsideWaveView::sizeHint() const
 {
-    if (waves.empty())
-        return QSize(
-            std::max<int64_t>(256, QGlobalView::ClockToPos(QGlobalView::MaxTime()) + 1),
-            std::max<int>(QGlobalView::HEIGHT() * 24, fontMetrics().height() + 4) + 1
-        );
     int baseheight = QGlobalView::HEIGHT() + markerTrackHeightPx() + markerBottomPadPx();
     return QSize(QGlobalView::ClockToPos(QGlobalView::MaxTime()), baseheight + 1);
 };
@@ -1195,26 +1155,6 @@ void QOutsideWaveView::mouseMoveEvent(QMouseEvent* event)
             QToolTip::showText(event->globalPos(), (*shaderdata_records)[sd_idx].ToolTip().c_str());
             return;
         }
-    }
-
-    int dispatch_idx = FindDispatchAt(clock_pos);
-    if (dispatch_idx >= 0)
-    {
-        const auto& dispatch = (*dispatch_records)[dispatch_idx];
-        QToolTip::showText(
-            event->globalPos(), QString::fromStdString(WaveOverlay::formatDispatchTooltip(dispatch, se))
-        );
-        return;
-    }
-
-    int trace_event_idx = FindTraceEventAt(clock_pos);
-    if (trace_event_idx >= 0)
-    {
-        const auto& trace_event = (*trace_events)[trace_event_idx];
-        QToolTip::showText(
-            event->globalPos(), QString::fromStdString(WaveOverlay::formatTraceEventTooltip(trace_event, se))
-        );
-        return;
     }
 
     int m_idx = FindMarkerAt(clock_pos, event->pos().y());

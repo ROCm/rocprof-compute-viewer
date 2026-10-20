@@ -192,6 +192,8 @@ The Global View tab presents a comprehensive trace of all waves across the enabl
 
 - The Global view can be compared with the Kernel dispatch plot.
 
+- Decoder events and kernel dispatches appear in an event track above the waves, with one band per SE. Overlapping events are stacked into lanes, and kernel dispatches followed by a dispatch-end event are drawn as ranges lasting until the last wave they launched finishes. Drag the splitter below the track to resize it, click an SE label to collapse its band into a single row, and use the event filter checkboxes to choose which event types are shown.
+
 - Right-click and drag to measure number of cycles.
 
 .. _summary-view:

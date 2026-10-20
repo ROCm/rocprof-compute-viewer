@@ -35,6 +35,8 @@
 #include "measure.h"
 
 class QScrollArea;
+class QEventTrack;
+class EventTrackModel;
 
 struct WaveTraceData
 {
@@ -97,10 +99,6 @@ public:
     /// Set shaderdata records that match this view's SE/CU/SIMD (shared, zero-copy).
     void SetShaderData(ShaderDataRecordVec records);
 
-    /// Set decoder events/dispatches emitted for this Shader Engine.
-    void SetTraceEvents(TraceEventRecordVec records);
-    void SetDispatchRecords(DispatchRecordVec records);
-
     /// Set decoded marker spans for this bucket. When non-null+non-empty the
     /// view switches into typed marker rendering for the markers track;
     /// otherwise the legacy red-rect raw-record path is used. Pre-computes
@@ -129,8 +127,6 @@ protected:
     /// Decoded marker spans + derived render data; empty when no marker funcmap
     /// is loaded for this bucket (legacy red-rect path is used in that case).
     MarkerRenderCache markers;
-    TraceEventRecordVec trace_events;
-    DispatchRecordVec dispatch_records;
 
     /// Minimum per-depth band height (pixels) — keeps markers visible even at
     /// the smallest vertical zoom. Above this floor, band height scales with
@@ -144,17 +140,11 @@ protected:
     /// Draw shaderdata triangle markers (only visible range, with pixel dedup)
     void DrawShaderDataMarkers(QPainter& painter, const QRect& area);
 
-    /// Draw decoder events/dispatches as vertical markers.
-    void DrawDecoderEvents(QPainter& painter, const QRect& area);
-
     /// Draw typed marker spans (only when markers are set)
     void DrawTypedMarkers(QPainter& painter, const QRect& area);
 
     /// Find shaderdata record near a clock position (for tooltip). Returns index or -1.
     int FindShaderDataAt(int64_t clock_pos) const;
-
-    int FindTraceEventAt(int64_t clock_pos) const;
-    int FindDispatchAt(int64_t clock_pos) const;
 
     /// Find typed marker span at clock position. Returns index or -1.
     /// When y >= 0, restrict the hit to the depth row covering that y in the
@@ -244,24 +234,16 @@ public:
     static int SpinToMip(int spinValue) { return std::max(0, std::min(15 - spinValue, 15)); }
     static uint32_t DecoderEventGroups() { return decoder_event_groups; }
 
+    /// First grid tick at or after `visible_clock_start`, keeping the grid phase anchored at `trace_begin`.
+    static int64_t FirstVisibleTick(int64_t trace_begin, int64_t tick_spacing, int64_t visible_clock_start);
+
     // Calculate new scroll position when zooming, keeping anchor_x at the same viewport position
     static int calcZoomScroll(int old_mip, int new_mip, int old_scroll, int anchor_viewport_x);
 
-    void SetMip(int new_mipmap_level)
-    {
-        mipmap_level = new_mipmap_level;
-        for (auto* view : views)
-        {
-            const int height = view->sizeHint().height();
-            if (view->height() != height) view->setFixedHeight(height);
-            view->updateGeometry();
-        }
-        if (labelPanel) labelPanel->recalculatePositions();
-        if (tickHeader) tickHeader->update();
-        this->updateGeometry();
-        this->update();
-    }
+    void SetMip(int new_mipmap_level);
 
+    /// Wide enough to reach MaxTime() even when there are no wave rows.
+    virtual QSize minimumSizeHint() const override;
     virtual void paintEvent(QPaintEvent* event) override;
     virtual void mouseMoveEvent(QMouseEvent* event) override;
     virtual void mousePressEvent(QMouseEvent* event) override;
@@ -279,10 +261,14 @@ private:
     static uint32_t decoder_event_groups;
     std::vector<QOutsideWaveView*> views;
     QScrollArea* m_scrollArea = nullptr;
+    std::shared_ptr<EventTrackModel> event_model;
 
 public:
     QTickHeader* tickHeader = nullptr;   // External header widget for sticky ticks
     QLabelPanel* labelPanel = nullptr;   // External label panel for sticky labels
+    QEventTrack* eventTrack = nullptr;   // External sticky event track above the waves
+    /// Decoder events and dispatches per SE; null when the trace has none.
+    std::shared_ptr<EventTrackModel> EventModel() const { return event_model; }
     void setScrollArea(QScrollArea* sa); // Connect to scroll area for sync
     void populateLabelPanel();           // Fill labelPanel with label data
     void SetDecoderEventGroups(uint32_t groups);
