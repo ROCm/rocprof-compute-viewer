@@ -14,7 +14,13 @@ by itself or alongside a matching SQTT trace.
 Collect SPM
 ===========
 
-Include ``SQ_CYCLES`` in the collected counters. For example:
+Always include ``SQ_CYCLES``. RCV uses it to:
+
+- convert each XCC's SPM timestamps into shader-clock cycles;
+- follow shader-clock frequency changes;
+- identify and reconstruct accumulated missing sample windows.
+
+For example:
 
 .. code-block:: bash
 
@@ -28,22 +34,6 @@ The supported counters and sample-interval range depend on the GPU and ROCm
 version. Use ``rocprofv3-avail list --spm-config`` and
 ``rocprofv3-avail list --spm`` to inspect them.
 
-RCV currently loads one sampled GPU, dispatch, and stream per SPM JSON file.
-Multiple callback batches for that capture are combined.
-
-Navi4 and MI450
----------------
-
-On Navi4 and MI450, ``SQ_CYCLES`` can be omitted. For example:
-
-.. code-block:: bash
-
-  rocprofv3 --spm-beta-enabled 1 \
-    --spm SQ_WAVES SQ_INSTS_VALU SQ_INSTS_SALU TA_TA_BUSY \
-    --spm-sample-interval-unit refclk_cycles \
-    --spm-sample-interval 1024 \
-    --output-format json -- ./application
-
 Attach SPM to SQTT
 ==================
 
@@ -51,11 +41,12 @@ Attach SPM to SQTT
 2. Go to **Import > SPM JSON...**.
 3. Select the rocprofv3 results JSON containing the SPM collection.
 
-For clock alignment, the SQTT input must contain realtime records
-(``realtime.json`` or decoder ``REALTIME`` records).
+The SQTT input must contain realtime records (``realtime.json`` or decoder
+``REALTIME`` records). RCV aligns every XCC independently using the first SQTT
+realtime anchor and ``SQ_CYCLES``.
 
-If the realtime ranges do not overlap, RCV displays a warning. If alignment is
-unavailable, SPM still loads alongside the trace using an independent time scale.
+If the realtime ranges do not overlap, RCV displays a warning but still
+performs the alignment.
 
 Open standalone SPM
 ===================
@@ -77,8 +68,7 @@ Plot behavior
 - XCC clocks remain independent. Combined curves update whenever any XCC
   advances and keep the last value from the other XCCs.
 - Missing hardware windows accumulated into a later sample are divided evenly
-  across reconstructed windows. This reconstruction is disabled for Navi4 and
-  refclk-cycle sampling.
+  across reconstructed windows.
 
 Derived counters
 ================
@@ -98,35 +88,6 @@ For example:
 
 SE and CU/instance dimensions are automatically summed when a result is
 plotted.
-
-When clock alignment is unavailable, ``SCLOCK`` contains relative SPM
-timestamps instead of shader-clock cycles.
-
-Navi4 selections
-----------------
-
-Both shader arrays in each SE contribute to raw counter totals. For counters
-with an SA dimension, use ``axis=SA`` with index ``2 * SE + SA``: SE=0/SA=1 is index 1,
-and SE=1/SA=0 is index 2. Counters with only an SE dimension keep their original
-SE indices. Existing ``axis=SE`` expressions continue to work for gfx9/MI300.
-
-``CU``, ``WGP``, and ``INSTANCE`` name the same selection axis. SQ and SQC have
-one entry per WGP. TA has two instances per WGP, indexed as
-``2 * WGP + INSTANCE``. Both TA units remain separately selectable. Counters
-without a WGP dimension keep their original INSTANCE indices.
-
-For example, select SQ waves from SE=0/SA=1/WGP=1, both TA units from
-SE=0/SA=0/WGP=1, or just the first of those TA units:
-
-.. code-block:: text
-
-  WAVES_SE0_SA1_WGP1 := select[select[SQ_WAVES, 1, axis=SA], 1, axis=WGP]
-  TA_SE0_SA0_WGP1 := select[select[TA_TA_BUSY, 0, axis=SA], 2:4, axis=INSTANCE]
-  TA_SE0_SA0_WGP1_UNIT0 := select[select[TA_TA_BUSY, 0, axis=SA], 2, axis=INSTANCE]
-
-The range ``2:4`` selects indices 2 and 3, whose values are summed for plotting.
-Navi4 has no XCC dimension and uses XCC=0. XCC selection and independent XCC
-clocks remain supported on devices that provide that dimension.
 
 .. note::
 
