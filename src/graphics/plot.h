@@ -89,7 +89,7 @@ public:
 
     void SetBarPos(double x)
     {
-        barpos = x;
+        barpos = supportsTraceAlignment() ? x : -1;
         update();
     };
 
@@ -126,6 +126,7 @@ private slots:
     void mouseReleaseEvent(QMouseEvent*) override;
 
 protected:
+    virtual bool supportsTraceAlignment() const { return true; }
     void paintEvent(QPaintEvent*) override;
     virtual void UpdateGraphTable(float timepos) = 0;
     bool applyAlignedRange();

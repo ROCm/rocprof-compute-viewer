@@ -269,6 +269,11 @@ const QColor& DecoderEventMiscColor()
     static QColor light(0, 0, 0, 127);
     return bDarkTheme ? dark : light;
 }
+const QColor& DecoderEventSpmSampleColor()
+{
+    static QColor color(0, 0, 0, 144);
+    return color;
+}
 
 const QColor& DecoderEventColor(int type)
 {
@@ -282,9 +287,9 @@ const QColor& DecoderEventColor(int type)
         case ROCPROF_TRACE_DECODER_EVENT_TT_STALL_END: return DecoderEventStallColor();
         case ROCPROF_TRACE_DECODER_EVENT_CODE_OBJECT_LOAD:
         case ROCPROF_TRACE_DECODER_EVENT_CODE_OBJECT_UNLOAD: return DecoderEventCodeObjectColor();
+        case ROCPROF_TRACE_DECODER_EVENT_SPM_SAMPLE: return DecoderEventSpmSampleColor();
         case ROCPROF_TRACE_DECODER_EVENT_TT_FLUSH:
         case ROCPROF_TRACE_DECODER_EVENT_GC_RINSE:
-        case ROCPROF_TRACE_DECODER_EVENT_SPM_SAMPLE:
         case ROCPROF_TRACE_DECODER_EVENT_BOTTOM_OF_PIPE_TS:
         case ROCPROF_TRACE_DECODER_EVENT_DISPATCH_END: return DecoderEventMiscColor();
         default: return DecoderEventDefaultColor();

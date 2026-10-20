@@ -43,9 +43,11 @@ inline constexpr uint32_t DecoderEventGroupCodeObject = 1u << 2;
 inline constexpr uint32_t DecoderEventGroupSQTT = 1u << 3;
 inline constexpr uint32_t DecoderEventGroupGCRinse = 1u << 4;
 inline constexpr uint32_t DecoderEventGroupOther = 1u << 5;
+inline constexpr uint32_t DecoderEventGroupSPM = 1u << 6;
 inline constexpr uint32_t DecoderEventAllGroups = DecoderEventGroupDispatch | DecoderEventGroupFlush |
                                                   DecoderEventGroupCodeObject | DecoderEventGroupSQTT |
-                                                  DecoderEventGroupGCRinse | DecoderEventGroupOther;
+                                                  DecoderEventGroupGCRinse | DecoderEventGroupOther |
+                                                  DecoderEventGroupSPM;
 inline constexpr uint32_t DecoderEventDefaultGlobalGroups = DecoderEventAllGroups & ~DecoderEventGroupGCRinse;
 
 enum class DecoderEventSurface
@@ -67,6 +69,7 @@ inline uint32_t traceEventGroup(int type)
         case ROCPROF_TRACE_DECODER_EVENT_TT_STALL_BEGIN:
         case ROCPROF_TRACE_DECODER_EVENT_TT_STALL_END:
         case ROCPROF_TRACE_DECODER_EVENT_TT_FLUSH: return DecoderEventGroupSQTT;
+        case ROCPROF_TRACE_DECODER_EVENT_SPM_SAMPLE: return DecoderEventGroupSPM;
         default: return DecoderEventGroupOther;
     }
 }
