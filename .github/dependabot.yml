@@ -30,3 +30,4 @@ updates:
     cooldown:
       default-days: 7
     versioning-strategy: increase
+
