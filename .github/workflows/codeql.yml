@@ -44,7 +44,7 @@ jobs:
 
     steps:
     - name: Checkout repository
-      uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       timeout-minutes: 5
       with:
         persist-credentials: false
@@ -57,7 +57,7 @@ jobs:
 
     - if: matrix.build-mode == 'manual'
       name: Install Qt
-      uses: jurplel/install-qt-action@48d3ad6db93f3627c8ee7a0454bc6f3744f7e730 # v4.3.1
+      uses: jurplel/install-qt-action@a9c63c7c123f3069cff414e7e482d95dfa9d8125 # v4.4.1
       timeout-minutes: 15
       with:
         aqtversion: '==3.1.*'
@@ -74,7 +74,7 @@ jobs:
 
     # Initializes the CodeQL tools for scanning.
     - name: Initialize CodeQL
-      uses: github/codeql-action/init@1190a975f95ce23525efb6a3fc21ea29567c1b52 # v3.38.2
+      uses: github/codeql-action/init@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
       timeout-minutes: 15
       with:
         languages: ${{ matrix.language }}
@@ -93,7 +93,7 @@ jobs:
       run: cmake --build ${{github.workspace}}/build --parallel 4
 
     - name: Perform CodeQL Analysis
-      uses: github/codeql-action/analyze@1190a975f95ce23525efb6a3fc21ea29567c1b52 # v3.38.2
+      uses: github/codeql-action/analyze@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
       timeout-minutes: 15
       with:
         category: "/language:${{matrix.language}}"
