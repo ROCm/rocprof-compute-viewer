@@ -22,3 +22,11 @@ updates:
         patterns: ["ROCm/rocm-security-gh*"]
       github-actions:
         patterns: ["*"]
+  - package-ecosystem: "pip" # See documentation for possible values
+    directory: "/docs/sphinx" # Location of package manifests
+    open-pull-requests-limit: 10
+    schedule:
+      interval: "daily"
+    cooldown:
+      default-days: 7
+    versioning-strategy: increase
