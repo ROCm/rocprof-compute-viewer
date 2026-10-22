@@ -54,7 +54,7 @@ struct Coordinate
 struct Dimension
 {
     const char* name;
-    size_t Coordinate::* field;
+    size_t Coordinate::*field;
     unsigned shift;
     size_t mask;
 };
@@ -161,7 +161,9 @@ bool growExtents(const Coordinate& coordinate, ParsedCounter& counter)
 size_t flattenedIndex(
     size_t xcc, size_t array, size_t instance, size_t sample, const SpmCounterData& counter, size_t sample_count
 )
-{ return ((xcc * counter.se_count + array) * counter.instance_count + instance) * sample_count + sample; }
+{
+    return ((xcc * counter.se_count + array) * counter.instance_count + instance) * sample_count + sample;
+}
 
 size_t nearestTimestamp(const uint64_t* timestamps, size_t count, uint64_t target)
 {
@@ -183,9 +185,7 @@ long double signedTimestampDelta(uint64_t lhs, uint64_t rhs)
 void sortUniqueShaderClocks(std::vector<SpmClockAnchor>& anchors)
 {
     std::stable_sort(
-        anchors.begin(),
-        anchors.end(),
-        [](const auto& a, const auto& b) { return a.shader_clock < b.shader_clock; }
+        anchors.begin(), anchors.end(), [](const auto& a, const auto& b) { return a.shader_clock < b.shader_clock; }
     );
     anchors.erase(
         std::unique(
@@ -220,7 +220,8 @@ void keepMonotonicAnchors(std::vector<SpmClockAnchor>& anchors)
             *it = i;
     }
     std::vector<SpmClockAnchor> kept(tails.size());
-    for (size_t i = tails.empty() ? none : tails.back(), k = tails.size(); k > 0; i = previous[i]) kept[--k] = anchors[i];
+    for (size_t i = tails.empty() ? none : tails.back(), k = tails.size(); k > 0; i = previous[i])
+        kept[--k] = anchors[i];
     anchors = std::move(kept);
 }
 
@@ -448,7 +449,12 @@ SpmData loadSpmJson(const std::string& path)
                 const auto& record = records[index];
                 const auto& coordinate = record.coordinate;
                 return std::tie(
-                    record.counter_id, coordinate.se, coordinate.sa, coordinate.wgp, coordinate.instance, record.fold_key
+                    record.counter_id,
+                    coordinate.se,
+                    coordinate.sa,
+                    coordinate.wgp,
+                    coordinate.instance,
+                    record.fold_key
                 );
             };
             auto& indices = group.indices;

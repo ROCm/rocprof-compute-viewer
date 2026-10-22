@@ -1297,7 +1297,9 @@ void CounterContext::setDerivedCounter(const std::string& name, ExprPtr expr)
 }
 
 bool CounterContext::isBuiltinScalar(const std::string& name) const
-{ return name == "NUM_XCC" || name == "NUM_SE" || name == "NUM_SA" || name == "NUM_CU" || name == "NUM_SAMPLES"; }
+{
+    return name == "NUM_XCC" || name == "NUM_SE" || name == "NUM_SA" || name == "NUM_CU" || name == "NUM_SAMPLES";
+}
 
 float CounterContext::getBuiltinScalar(const std::string& name) const
 {
