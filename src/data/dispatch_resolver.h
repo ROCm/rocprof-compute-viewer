@@ -49,6 +49,8 @@ public:
     /// Empty `name` triggers the synthetic "kernel_<kid>" fallback.
     int Register(uint64_t code_object_id, uint64_t address, const std::string& name);
     int RegisterJsonKernel(int kid, const std::string& name);
+    /// Map another PC, e.g. a dispatch entry point, to an existing kid.
+    void Alias(uint64_t code_object_id, uint64_t address, int kid) { pc_to_dispatch_[{code_object_id, address}] = kid; }
 
     /// Resolve a PC to a kid. Allocates a new id (with synthetic "kernel_N"
     /// name) on first sight when no Register call covered this PC.

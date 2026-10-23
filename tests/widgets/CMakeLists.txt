@@ -96,10 +96,11 @@ rcv_enable_asan(wave_utils_test)
 add_test(NAME wave_utils_test COMMAND wave_utils_test)
 set_tests_properties(wave_utils_test PROPERTIES ENVIRONMENT "ASAN_OPTIONS=detect_leaks=0")
 
-# Global View: load event-only JSON and exercise the real timeline widgets.
+# Global View: load event-only JSON and exercise the real timeline and event track widgets.
 add_executable(global_view_test
     global_view_test.cpp
     ${SRC_DIR}/wave/waveglobal.cpp
+    ${SRC_DIR}/wave/event_track.cpp
     ${SRC_DIR}/wave/measure.cpp
     ${SRC_DIR}/wave/othersimd.cpp
     ${SRC_DIR}/data/json_emitter.cpp
