@@ -83,7 +83,8 @@ struct occupancy_record_t
     uint32_t is_ext       : 1;
     uint32_t workgroup_id : 7;
     uint32_t cluster_id   : 5;
-    uint32_t _rsvd        : 11;
+    uint32_t dispatch_id  : 10;
+    uint32_t _rsvd        : 1;
 };
 
 struct wave_state_record_t
@@ -182,6 +183,7 @@ struct dispatch_record_t
     uint32_t thread_dim_z = 0;
     uint64_t dispatch_pkt_addr = 0;
     uint64_t byte_offset = 0;
+    uint64_t dispatch_id = 0;
 };
 #endif
 

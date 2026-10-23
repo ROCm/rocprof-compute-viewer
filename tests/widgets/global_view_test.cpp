@@ -28,7 +28,7 @@ std::shared_ptr<WaveInstance> DataStore::getWave(const WaveEntry&) { return null
 namespace
 {
 trace_event_record_t eventAt(
-    int64_t time, int type = ROCPROF_TRACE_DECODER_EVENT_CS_PARTIAL_FLUSH, int me = 0, int pipe = 0
+    int64_t time, int type = ROCPROF_TRACE_DECODER_EVENT_CS_PARTIAL_FLUSH, int me = 0, int pipe = 0, uint64_t payload = 0
 )
 {
     trace_event_record_t event{};
@@ -36,15 +36,22 @@ trace_event_record_t eventAt(
     event.type = static_cast<decltype(event.type)>(type);
     event.me_id = me;
     event.pipe_id = pipe;
+    event.payload.raw = payload;
     return event;
 }
 
-dispatch_record_t dispatchAt(int64_t time, int me = 0, int pipe = 0)
+trace_event_record_t dispatchEndAt(int64_t time, uint64_t dispatch_id, int me = 0, int pipe = 0)
+{
+    return eventAt(time, ROCPROF_TRACE_DECODER_EVENT_DISPATCH_END, me, pipe, dispatch_id);
+}
+
+dispatch_record_t dispatchAt(int64_t time, int me = 0, int pipe = 0, uint64_t dispatch_id = 0)
 {
     dispatch_record_t dispatch{};
     dispatch.time = time;
     dispatch.me_id = me;
     dispatch.pipe_id = pipe;
+    dispatch.dispatch_id = dispatch_id;
     return dispatch;
 }
 
@@ -194,6 +201,59 @@ TEST_F(GlobalViewTest, LoadsAndRendersEventsWithoutWaves)
     EXPECT_GT(view->minimumSizeHint().width(), 80000);
 }
 
+TEST_F(GlobalViewTest, JsonDispatchIdPairsDispatchEnd)
+{
+    QTemporaryDir dir;
+    ASSERT_TRUE(dir.isValid());
+    auto write = [&](const char* name, const nlohmann::json& data)
+    { std::ofstream(dir.path().toStdString() + "/" + name) << data; };
+    write("filenames.json", {{"version", "3.1.0"}, {"gfxip", 12}, {"wave_filenames", nullptr}});
+    write("code.json", {{"version", "3.1.0"}, {"code", nullptr}});
+
+    // time, cu, simd, wave_id, start, kernel_id, me_id, pipe_id, is_ext, workgroup_id, cluster_id, dispatch_id
+    nlohmann::json rows = nlohmann::json::array();
+    rows.push_back(nlohmann::json::array({110, 0, 1, 0, 1, 0, 1, 2, 0, 0, 0, 5}));
+    rows.push_back(nlohmann::json::array({300, 0, 1, 0, 0, 0, 1, 2, 0, 0, 0, 5}));
+
+    nlohmann::json timeline = nlohmann::json::array();
+    timeline.push_back(
+        {{"kind", "dispatch"}, {"time", 100}, {"me_id", 1}, {"pipe_id", 2}, {"kernel_id", 0}, {"dispatch_id", 5}}
+    );
+    timeline.push_back(
+        {{"kind", "event"},
+         {"time", 300},
+         {"type", ROCPROF_TRACE_DECODER_EVENT_DISPATCH_END},
+         {"me_id", 1},
+         {"pipe_id", 2},
+         {"payload", 5}}
+    );
+
+    nlohmann::json occupancy_json;
+    occupancy_json["version"] = "3.1.0";
+    occupancy_json["0"] = rows;
+    occupancy_json["events"]["0"] = timeline;
+    write("occupancy.json", occupancy_json);
+
+    DataStore store;
+    RecordDispatcher dispatcher;
+    OccupancyHandler occupancy(store);
+    dispatcher.addHandler(&occupancy);
+    JsonRecordEmitter emitter(dir.path().toStdString(), dispatcher, store);
+    emitter.run();
+
+    ASSERT_EQ(store.dispatch_records_by_se.at(0).size(), 1u);
+    EXPECT_EQ(store.dispatch_records_by_se.at(0)[0].dispatch_id, 5u);
+    ASSERT_EQ(store.occupancy_by_se.at(0).size(), 2u);
+    EXPECT_EQ(store.occupancy_by_se.at(0)[0].dispatch_id, 5u);
+
+    QGlobalView view(store);
+    auto model = view.EventModel();
+    ASSERT_TRUE(model);
+    const EventSpan* range = findSpan(model->tracks[0], EventSpan::Kind::Dispatch, 100);
+    ASSERT_NE(range, nullptr);
+    EXPECT_EQ(range->end, 300);
+}
+
 TEST_F(GlobalViewTest, EventOnlyShaderEnginesGetEventSubTracks)
 {
     DataStore store;
@@ -260,52 +320,58 @@ TEST_F(GlobalViewTest, RejectsEmptyEventCollections)
     EXPECT_EQ(QGlobalView::MaxTime(), 0);
 }
 
-TEST_F(GlobalViewTest, DispatchRangeEndsWithLastLaunchedWave)
+TEST_F(GlobalViewTest, DispatchRangeEndsAtMatchingDispatchEnd)
 {
     DataStore store;
-    store.dispatch_records_by_se[0] = {dispatchAt(1000, 1, 0), dispatchAt(100, 1, 0)};
-    store.trace_events_by_se[0] = {
-        eventAt(150, ROCPROF_TRACE_DECODER_EVENT_DISPATCH_END, 1, 0),
-        eventAt(160, ROCPROF_TRACE_DECODER_EVENT_DISPATCH_END, 0, 0), // Other queue, no dispatch
+    store.dispatch_records_by_se[0] = {
+        dispatchAt(1000, 1, 0, 2),
+        dispatchAt(100, 1, 0, 1),
+        dispatchAt(2000, 1, 1, 1), // Same ID on another pipe
+        dispatchAt(3000, 0, 0, 0), // No dispatch ID: stays a point
     };
-    addWave(store, 0, 0, 120, 400, 1, 0); // Launched in the window
-    addWave(store, 0, 1, 130, 500, 3, 0); // ME 3 shares the queue with ME 1
-    addWave(store, 0, 2, 200, 900, 1, 0); // Launched after the dispatch end
-    addWave(store, 0, 3, 140, 950, 1, 1); // Other pipe
+    store.trace_events_by_se[0] = {
+        dispatchEndAt(500, 1, 1, 0),
+        dispatchEndAt(1500, 2, 3, 0), // ME 3 shares the queue with ME 1
+        dispatchEndAt(2500, 1, 1, 1),
+        dispatchEndAt(160, 7, 0, 0),  // No such dispatch
+        dispatchEndAt(3100, 0, 0, 0), // ID 0 never pairs
+    };
+    addWave(store, 0, 0, 120, 900, 1, 0); // Waves don't extend the range: the dispatch end already covers them
     // A dispatch end on another SE never pairs with SE 0's dispatch.
-    store.trace_events_by_se[1] = {eventAt(120, ROCPROF_TRACE_DECODER_EVENT_DISPATCH_END, 1, 0)};
+    store.trace_events_by_se[1] = {dispatchEndAt(120, 1, 1, 0)};
 
     QGlobalView view(store);
     auto model = view.EventModel();
     ASSERT_TRUE(model);
     ASSERT_EQ(model->tracks.size(), 2u);
-
     const auto& se0 = model->tracks[0];
-    const EventSpan* range = findSpan(se0, EventSpan::Kind::Dispatch, 100);
-    ASSERT_NE(range, nullptr);
-    EXPECT_TRUE(range->IsRange());
-    EXPECT_EQ(range->launch_end, 150);
-    EXPECT_EQ(range->end, 500);
-    EXPECT_GE(range->kid, 0);
-    EXPECT_EQ((*se0.dispatches)[range->index].time, 100);
 
-    const EventSpan* point = findSpan(se0, EventSpan::Kind::Dispatch, 1000);
+    const EventSpan* first = findSpan(se0, EventSpan::Kind::Dispatch, 100);
+    ASSERT_NE(first, nullptr);
+    EXPECT_EQ(first->end, 500);
+    EXPECT_GE(first->kid, 0);
+    EXPECT_EQ(se0.dispatches[first->index].time, 100);
+
+    const EventSpan* second = findSpan(se0, EventSpan::Kind::Dispatch, 1000);
+    ASSERT_NE(second, nullptr);
+    EXPECT_EQ(second->end, 1500);
+    EXPECT_EQ(second->kid, first->kid); // Same entry point, same kernel
+
+    const EventSpan* other_pipe = findSpan(se0, EventSpan::Kind::Dispatch, 2000);
+    ASSERT_NE(other_pipe, nullptr);
+    EXPECT_EQ(other_pipe->end, 2500);
+
+    const EventSpan* point = findSpan(se0, EventSpan::Kind::Dispatch, 3000);
     ASSERT_NE(point, nullptr);
     EXPECT_FALSE(point->IsRange());
-    EXPECT_EQ(point->launch_end, -1);
 
-    // The consumed dispatch end is folded into the range; the unpaired one stays.
-    EXPECT_EQ(findSpan(se0, EventSpan::Kind::TraceEvent, 150), nullptr);
+    // Paired dispatch ends are folded into their ranges; unpaired ones stay as events.
+    EXPECT_EQ(findSpan(se0, EventSpan::Kind::TraceEvent, 500), nullptr);
+    EXPECT_EQ(findSpan(se0, EventSpan::Kind::TraceEvent, 1500), nullptr);
+    EXPECT_EQ(findSpan(se0, EventSpan::Kind::TraceEvent, 2500), nullptr);
     EXPECT_NE(findSpan(se0, EventSpan::Kind::TraceEvent, 160), nullptr);
+    EXPECT_NE(findSpan(se0, EventSpan::Kind::TraceEvent, 3100), nullptr);
     EXPECT_NE(findSpan(model->tracks[1], EventSpan::Kind::TraceEvent, 120), nullptr);
-
-    // Without waves the range ends at the dispatch end.
-    EventTrackModel bare;
-    bare.AddShaderEngine(
-        0, {dispatchAt(100, 1, 0)}, {eventAt(150, ROCPROF_TRACE_DECODER_EVENT_DISPATCH_END, 1, 0)}, {}
-    );
-    ASSERT_EQ(bare.tracks[0].spans.size(), 1u);
-    EXPECT_EQ(bare.tracks[0].spans[0].end, 150);
 }
 
 TEST_F(GlobalViewTest, OverlappingEventsPackIntoLanes)
@@ -313,8 +379,8 @@ TEST_F(GlobalViewTest, OverlappingEventsPackIntoLanes)
     EventTrackModel model;
     model.AddShaderEngine(
         0,
-        {dispatchAt(100)},
-        {eventAt(200), eventAt(300, ROCPROF_TRACE_DECODER_EVENT_DISPATCH_END), eventAt(400), eventAt(400)},
+        {dispatchAt(100, 0, 0, 1)},
+        {eventAt(200), dispatchEndAt(300, 1), eventAt(400), eventAt(400)},
         {}
     );
     model.Layout(WaveOverlay::DecoderEventAllGroups);
@@ -434,7 +500,7 @@ TEST_F(GlobalViewTest, HoverPicksTheTopmostDrawnEvent)
     // Dispatch range [100, 300] in lane 0, flush at 200 in lane 1.
     auto model = std::make_shared<EventTrackModel>();
     model->AddShaderEngine(
-        0, {dispatchAt(100)}, {eventAt(200), eventAt(300, ROCPROF_TRACE_DECODER_EVENT_DISPATCH_END)}, {}
+        0, {dispatchAt(100, 0, 0, 1)}, {eventAt(200), dispatchEndAt(300, 1)}, {}
     );
     QEventTrack track(model);
     track.resize(600, 100);

@@ -53,8 +53,6 @@ struct WaveTraceData
     int vgprs = 0;
 };
 
-using TraceEventRecordVec = std::shared_ptr<const std::vector<trace_event_record_t>>;
-using DispatchRecordVec = std::shared_ptr<const std::vector<dispatch_record_t>>;
 
 //! A Block of tokens with pre-defined size.
 class QOutsideWaveView : public QWidget

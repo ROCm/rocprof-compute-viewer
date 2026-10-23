@@ -24,10 +24,11 @@
 
 #include <QWidget>
 #include <cstdint>
-#include <map>
+#include <functional>
 #include <memory>
 #include <vector>
-#include "waveglobal.h"
+#include "data/records.h"
+#include "util/memtracker.h"
 
 class QScrollArea;
 
@@ -43,10 +44,9 @@ struct EventSpan
     int64_t begin = 0;
     int64_t end = 0;
     Kind kind = Kind::TraceEvent;
-    int index = -1;           ///< Into the owning sub-track's dispatch or trace-event vector
-    int64_t launch_end = -1;  ///< Dispatch only: time of the paired dispatch-end event
-    int kid = -1;             ///< Dispatch only: kernel id of its waves (color and name)
-    int lane = 0;             ///< Assigned by EventTrackModel::Layout()
+    int index = -1; ///< Into the owning sub-track's dispatch or trace-event vector
+    int kid = -1;   ///< Dispatch only: kernel id (color and name)
+    int lane = 0;   ///< Assigned by EventTrackModel::Layout()
 
     bool IsRange() const { return end > begin; }
 };
@@ -55,8 +55,8 @@ struct EventSpan
 struct EventSubTrack
 {
     int se = 0;
-    DispatchRecordVec dispatches;
-    TraceEventRecordVec events;
+    std::vector<dispatch_record_t> dispatches;
+    std::vector<trace_event_record_t> events;
     std::vector<EventSpan> spans; ///< All spans, sorted by begin
     std::vector<int> visible;     ///< Indices into spans passing the group filter, sorted by begin
     int lanes = 0;                ///< Lane count of the visible spans; zero when everything is filtered out
@@ -67,15 +67,14 @@ struct EventSubTrack
 class EventTrackModel
 {
 public:
-    /// Add one Shader Engine. Dispatches become ranges when a dispatch-end event
-    /// follows them on the same {ME & 1, pipe}: the range ends when the last wave
-    /// launched between the dispatch and its dispatch-end finishes.
-    /// Expects `traces` with wave end times filled in.
+    /// Add one Shader Engine. A dispatch becomes a range when a dispatch-end event
+    /// on the same {ME & 1, pipe} carries its dispatch_id: the decoder emits it once
+    /// all waves of the dispatch ended. `kernel_id_for` picks the color and name of a dispatch.
     void AddShaderEngine(
         int se,
         std::vector<dispatch_record_t> dispatches,
         std::vector<trace_event_record_t> events,
-        const std::map<int, std::vector<WaveTraceData>>& traces
+        const std::function<int(const dispatch_record_t&)>& kernel_id_for = {}
     );
 
     /// Filter by decoder event groups and pack the remaining spans into lanes.

@@ -29,31 +29,27 @@
 #include <QToolTip>
 #include <algorithm>
 #include <climits>
+#include <map>
 #include <queue>
 #include <sstream>
 #include "config/config.hpp"
 #include "mainwindow.h"
 #include "wave/overlay_utils.h"
+#include "waveglobal.h"
 
 namespace
 {
 using DispatchKey = std::pair<int, int>;
 
-/// Dispatches, dispatch-ends and waves are matched on {ME & 1, pipe}.
+/// Dispatches and dispatch-ends are matched on {ME & 1, pipe}.
 DispatchKey dispatchKey(int me, int pipe) { return {me & 1, pipe}; }
 
 bool spanVisible(const EventSubTrack& track, const EventSpan& span, uint32_t groups)
 {
     if (span.kind == EventSpan::Kind::Dispatch) return groups & WaveOverlay::DecoderEventGroupDispatch;
     return WaveOverlay::showTraceEvent(
-        (*track.events)[span.index], WaveOverlay::DecoderEventSurface::Global, groups
+        track.events[span.index], WaveOverlay::DecoderEventSurface::Global, groups
     );
-}
-
-QColor opaque(QColor color)
-{
-    color.setAlpha(255);
-    return color;
 }
 } // namespace
 
@@ -61,22 +57,26 @@ void EventTrackModel::AddShaderEngine(
     int se,
     std::vector<dispatch_record_t> dispatches,
     std::vector<trace_event_record_t> events,
-    const std::map<int, std::vector<WaveTraceData>>& traces
+    const std::function<int(const dispatch_record_t&)>& kernel_id_for
 )
 {
     if (dispatches.empty() && events.empty()) return;
-
-    auto by_time = [](const auto& a, const auto& b) { return a.time < b.time; };
-    std::stable_sort(dispatches.begin(), dispatches.end(), by_time);
-    std::stable_sort(events.begin(), events.end(), by_time);
 
     EventSubTrack track;
     track.se = se;
     track.spans.reserve(dispatches.size() + events.size());
 
-    // Dispatch spans occupy [0, dispatches.size()) until the final sort, so the
-    // per-key lists below can index them directly.
-    std::map<DispatchKey, std::vector<int>> dispatches_by_key;
+    // The decoder emits the dispatch-end once every wave of the dispatch ended,
+    // with the dispatch's ID as payload; IDs are unique per {ME & 1, pipe}.
+    std::map<std::pair<DispatchKey, uint64_t>, int> ends_by_id;
+    for (size_t i = 0; i < events.size(); ++i)
+        if (events[i].type == ROCPROF_TRACE_DECODER_EVENT_DISPATCH_END && events[i].payload.raw != 0)
+            ends_by_id.emplace(
+                std::make_pair(dispatchKey(events[i].me_id, events[i].pipe_id), events[i].payload.raw),
+                static_cast<int>(i)
+            );
+
+    std::vector<bool> consumed(events.size(), false);
     for (size_t i = 0; i < dispatches.size(); ++i)
     {
         const auto& dispatch = dispatches[i];
@@ -84,58 +84,18 @@ void EventTrackModel::AddShaderEngine(
         span.kind = EventSpan::Kind::Dispatch;
         span.begin = span.end = dispatch.time;
         span.index = static_cast<int>(i);
+        if (kernel_id_for) span.kid = kernel_id_for(dispatch);
+
+        auto end_it = dispatch.dispatch_id != 0
+                          ? ends_by_id.find({dispatchKey(dispatch.me_id, dispatch.pipe_id), dispatch.dispatch_id})
+                          : ends_by_id.end();
+        if (end_it != ends_by_id.end())
+        {
+            span.end = events[end_it->second].time;
+            consumed[end_it->second] = true;
+        }
         track.spans.push_back(span);
-        dispatches_by_key[dispatchKey(dispatch.me_id, dispatch.pipe_id)].push_back(static_cast<int>(i));
     }
-
-    std::map<DispatchKey, std::vector<int>> ends_by_key;
-    for (size_t i = 0; i < events.size(); ++i)
-        if (events[i].type == ROCPROF_TRACE_DECODER_EVENT_DISPATCH_END)
-            ends_by_key[dispatchKey(events[i].me_id, events[i].pipe_id)].push_back(static_cast<int>(i));
-
-    // Pair each dispatch with the first dispatch-end that follows it before the
-    // next dispatch on the same queue.
-    std::vector<bool> consumed(events.size(), false);
-    for (const auto& [key, list] : dispatches_by_key)
-    {
-        auto ends_it = ends_by_key.find(key);
-        if (ends_it == ends_by_key.end()) continue;
-        const auto& ends = ends_it->second;
-        size_t j = 0;
-        for (size_t i = 0; i < list.size(); ++i)
-        {
-            EventSpan& span = track.spans[list[i]];
-            const int64_t next = i + 1 < list.size() ? track.spans[list[i + 1]].begin : INT64_MAX;
-            while (j < ends.size() && events[ends[j]].time < span.begin) ++j;
-            if (j == ends.size()) break;
-            if (events[ends[j]].time >= next) continue;
-            span.launch_end = span.end = events[ends[j]].time;
-            consumed[ends[j]] = true;
-            ++j;
-        }
-    }
-
-    // A wave belongs to the latest dispatch on its queue that precedes it, as
-    // long as it started before that dispatch's waves finished launching.
-    for (const auto& [_id, waves] : traces)
-        for (const auto& wave : waves)
-        {
-            if (wave.me < 0 || wave.pipe < 0) continue;
-            auto key_it = dispatches_by_key.find(dispatchKey(wave.me, wave.pipe));
-            if (key_it == dispatches_by_key.end()) continue;
-            const auto& list = key_it->second;
-            auto it = std::upper_bound(
-                list.begin(),
-                list.end(),
-                wave.begin,
-                [&](int64_t time, int idx) { return time < track.spans[idx].begin; }
-            );
-            if (it == list.begin()) continue;
-            EventSpan& span = track.spans[*std::prev(it)];
-            if (span.launch_end < 0 || wave.begin > span.launch_end) continue;
-            span.end = std::max(span.end, wave.end);
-            if (span.kid < 0) span.kid = wave.kid;
-        }
 
     for (size_t i = 0; i < events.size(); ++i)
     {
@@ -151,8 +111,8 @@ void EventTrackModel::AddShaderEngine(
         [](const EventSpan& a, const EventSpan& b) { return a.begin < b.begin; }
     );
 
-    track.dispatches = std::make_shared<const std::vector<dispatch_record_t>>(std::move(dispatches));
-    track.events = std::make_shared<const std::vector<trace_event_record_t>>(std::move(events));
+    track.dispatches = std::move(dispatches);
+    track.events = std::move(events);
     tracks.push_back(std::move(track));
 }
 
@@ -399,15 +359,6 @@ void QEventTrack::paintEvent(QPaintEvent* event)
                 painter.drawRoundedRect(QRectF(rect).adjusted(0.5, 0.5, -0.5, -0.5), 2, 2);
                 painter.setRenderHint(QPainter::Antialiasing, false);
 
-                // Lighter shade over the launch phase, up to where the dispatch finished launching waves.
-                const int xl = std::min(toX(span.launch_end), cx1);
-                if (span.launch_end >= 0 && xl > cx0 + 1 && xl < x1 - 1)
-                {
-                    auto towardWhite = [](int c) { return (c * 3 + 255 * 2) / 5; };
-                    const QColor launch(towardWhite(fill.red()), towardWhite(fill.green()), towardWhite(fill.blue()));
-                    painter.fillRect(QRect(cx0 + 1, lane_y + 2, xl - cx0 - 1, lane_h - 4), launch);
-                }
-
                 const int label_x = std::max(x0, left) + 3;
                 const int label_w = std::min(x1, width()) - 3 - label_x;
                 if (label_w >= min_label_w)
@@ -430,9 +381,10 @@ void QEventTrack::paintEvent(QPaintEvent* event)
 
             if (x0 == last_px[lane]) continue;
             last_px[lane] = x0;
-            const QColor fill = span.kind == EventSpan::Kind::Dispatch
-                                    ? WindowColors::DecoderDispatchEventColor()
-                                    : opaque(WindowColors::DecoderEventColor((*track.events)[span.index].type));
+            QColor fill = span.kind == EventSpan::Kind::Dispatch
+                              ? WindowColors::DecoderDispatchEventColor()
+                              : WindowColors::DecoderEventColor(track.events[span.index].type);
+            fill.setAlpha(255);
             const int cy = lane_y + lane_h / 2;
             const QPointF diamond[] = {
                 QPointF(x0, cy - radius), QPointF(x0 + radius, cy), QPointF(x0, cy + radius), QPointF(x0 - radius, cy)};
@@ -569,17 +521,16 @@ void QEventTrack::mouseMoveEvent(QMouseEvent* event)
     const EventSpan& span = track.spans[s];
     std::string text;
     if (span.kind == EventSpan::Kind::TraceEvent)
-        text = WaveOverlay::formatTraceEventTooltip((*track.events)[span.index], track.se);
+        text = WaveOverlay::formatTraceEventTooltip(track.events[span.index], track.se);
     else
     {
         std::stringstream ss;
-        ss << WaveOverlay::formatDispatchTooltip((*track.dispatches)[span.index], track.se);
+        ss << WaveOverlay::formatDispatchTooltip(track.dispatches[span.index], track.se);
         auto name_it = QGlobalView::kernel_names.find(span.kid);
         if (name_it != QGlobalView::kernel_names.end()) ss << "\nKernel: " << name_it->second.substr(0, 256);
-        if (span.launch_end >= 0)
+        if (span.IsRange())
         {
-            ss << "\nWaves launched until: " << span.launch_end;
-            if (span.end > span.launch_end) ss << "\nLast wave end: " << span.end;
+            ss << "\nEnd: " << span.end;
             ss << "\nDuration: " << (span.end - span.begin) << " cycles";
         }
         text = ss.str();

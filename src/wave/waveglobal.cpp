@@ -576,6 +576,19 @@ QGlobalView::QGlobalView(DataStore& store)
     event_model = std::make_shared<EventTrackModel>();
     const std::vector<dispatch_record_t> no_dispatches;
     const std::vector<trace_event_record_t> no_events;
+    auto kernel_id_for = [&](const dispatch_record_t& dispatch)
+    { return store.dispatch_resolver.Resolve(dispatch.entry_point); };
+    for (int se : shader_engines)
+    {
+        const auto dispatch_it = store.dispatch_records_by_se.find(se);
+        const auto event_it = store.trace_events_by_se.find(se);
+        event_model->AddShaderEngine(
+            se,
+            dispatch_it != store.dispatch_records_by_se.end() ? dispatch_it->second : no_dispatches,
+            event_it != store.trace_events_by_se.end() ? event_it->second : no_events,
+            kernel_id_for
+        );
+    }
 
     const std::vector<occupancy_record_t> no_occupancy;
     for (int se : shader_engines)
@@ -617,16 +630,6 @@ QGlobalView::QGlobalView(DataStore& store)
             accumulateOccupancySample(data, se, traces, begintime, maxtime, &extra);
         }
         materializeTraces(traces, views, layout, tool, maxtime, current_se, current_sa, current_cu, cu_slot_count);
-
-        // Runs after materializeTraces so every wave has its end time.
-        const auto dispatch_it = store.dispatch_records_by_se.find(se);
-        const auto event_it = store.trace_events_by_se.find(se);
-        event_model->AddShaderEngine(
-            se,
-            dispatch_it != store.dispatch_records_by_se.end() ? dispatch_it->second : no_dispatches,
-            event_it != store.trace_events_by_se.end() ? event_it->second : no_events,
-            traces
-        );
     }
 
     // One trailing stretch keeps rows packed at the top, matching the label panel.
