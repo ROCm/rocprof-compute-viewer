@@ -39,8 +39,6 @@ struct SpmCounterData
     size_t arrays_per_se = 1;
     // CU axis: local_instance_count * WGP + INSTANCE; missing dimensions have extent 1.
     size_t instance_count = 1;
-    bool has_sa = false;
-    bool has_wgp = false;
     // Row-major [XCC][arrays_per_se * hardware_SE + local_SA][CU][sample].
     std::vector<float> values;
     // One bit per value. Empty means every value is valid.
@@ -60,6 +58,8 @@ struct SpmData
     // One bit per [XCC][sample]. Empty means every sample is valid.
     SpmValidityMask sample_valid;
     std::vector<SpmCounterData> counters;
+    // Recoverable inconsistencies found while loading.
+    std::vector<std::string> warnings;
 
     bool empty() const { return counters.empty(); }
     size_t xccCount() const { return sample_count ? timestamps.size() / sample_count : 0; }

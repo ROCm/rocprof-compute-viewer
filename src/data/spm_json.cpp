@@ -47,12 +47,14 @@ struct Coordinate
     size_t sa = 0;
     size_t wgp = 0;
     size_t instance = 0;
+    // Nonzero index in a dimension without a tensor axis, such as AID or AGENT.
+    bool folded = false;
 };
 
 struct Dimension
 {
     const char* name;
-    size_t Coordinate::* field;
+    size_t Coordinate::*field;
     unsigned shift;
     size_t mask;
 };
@@ -77,6 +79,8 @@ struct ParsedCounter
 {
     SpmCounterData output;
     Coordinate extents{1, 1, 1, 1, 1};
+    // Without dimension metadata, extents come from the records alone.
+    bool declared_dimensions = false;
     std::unordered_map<uint64_t, Coordinate> instances;
     size_t output_index = std::numeric_limits<size_t>::max();
     bool active = false;
@@ -84,8 +88,11 @@ struct ParsedCounter
 
 struct ParsedRecord
 {
+    uint64_t counter_id = 0;
     ParsedCounter* counter = nullptr;
     Coordinate coordinate;
+    // Distinguishes instances that differ only in folded dimensions.
+    uint64_t fold_key = 0;
     float value = 0;
 };
 
@@ -114,35 +121,49 @@ Coordinate parseCoordinate(const json& coordinates)
         const std::string name = dimension.at("dimension_name");
         const size_t index = dimension.at("index");
         if (const auto* definition = findDimension(name))
+        {
+            // The packed ID limit also bounds the tensor allocation.
+            if (index > definition->mask) throw std::runtime_error("SPM coordinate out of range: " + name);
             result.*(definition->field) = index;
+        }
         else if (index != 0)
-            throw std::runtime_error("Unsupported SPM dimension: " + name);
+            result.folded = true;
     }
     return result;
 }
 
 Coordinate decodeCoordinate(uint64_t instance_id)
 {
-    // AID and AGENT have no corresponding tensor axes.
-    if (((instance_id >> 6) & 0x3f) || ((instance_id >> 18) & 0x3f))
-        throw std::runtime_error("Unsupported AID/AGENT coordinate in SPM instance ID");
     Coordinate result;
     for (const auto& dimension : dimensions)
         result.*(dimension.field) = (instance_id >> dimension.shift) & dimension.mask;
+    // AID and AGENT have no corresponding tensor axes.
+    result.folded = ((instance_id >> 6) & 0x3f) || ((instance_id >> 18) & 0x3f);
     return result;
 }
 
-void validateCoordinate(const Coordinate& coordinate, const ParsedCounter& counter)
+// The SDK derives dimension metadata and SPM instance IDs separately, so
+// records may exceed the declared extents. Returns whether a spatial extent grew.
+bool growExtents(const Coordinate& coordinate, ParsedCounter& counter)
 {
+    bool grown = false;
     for (const auto& dimension : dimensions)
-        if (coordinate.*(dimension.field) >= counter.extents.*(dimension.field))
-            throw std::runtime_error("SPM coordinate out of range for " + counter.output.name + ": " + dimension.name);
+    {
+        auto& extent = counter.extents.*(dimension.field);
+        if (coordinate.*(dimension.field) < extent) continue;
+        extent = coordinate.*(dimension.field) + 1;
+        // XCC is a global axis sized from all records.
+        grown |= dimension.field != &Coordinate::xcc;
+    }
+    return grown;
 }
 
 size_t flattenedIndex(
     size_t xcc, size_t array, size_t instance, size_t sample, const SpmCounterData& counter, size_t sample_count
 )
-{ return ((xcc * counter.se_count + array) * counter.instance_count + instance) * sample_count + sample; }
+{
+    return ((xcc * counter.se_count + array) * counter.instance_count + instance) * sample_count + sample;
+}
 
 size_t nearestTimestamp(const uint64_t* timestamps, size_t count, uint64_t target)
 {
@@ -158,6 +179,50 @@ size_t nearestTimestamp(const uint64_t* timestamps, size_t count, uint64_t targe
 long double signedTimestampDelta(uint64_t lhs, uint64_t rhs)
 {
     return lhs >= rhs ? static_cast<long double>(lhs - rhs) : -static_cast<long double>(rhs - lhs);
+}
+
+// Sorts anchors by shader clock, keeping the first anchor for each clock value.
+void sortUniqueShaderClocks(std::vector<SpmClockAnchor>& anchors)
+{
+    std::stable_sort(
+        anchors.begin(), anchors.end(), [](const auto& a, const auto& b) { return a.shader_clock < b.shader_clock; }
+    );
+    anchors.erase(
+        std::unique(
+            anchors.begin(),
+            anchors.end(),
+            [](const auto& a, const auto& b) { return a.shader_clock == b.shader_clock; }
+        ),
+        anchors.end()
+    );
+}
+
+// Keeps the longest subsequence of anchors, sorted by unique shader clock, whose
+// realtime clock also increases. A single inconsistent REALTIME record is dropped
+// instead of reordering every sample match that depends on it.
+void keepMonotonicAnchors(std::vector<SpmClockAnchor>& anchors)
+{
+    constexpr size_t none = std::numeric_limits<size_t>::max();
+    std::vector<size_t> tails;
+    std::vector<size_t> previous(anchors.size(), none);
+    for (size_t i = 0; i < anchors.size(); ++i)
+    {
+        auto it = std::lower_bound(
+            tails.begin(),
+            tails.end(),
+            anchors[i].realtime_clock,
+            [&](size_t tail, uint64_t clock) { return anchors[tail].realtime_clock < clock; }
+        );
+        if (it != tails.begin()) previous[i] = *std::prev(it);
+        if (it == tails.end())
+            tails.push_back(i);
+        else
+            *it = i;
+    }
+    std::vector<SpmClockAnchor> kept(tails.size());
+    for (size_t i = tails.empty() ? none : tails.back(), k = tails.size(); k > 0; i = previous[i])
+        kept[--k] = anchors[i];
+    anchors = std::move(kept);
 }
 
 double counterValue(const SpmCounterData& counter, size_t xcc, size_t se, size_t sample, size_t sample_count)
@@ -255,7 +320,15 @@ SpmData loadSpmJson(const std::string& path)
     input >> root;
     const auto& tools = root.at("rocprofiler-sdk-tool");
     if (!tools.is_array() || tools.empty()) throw std::runtime_error("SPM JSON has no rocprofiler-sdk-tool data");
-    if (tools.size() != 1) throw std::runtime_error("SPM JSON contains more than one tool capture");
+
+    std::vector<std::string> warnings;
+    auto warn = [&](std::string message)
+    {
+        if (std::find(warnings.begin(), warnings.end(), message) == warnings.end())
+            warnings.push_back(std::move(message));
+    };
+    if (tools.size() > 1)
+        warn("SPM JSON contains " + std::to_string(tools.size()) + " tool captures; only the first was loaded.");
 
     const auto& tool = tools.front();
     const auto& collections = tool.at("callback_records").at("spm_counter_collection");
@@ -285,34 +358,30 @@ SpmData loadSpmJson(const std::string& path)
 
         ParsedCounter info;
         info.output.name = counter.at("name");
+        info.declared_dimensions = counter.contains("dimensions");
         for (const auto& dimension : counter.value("dimensions", json::array()))
         {
             const std::string name = dimension.at("name");
             const size_t size = dimension.at("instance_size");
             if (const auto* definition = findDimension(name))
             {
-                if (size == 0 || size > definition->mask + 1)
-                    throw std::runtime_error("Invalid SPM dimension size: " + name);
-                info.extents.*(definition->field) = size;
+                if (size > definition->mask + 1) throw std::runtime_error("Invalid SPM dimension size: " + name);
+                // An empty extent is left to the records.
+                if (size > 0) info.extents.*(definition->field) = size;
+                if (definition->field == &Coordinate::wgp) reconstruct_windows = false;
             }
-            else if (size != 1)
-                throw std::runtime_error("Unsupported SPM dimension: " + name);
-            if (name == "DIMENSION_SHADER_ARRAY") info.output.has_sa = true;
-            if (name == "DIMENSION_WGP") info.output.has_wgp = true;
+            else if (size > 1)
+                warn("SPM counter " + info.output.name + " has unsupported dimension " + name + "; it was summed.");
         }
-        info.output.xcc_count = info.extents.xcc;
-        info.output.arrays_per_se = info.extents.sa;
-        info.output.se_count = info.extents.se * info.extents.sa;
-        info.output.instance_count = info.extents.wgp * info.extents.instance;
-        if (info.output.has_wgp) reconstruct_windows = false;
         for (const auto& instance : counter.value("instances", json::array()))
         {
             const Coordinate coordinate = parseCoordinate(instance.at("dimensions"));
-            validateCoordinate(coordinate, info);
+            if (growExtents(coordinate, info) && info.declared_dimensions)
+                warn("SPM counter " + info.output.name + " has instances outside its declared dimensions.");
             info.instances.emplace(instance.at("instance_id").get<uint64_t>(), coordinate);
         }
 
-        metadata_xcc_count = std::max(metadata_xcc_count, info.output.xcc_count);
+        metadata_xcc_count = std::max(metadata_xcc_count, info.extents.xcc);
         metadata.emplace(counter.at("id").at("handle").get<uint64_t>(), std::move(info));
     }
 
@@ -323,8 +392,6 @@ SpmData loadSpmJson(const std::string& path)
     size_t total_records = 0;
     for (const auto& collection : collections) total_records += collection.at("records").size();
     records.reserve(total_records);
-    using RecordKey = std::tuple<uint64_t, uint64_t, size_t, size_t, size_t, size_t, size_t>;
-    std::set<RecordKey> seen;
 
     for (const auto& collection : collections)
     {
@@ -333,11 +400,10 @@ SpmData loadSpmJson(const std::string& path)
         const uint64_t collection_agent = info.at("agent_id").at("handle");
         if (collection_agent != agent)
             throw std::runtime_error("SPM JSON contains samples from more than one GPU agent");
+        // TODO(SPM): Partition or select SPM data by dispatch and stream.
         if (info.value("dispatch_id", uint64_t{0}) != dispatch ||
             collection.value("stream_id", json::object()).value("handle", uint64_t{0}) != stream)
-            throw std::runtime_error(
-                "SPM JSON contains multiple dispatches or streams; load a single dispatch/stream capture"
-            );
+            warn("SPM JSON contains multiple dispatches or streams; their samples were merged.");
 
         for (const auto& record : collection.at("records"))
         {
@@ -350,13 +416,11 @@ SpmData loadSpmJson(const std::string& path)
             auto instance_it = counter.instances.find(instance_id);
             Coordinate coordinate =
                 instance_it == counter.instances.end() ? decodeCoordinate(instance_id) : instance_it->second;
-            validateCoordinate(coordinate, counter);
+            if (growExtents(coordinate, counter) && counter.declared_dimensions)
+                warn("SPM counter " + counter.output.name + " has records outside its declared dimensions.");
+            if (coordinate.folded)
+                warn("SPM counter " + counter.output.name + " was summed over dimensions without a viewer axis.");
             const uint64_t timestamp = record.at("timestamp").get<uint64_t>();
-            const RecordKey key{
-                counter_id, timestamp, coordinate.xcc, coordinate.se, coordinate.sa, coordinate.wgp, coordinate.instance
-            };
-            if (!seen.insert(key).second)
-                throw std::runtime_error("Duplicate SPM counter record at timestamp " + std::to_string(timestamp));
             const double raw_value = record.at("value").get<double>();
             // The decoder's invalid uint64_t(-1) sentinel rounds to 2^64 as a double.
             const float value =
@@ -368,17 +432,48 @@ SpmData loadSpmJson(const std::string& path)
             xcc_count = std::max(xcc_count, coordinate.xcc + 1);
             counter.active = true;
 
-            auto& group = groups[coordinate.xcc][timestamp];
-            group.indices.push_back(records.size());
-            records.push_back({&counter, coordinate, value});
-            if (counter.output.name == "SQ_CYCLES" && value > 0 && std::isfinite(value))
-            {
-                group.cycles += value;
-                ++group.cycle_count;
-            }
+            groups[coordinate.xcc][timestamp].indices.push_back(records.size());
+            records.push_back({counter_id, &counter, coordinate, coordinate.folded ? instance_id : 0, value});
         }
     }
     if (records.empty()) throw std::runtime_error("SPM JSON has no counter values");
+
+    // Duplicates share a group, since the group key holds the XCC and timestamp.
+    // Keep the first record, as overlapping dispatches or batches repeat samples.
+    size_t duplicates = 0;
+    for (auto& [xcc, xcc_groups] : groups)
+        for (auto& [timestamp, group] : xcc_groups)
+        {
+            auto key = [&](size_t index)
+            {
+                const auto& record = records[index];
+                const auto& coordinate = record.coordinate;
+                return std::tie(
+                    record.counter_id,
+                    coordinate.se,
+                    coordinate.sa,
+                    coordinate.wgp,
+                    coordinate.instance,
+                    record.fold_key
+                );
+            };
+            auto& indices = group.indices;
+            std::stable_sort(indices.begin(), indices.end(), [&](size_t a, size_t b) { return key(a) < key(b); });
+            const auto end =
+                std::unique(indices.begin(), indices.end(), [&](size_t a, size_t b) { return key(a) == key(b); });
+            duplicates += std::distance(end, indices.end());
+            indices.erase(end, indices.end());
+
+            for (size_t index : indices)
+            {
+                const auto& record = records[index];
+                if (record.counter->output.name != "SQ_CYCLES" || !(record.value > 0) || !std::isfinite(record.value))
+                    continue;
+                group.cycles += record.value;
+                ++group.cycle_count;
+            }
+        }
+    if (duplicates) warn("Ignored " + std::to_string(duplicates) + " duplicate SPM counter records.");
 
     const Timelines timelines = buildTimelines(groups, xcc_count, reconstruct_windows);
     SpmData result;
@@ -415,6 +510,9 @@ SpmData loadSpmJson(const std::string& path)
 
         auto& counter = info.output;
         counter.xcc_count = xcc_count;
+        counter.arrays_per_se = info.extents.sa;
+        counter.se_count = info.extents.se * info.extents.sa;
+        counter.instance_count = info.extents.wgp * info.extents.instance;
         counter.values.resize(counter.xcc_count * counter.se_count * counter.instance_count * result.sample_count, 0);
         counter.valid.resize(Validity::words(counter.values.size()), 0);
         info.output_index = result.counters.size();
@@ -439,13 +537,15 @@ SpmData loadSpmJson(const std::string& path)
                     counter,
                     result.sample_count
                 );
-                counter.values.at(value_index) = record.value / timeline_sample.windows;
+                // Only records differing in folded dimensions share a cell.
+                counter.values.at(value_index) += record.value / timeline_sample.windows;
                 Validity::set(counter.valid, value_index);
             }
             ++sample_index;
         }
     }
 
+    result.warnings = std::move(warnings);
     return result;
 }
 
@@ -577,19 +677,8 @@ bool alignSpmClockFromEvents(
     // Use one SE's shader clock throughout, as in the SQ_CYCLES alignment path.
     for (auto& [se, realtime] : realtime_by_se)
     {
-        std::sort(
-            realtime.begin(),
-            realtime.end(),
-            [](const auto& a, const auto& b) { return a.shader_clock < b.shader_clock; }
-        );
-        realtime.erase(
-            std::unique(
-                realtime.begin(),
-                realtime.end(),
-                [](const auto& a, const auto& b) { return a.shader_clock == b.shader_clock; }
-            ),
-            realtime.end()
-        );
+        sortUniqueShaderClocks(realtime);
+        keepMonotonicAnchors(realtime);
         if (realtime.size() < 2) continue;
 
         std::vector<SpmClockAnchor> sample_anchors;
@@ -606,7 +695,6 @@ bool alignSpmClockFromEvents(
             const size_t right = std::clamp<size_t>(upper - realtime.begin(), 1, realtime.size() - 1);
             const auto& a = realtime[right - 1];
             const auto& b = realtime[right];
-            if (b.realtime_clock <= a.realtime_clock) continue;
             const long double fraction = (static_cast<long double>(event.shader_clock) - a.shader_clock) /
                                          (static_cast<long double>(b.shader_clock) - a.shader_clock);
             const long double offset = std::round(fraction * (b.realtime_clock - a.realtime_clock));
@@ -617,19 +705,7 @@ bool alignSpmClockFromEvents(
                                                  : a.realtime_clock + static_cast<uint64_t>(offset);
             sample_anchors.push_back({se, event.shader_clock, estimate});
         }
-        std::sort(
-            sample_anchors.begin(),
-            sample_anchors.end(),
-            [](const auto& a, const auto& b) { return a.shader_clock < b.shader_clock; }
-        );
-        sample_anchors.erase(
-            std::unique(
-                sample_anchors.begin(),
-                sample_anchors.end(),
-                [](const auto& a, const auto& b) { return a.shader_clock == b.shader_clock; }
-            ),
-            sample_anchors.end()
-        );
+        sortUniqueShaderClocks(sample_anchors);
         if (sample_anchors.size() < 2) continue;
 
         std::vector<float> aligned_clock = spm.clock;
@@ -659,13 +735,9 @@ bool alignSpmClockFromEvents(
             // Multiple events nearest the same sample do not identify a unique
             // match. Leave it to interpolation instead of shifting later events.
             for (const size_t sample : ambiguous) matched.erase(sample);
+            // Monotonic anchors give nondecreasing estimates, so the matched
+            // shader clocks increase with the sample index.
             if (matched.size() < 2) break;
-            if (std::adjacent_find(
-                    matched.begin(),
-                    matched.end(),
-                    [](const auto& a, const auto& b) { return a.second.shader_clock >= b.second.shader_clock; }
-                ) != matched.end())
-                break;
 
             auto left = matched.begin();
             auto right = std::next(left);
@@ -674,8 +746,9 @@ bool alignSpmClockFromEvents(
                 while (sample > right->first && std::next(right) != matched.end()) left = right++;
                 const long double fraction = signedTimestampDelta(timestamps[sample], timestamps[left->first]) /
                                              (timestamps[right->first] - timestamps[left->first]);
-                // Matched samples keep the exact event clock. Missing events
-                // are interpolated; samples outside the matches use the end pair.
+                // Matched samples keep the event clock, up to float precision.
+                // Missing events are interpolated; samples outside the matches
+                // use the end pair.
                 aligned_clock[xcc * spm.sample_count + sample] =
                     left->second.shader_clock +
                     fraction * (static_cast<long double>(right->second.shader_clock) - left->second.shader_clock);
