@@ -187,6 +187,23 @@ struct dispatch_record_t
 };
 #endif
 
+/// Decoder releases without dispatch-end tracking have no `dispatch_id` on dispatch and
+/// occupancy records. Reads return 0 (no ID) and writes are dropped for those.
+template <typename Record> inline constexpr bool HasDispatchId = requires(Record rec) { rec.dispatch_id; };
+
+template <typename Record> uint64_t GetDispatchId(const Record& rec)
+{
+    if constexpr (HasDispatchId<Record>)
+        return rec.dispatch_id;
+    else
+        return 0;
+}
+
+template <typename Record> void SetDispatchId(Record& rec, uint64_t id)
+{
+    if constexpr (HasDispatchId<Record>) rec.dispatch_id = static_cast<decltype(rec.dispatch_id)>(id);
+}
+
 inline std::string TraceDecoderEventName(int type)
 {
     switch (type)

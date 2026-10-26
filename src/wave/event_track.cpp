@@ -86,8 +86,9 @@ void EventTrackModel::AddShaderEngine(
         span.index = static_cast<int>(i);
         if (kernel_id_for) span.kid = kernel_id_for(dispatch);
 
-        auto end_it = dispatch.dispatch_id != 0
-                          ? ends_by_id.find({dispatchKey(dispatch.me_id, dispatch.pipe_id), dispatch.dispatch_id})
+        const uint64_t dispatch_id = GetDispatchId(dispatch);
+        auto end_it = dispatch_id != 0
+                          ? ends_by_id.find(std::make_pair(dispatchKey(dispatch.me_id, dispatch.pipe_id), dispatch_id))
                           : ends_by_id.end();
         if (end_it != ends_by_id.end())
         {

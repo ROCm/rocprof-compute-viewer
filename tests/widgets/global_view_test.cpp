@@ -51,9 +51,13 @@ dispatch_record_t dispatchAt(int64_t time, int me = 0, int pipe = 0, uint64_t di
     dispatch.time = time;
     dispatch.me_id = me;
     dispatch.pipe_id = pipe;
-    dispatch.dispatch_id = dispatch_id;
+    SetDispatchId(dispatch, dispatch_id);
     return dispatch;
 }
+
+/// Dispatch ranges need dispatch IDs, which older decoder releases don't provide.
+#define SKIP_WITHOUT_DISPATCH_ID()                                                                     \
+    if (!HasDispatchId<dispatch_record_t>) GTEST_SKIP() << "rocprof-trace-decoder has no dispatch_id"
 
 /// Start/end occupancy pair for one wave in its own slot.
 void addWave(DataStore& store, int se, int slot, int64_t begin, int64_t end, int me, int pipe)
@@ -203,6 +207,7 @@ TEST_F(GlobalViewTest, LoadsAndRendersEventsWithoutWaves)
 
 TEST_F(GlobalViewTest, JsonDispatchIdPairsDispatchEnd)
 {
+    SKIP_WITHOUT_DISPATCH_ID();
     QTemporaryDir dir;
     ASSERT_TRUE(dir.isValid());
     auto write = [&](const char* name, const nlohmann::json& data)
@@ -242,9 +247,9 @@ TEST_F(GlobalViewTest, JsonDispatchIdPairsDispatchEnd)
     emitter.run();
 
     ASSERT_EQ(store.dispatch_records_by_se.at(0).size(), 1u);
-    EXPECT_EQ(store.dispatch_records_by_se.at(0)[0].dispatch_id, 5u);
+    EXPECT_EQ(GetDispatchId(store.dispatch_records_by_se.at(0)[0]), 5u);
     ASSERT_EQ(store.occupancy_by_se.at(0).size(), 2u);
-    EXPECT_EQ(store.occupancy_by_se.at(0)[0].dispatch_id, 5u);
+    EXPECT_EQ(GetDispatchId(store.occupancy_by_se.at(0)[0]), 5u);
 
     QGlobalView view(store);
     auto model = view.EventModel();
@@ -322,6 +327,7 @@ TEST_F(GlobalViewTest, RejectsEmptyEventCollections)
 
 TEST_F(GlobalViewTest, DispatchRangeEndsAtMatchingDispatchEnd)
 {
+    SKIP_WITHOUT_DISPATCH_ID();
     DataStore store;
     store.dispatch_records_by_se[0] = {
         dispatchAt(1000, 1, 0, 2),
@@ -376,6 +382,7 @@ TEST_F(GlobalViewTest, DispatchRangeEndsAtMatchingDispatchEnd)
 
 TEST_F(GlobalViewTest, OverlappingEventsPackIntoLanes)
 {
+    SKIP_WITHOUT_DISPATCH_ID();
     EventTrackModel model;
     model.AddShaderEngine(
         0,
@@ -493,6 +500,7 @@ TEST_F(GlobalViewTest, RowsStayPackedWhenViewIsTallerThanContent)
 
 TEST_F(GlobalViewTest, HoverPicksTheTopmostDrawnEvent)
 {
+    SKIP_WITHOUT_DISPATCH_ID();
     DataStore empty;
     QGlobalView view(empty);
     view.SetMip(0); // One pixel per cycle from clock 0
