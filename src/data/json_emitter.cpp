@@ -92,6 +92,7 @@ dispatch_record_t dispatchFromJson(const nlohmann::json& dispatch_json)
     rec.thread_dim_z = dispatch_json.value("thread_dim_z", uint32_t{0});
     rec.dispatch_pkt_addr = dispatch_json.value("dispatch_pkt_addr", uint64_t{0});
     rec.byte_offset = dispatch_json.value("byte_offset", uint64_t{0});
+    SetDispatchId(rec, dispatch_json.value("dispatch_id", uint64_t{0}));
 
     auto entry_it = dispatch_json.find("entry_point");
     if (entry_it != dispatch_json.end() && entry_it->is_object())
@@ -120,14 +121,18 @@ void emitTimelineEvents(const nlohmann::json& root, RecordDispatcher& dispatcher
             if (kind == "event") { dispatcher.dispatchTraceEvent(se, traceEventFromJson(record_json)); }
             else if (kind == "dispatch")
             {
+                const auto dispatch = dispatchFromJson(record_json);
                 const int kernel_id = record_json.value("kernel_id", -1);
                 if (kernel_id >= 0)
                 {
                     store.dispatch_resolver.RegisterJsonKernel(
                         kernel_id, record_json.value("kernel_name", std::string{})
                     );
+                    store.dispatch_resolver.Alias(
+                        dispatch.entry_point.code_object_id, dispatch.entry_point.address, kernel_id
+                    );
                 }
-                dispatcher.dispatchDispatch(se, dispatchFromJson(record_json));
+                dispatcher.dispatchDispatch(se, dispatch);
             }
         }
     }
@@ -470,6 +475,7 @@ void JsonRecordEmitter::emitOccupancy()
                     setOccupancyClusterId(rec, v[10].get<uint32_t>());
                     store.occupancy_has_dispatcher_info = true;
                 }
+                if (v.size() >= 12) SetDispatchId(rec, v[11].get<uint32_t>());
 
                 store.dispatch_resolver.RegisterJsonKernel(kid, "");
                 rec.pc.address = uint64_t(kid);

@@ -34,6 +34,7 @@
 #include <QScrollArea>
 #include <QSignalBlocker>
 #include <QSpinBox>
+#include <QSplitter>
 #include <QTextStream>
 #include <algorithm>
 #include <cctype>
@@ -79,6 +80,7 @@
 #include "graphics/specialized_plots.h"
 #include "summary/summaryview.h"
 #include "util/version.h"
+#include "wave/event_track.h"
 #include "wave/othersimd.h"
 #include "wave/overlay_utils.h"
 #include "wave/scroll.h"
@@ -2087,10 +2089,14 @@ void MainWindow::CreateGlobalView()
     if (shaderdata_manager && shaderdata_manager->HasData()) global_view_widget->SetShaderData(*shaderdata_manager);
     if (shaderdata_manager && shaderdata_manager->HasMarkers()) global_view_widget->SetMarkers(*shaderdata_manager);
 
-    // Create sticky tick header (spans full width)
+    // Create sticky tick header (spans full width). It sits directly above the
+    // waves so its SE/A/CU/SM column titles label the wave rows, not the event track.
     QTickHeader* tickHeader = new QTickHeader(this);
     global_view_widget->tickHeader = tickHeader;
-    mainLayout->addWidget(tickHeader);
+
+    // Sticky event track above the tick header and waves, resizable via the splitter
+    if (auto model = global_view_widget->EventModel())
+        global_view_widget->eventTrack = new QEventTrack(std::move(model), this);
 
     // Create horizontal layout for label panel + scroll area
     QHBoxLayout* contentLayout = new QHBoxLayout();
@@ -2122,9 +2128,28 @@ void MainWindow::CreateGlobalView()
     // Populate the label panel with data from the global view
     global_view_widget->populateLabelPanel();
 
+    auto* tickAndContentLayout = new QVBox();
+    tickAndContentLayout->setContentsMargins(0, 0, 0, 0);
+    tickAndContentLayout->setSpacing(0);
+    tickAndContentLayout->addWidget(tickHeader);
+    tickAndContentLayout->addLayout(contentLayout);
+
     QWidget* contentWidget = new QWidget();
-    contentWidget->setLayout(contentLayout);
-    mainLayout->addWidget(contentWidget);
+    contentWidget->setLayout(tickAndContentLayout);
+    if (auto* eventTrack = global_view_widget->eventTrack)
+    {
+        auto* splitter = new QSplitter(Qt::Vertical, this);
+        splitter->setChildrenCollapsible(false);
+        splitter->setHandleWidth(4);
+        splitter->addWidget(eventTrack);
+        splitter->addWidget(contentWidget);
+        splitter->setStretchFactor(0, 0);
+        splitter->setStretchFactor(1, 1);
+        splitter->setSizes({eventTrack->sizeHint().height(), std::max(1, height() - eventTrack->sizeHint().height())});
+        mainLayout->addWidget(splitter);
+    }
+    else
+        mainLayout->addWidget(contentWidget);
 
     this->global_view_tab->setLayout(mainLayout);
     updateAlignedPlots();

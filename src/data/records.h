@@ -83,7 +83,8 @@ struct occupancy_record_t
     uint32_t is_ext       : 1;
     uint32_t workgroup_id : 7;
     uint32_t cluster_id   : 5;
-    uint32_t _rsvd        : 11;
+    uint32_t dispatch_id  : 10;
+    uint32_t _rsvd        : 1;
 };
 
 struct wave_state_record_t
@@ -182,8 +183,26 @@ struct dispatch_record_t
     uint32_t thread_dim_z = 0;
     uint64_t dispatch_pkt_addr = 0;
     uint64_t byte_offset = 0;
+    uint64_t dispatch_id = 0;
 };
 #endif
+
+/// Decoder releases without dispatch-end tracking have no `dispatch_id` on dispatch and
+/// occupancy records. Reads return 0 (no ID) and writes are dropped for those.
+template <typename Record> inline constexpr bool HasDispatchId = requires(Record rec) { rec.dispatch_id; };
+
+template <typename Record> uint64_t GetDispatchId(const Record& rec)
+{
+    if constexpr (HasDispatchId<Record>)
+        return rec.dispatch_id;
+    else
+        return 0;
+}
+
+template <typename Record> void SetDispatchId(Record& rec, uint64_t id)
+{
+    if constexpr (HasDispatchId<Record>) rec.dispatch_id = static_cast<decltype(rec.dispatch_id)>(id);
+}
 
 inline std::string TraceDecoderEventName(int type)
 {
