@@ -29,6 +29,7 @@
 #include "../config/config.hpp"
 #include "../graphics/canvas.h"
 #include "../json/include/nlohmann/json.hpp"
+#include "../mainwindow.h"
 #include "../util/diagnostic_log.h"
 
 #include <iomanip>
@@ -100,7 +101,7 @@ QDialog(parent), m_uidir(uidir)
 
         m_resultsText[i] = new QTextEdit(this);
         m_resultsText[i]->setReadOnly(true);
-        m_resultsText[i]->setFont(QFont("monospace"));
+        m_resultsText[i]->setFont(QFont(MainWindow::default_font, MainWindow::font()));
         groupLayout->addWidget(m_resultsText[i]);
 
         resultsLayout->addWidget(groupBox);

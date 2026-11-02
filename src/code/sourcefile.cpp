@@ -78,6 +78,17 @@ parent(_parent), filename(_filename)
     setMouseTracking(true);
 }
 
+void SourceFile::changeEvent(QEvent* event)
+{
+    Super::changeEvent(event);
+    if (event->type() == QEvent::FontChange)
+    {
+        sizex = 0;
+        for (auto& line : lines) line->InvalidateCache();
+        update();
+    }
+}
+
 void SourceFile::paintEvent(class QPaintEvent* event)
 {
     int HISTOGRAM_WIDTH = HorizontalHotspot::GetHistogramWidth();

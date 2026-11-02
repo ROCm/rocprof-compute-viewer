@@ -147,9 +147,9 @@ protected:
     std::vector<PlotCurve> curves;
 
 private:
-    const int bottom_space = 20;
-    const int top_space = 35;
-    const int left_space = 50;
+    int bottom_space = 20;
+    int top_space = 35;
+    int left_space = 50;
     const int margin = 6;
     const int penwidth;
 };
