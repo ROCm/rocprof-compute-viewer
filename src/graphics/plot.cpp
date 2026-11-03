@@ -21,6 +21,7 @@
 // SOFTWARE.
 
 #include "plot.h"
+#include <QResizeEvent>
 #include <QWheelEvent>
 #include <algorithm>
 #include <cmath>
@@ -170,6 +171,40 @@ PlotGraph::PlotGraph(int _penwidth, QWidget* parent) : BasePlotWidget(parent), p
     setPalette(pal);
 }
 
+QSize PlotGraph::minimumSizeHint() const
+{
+    QFont font = MainWindow::default_font.isEmpty() ? this->font() : QFont(MainWindow::default_font);
+    font.setPointSize(MainWindow::font() - 1);
+    const QFontMetrics fm(font);
+    const int plot_left = std::max(50, fm.horizontalAdvance("999.9M") + 2 * margin);
+    const int available_width = width() > 0 ? width() : 640;
+    int legend_x = plot_left;
+    int legend_y = margin;
+
+    for (const auto& curve : curves)
+        if (!curve.disabled)
+        {
+            const int item_width = fm.height() * 3 / 2 + fm.horizontalAdvance(curve.shortname.c_str());
+            if (legend_x > plot_left && legend_x + item_width > available_width - margin)
+            {
+                legend_x = plot_left;
+                legend_y += fm.height() + margin;
+            }
+            legend_x += item_width;
+        }
+
+    const int top_space = std::max(35, legend_y + 2 * fm.height() + margin);
+    const int bottom_space = std::max(20, fm.height() + 2 * margin);
+    const int plot_height = std::max(40, 2 * fm.height());
+    return QSize(0, top_space + bottom_space + plot_height);
+}
+
+void PlotGraph::resizeEvent(QResizeEvent* event)
+{
+    BasePlotWidget::resizeEvent(event);
+    if (event->oldSize().width() != event->size().width()) updateGeometry();
+}
+
 void PlotGraph::wheelEvent(QWheelEvent* ev)
 {
     double scale = pow(1.001, ev->angleDelta().y());
@@ -236,7 +271,6 @@ void PlotGraph::mouseReleaseEvent(QMouseEvent* ev)
 void PlotGraph::paintEvent(QPaintEvent* ev)
 {
     QWidget::paintEvent(ev);
-    const bool range_aligned = applyAlignedRange();
     const QColor bkgcolor = WindowColors::GraphBkg();
 
     QPainter painter(this);
@@ -267,6 +301,7 @@ void PlotGraph::paintEvent(QPaintEvent* ev)
             legend_x += item_width;
         }
     top_space = std::max(35, legend_y + 2 * fm.height() + margin);
+    const bool range_aligned = applyAlignedRange();
 
     painter.fillRect(rect(), bkgcolor);
 
@@ -448,6 +483,7 @@ void PlotGraph::AddData(std::string name, QColor color, std::vector<WeightedPoin
     curve.color = color;
     curve.SetData(std::move(data));
 
+    updateGeometry();
     update();
 };
 

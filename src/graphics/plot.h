@@ -104,6 +104,7 @@ public:
     {
         for (auto& curve : curves)
             if (curve.fullname == name) curve.disabled = disable;
+        updateGeometry();
     }
 
     void setDisabled(const std::vector<std::pair<std::string, bool>>& names)
@@ -127,7 +128,9 @@ private slots:
 
 protected:
     virtual bool supportsTraceAlignment() const { return true; }
+    QSize minimumSizeHint() const override;
     void paintEvent(QPaintEvent*) override;
+    void resizeEvent(QResizeEvent*) override;
     virtual void UpdateGraphTable(float timepos) = 0;
     bool applyAlignedRange();
     int lodBias = 0;

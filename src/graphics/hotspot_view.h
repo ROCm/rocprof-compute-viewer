@@ -53,7 +53,9 @@ public:
     HotspotView(int begin, int end, int bins, double max_value);
     void Add(const TokenMap& tokens);
     void Compile();
+    QSize minimumSizeHint() const override;
     void paintEvent(QPaintEvent*) override;
+    void resizeEvent(QResizeEvent*) override;
 
     void HighlightLines(int bin);
     virtual void mouseMoveEvent(QMouseEvent*) override;

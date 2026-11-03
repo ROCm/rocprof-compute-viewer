@@ -515,6 +515,8 @@ void MainWindow::updateFont()
     update();
     updateGeometry();
     for (auto* widget : findChildren<QWidget*>()) widget->update();
+    for (auto* plot : findChildren<PlotGraph*>()) plot->updateGeometry();
+    for (auto* view : findChildren<HotspotView*>()) view->updateGeometry();
 
     if (ui->tabWidget)
     {
@@ -2297,7 +2299,11 @@ void MainWindow::DoSearch(bool forward)
     auto match = [&](const std::string& text) {
         if (search_case_sensitive) return text.find(to_search) != std::string::npos;
         auto it = std::search(text.begin(), text.end(), to_search.begin(), to_search.end(),
-            [](char a, char b) { return std::toupper(a) == std::toupper(b); });
+            [](char a, char b)
+            {
+                return std::toupper(static_cast<unsigned char>(a)) ==
+                       std::toupper(static_cast<unsigned char>(b));
+            });
         return it != text.end();
     };
     using El = ASMCodeline::Element;
@@ -2309,7 +2315,8 @@ void MainWindow::DoSearch(bool forward)
             for (auto c : cols) { auto& e = line->elements.at(c); if (e && match(e->getStdText())) { current_search_pos = ln; found = true; goto done; } }
         }
         for (auto& [ln, line] : ASMCodeline::line_map) {
-            if (!line || ln >= current_search_pos) break;
+            if (ln > current_search_pos) break;
+            if (!line) continue;
             for (auto c : cols) { auto& e = line->elements.at(c); if (e && match(e->getStdText())) { current_search_pos = ln; found = true; goto done; } }
         }
     } else {
@@ -2323,7 +2330,8 @@ void MainWindow::DoSearch(bool forward)
         auto rit = ASMCodeline::line_map.rbegin();
         while (rit != ASMCodeline::line_map.rend()) {
             auto& [ln, line] = *rit; ++rit;
-            if (!line || ln <= current_search_pos) break;
+            if (ln < current_search_pos) break;
+            if (!line) continue;
             for (auto c : cols) { auto& e = line->elements.at(c); if (e && match(e->getStdText())) { current_search_pos = ln; found = true; goto done; } }
         }
     }

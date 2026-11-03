@@ -24,6 +24,7 @@
 #include <wave/token.h>
 #include <QMouseEvent>
 #include <QPainter>
+#include <QResizeEvent>
 #include <sstream>
 #include <unordered_map>
 #include <vector>
@@ -69,6 +70,7 @@ void HotspotView::Add(const TokenMap& tokens)
     {
         QWARNING(false, e.what(), return );
     }
+    updateGeometry();
 }
 
 void HotspotView::Compile()
@@ -80,6 +82,50 @@ void HotspotView::Compile()
             for (int64_t value : bin.cycles) acc += value;
             max_value = std::max(max_value, 1.04 * acc);
         }
+    updateGeometry();
+}
+
+QSize HotspotView::minimumSizeHint() const
+{
+    const int margin = 8;
+    const int top_font_value = MainWindow::font() + IF_QT6_ELSE(1, 0);
+    const int bottom_font_value = MainWindow::font() - IF_QT6_ELSE(0, 2);
+    QFont font = MainWindow::default_font.isEmpty() ? this->font() : QFont(MainWindow::default_font);
+    font.setPointSize(top_font_value);
+    const QFontMetrics legend_metrics(font);
+    const int font_height = legend_metrics.height();
+    const int available_width = width() > 0 ? width() : 640;
+    int legend_x = margin;
+    int legend_y = margin;
+
+    for (size_t i = 0; i < Config::TokenColors().size(); i++)
+    {
+        bool enabled = false;
+        for (const auto& bin : bins)
+            if (i < bin.cycles.size() && bin.cycles.at(i) > 0) enabled = true;
+        if (!enabled) continue;
+
+        const int item_width =
+            font_height * 3 / 2 + legend_metrics.horizontalAdvance(Config::TokenColors().at(i).name.c_str());
+        if (legend_x > margin && legend_x + item_width > available_width - margin)
+        {
+            legend_x = margin;
+            legend_y += font_height + margin;
+        }
+        legend_x += item_width;
+    }
+
+    font.setPointSize(bottom_font_value);
+    const QFontMetrics label_metrics(font);
+    const int top_space = legend_y + font_height + label_metrics.height() + margin;
+    const int bottom_space = margin * 3 + 2 * label_metrics.height();
+    return QSize(0, top_space + bottom_space + 80);
+}
+
+void HotspotView::resizeEvent(QResizeEvent* event)
+{
+    BaseHistogramWidget::resizeEvent(event);
+    if (event->oldSize().width() != event->size().width()) updateGeometry();
 }
 
 // Highlights first and last line

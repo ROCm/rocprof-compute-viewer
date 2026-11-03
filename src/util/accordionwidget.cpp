@@ -43,7 +43,6 @@ m_initalHeight(120)
     // Set size policies
     setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Expanding);
     m_contentWidget->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Expanding);
-    m_contentWidget->setMinimumHeight(0);
 
     setContentVisible(expanded);
 }
@@ -69,7 +68,6 @@ QWidget* CollapsibleSection::replaceContentWidget(QWidget* newContentWidget)
     if (m_contentWidget)
     {
         m_contentWidget->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Expanding);
-        m_contentWidget->setMinimumHeight(0);
         m_internalLayout->addWidget(m_contentWidget);
     }
 
