@@ -131,11 +131,26 @@ TEST_F(IsaViewerTest, NavigationRevealsHiddenInstructionsAndLabels)
     view->setFoldingEnabled(true);
     view->toggleSection(0);
     view->toggleSection(3);
-    view->Highlight(1, 1, true);
+    const Color color(20, 80, 200);
+    auto* instruction = view->elements[ASMCodeline::EASM];
+    auto highlightedPixel = [&](int line)
+    {
+        const QImage image = instruction->grab().toImage();
+        const qreal dpr = image.devicePixelRatio();
+        return image.pixelColor(
+            (instruction->width() - 2) * dpr,
+            (view->rowMapping().rowOf(line) * QCodelist::lineheight() + 1) * dpr
+        );
+    };
+    view->Highlight(1, 1, true, color);
     EXPECT_GE(view->rowMapping().rowOf(1), 0);
     EXPECT_EQ(view->rowMapping().rowOf(4), -1);
-    view->Highlight(3, 3, true);
+    EXPECT_EQ(highlightedPixel(1), color);
+    view->Highlight(3, 3, true, color);
     EXPECT_EQ(view->rowMapping().count(), 5);
+    EXPECT_EQ(highlightedPixel(3), color);
+    view->Highlight(3, 3, true, color);
+    EXPECT_EQ(highlightedPixel(3), color);
 }
 
 TEST_F(IsaViewerTest, SmallListingsDefaultToNoFoldingButAllowManualFolding)

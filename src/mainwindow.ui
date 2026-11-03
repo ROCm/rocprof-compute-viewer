@@ -36,12 +36,6 @@
        <enum>Qt::Horizontal</enum>
       </property>
       <widget class="QTabWidget" name="tabWidget_3">
-       <property name="minimumSize">
-        <size>
-         <width>220</width>
-         <height>0</height>
-        </size>
-       </property>
        <property name="maximumSize">
         <size>
          <width>16777215</width>
@@ -80,12 +74,6 @@
                  <verstretch>0</verstretch>
                 </sizepolicy>
                </property>
-               <property name="maximumSize">
-                <size>
-                 <width>52</width>
-                 <height>16777215</height>
-                </size>
-               </property>
                <property name="text">
                 <string>Shader</string>
                </property>
@@ -105,12 +93,6 @@
                  <horstretch>0</horstretch>
                  <verstretch>0</verstretch>
                 </sizepolicy>
-               </property>
-               <property name="maximumSize">
-                <size>
-                 <width>52</width>
-                 <height>16777215</height>
-                </size>
                </property>
                <property name="text">
                 <string> SIMD </string>
@@ -132,12 +114,6 @@
                  <verstretch>0</verstretch>
                 </sizepolicy>
                </property>
-               <property name="maximumSize">
-                <size>
-                 <width>52</width>
-                 <height>16777215</height>
-                </size>
-               </property>
                <property name="text">
                 <string>  Slot  </string>
                </property>
@@ -157,12 +133,6 @@
                  <horstretch>0</horstretch>
                  <verstretch>0</verstretch>
                 </sizepolicy>
-               </property>
-               <property name="maximumSize">
-                <size>
-                 <width>52</width>
-                 <height>16777215</height>
-                </size>
                </property>
                <property name="toolTip">
                 <string>Wave ID: Not available</string>
@@ -342,11 +312,11 @@
           <layout class="QHBoxLayout" name="horizontalLayout_5"/>
          </item>
          <item>
-          <layout class="QHBoxLayout" name="horizontalLayout_8">
+          <layout class="QGridLayout" name="horizontalLayout_8">
            <property name="spacing">
             <number>0</number>
            </property>
-           <item>
+           <item row="0" column="0">
             <widget class="QLabel" name="label_9">
              <property name="sizePolicy">
               <sizepolicy hsizetype="Maximum" vsizetype="Preferred">
@@ -354,57 +324,41 @@
                <verstretch>0</verstretch>
               </sizepolicy>
              </property>
-             <property name="maximumSize">
-              <size>
-               <width>64</width>
-               <height>16777215</height>
-              </size>
-             </property>
              <property name="text">
               <string> Search </string>
              </property>
             </widget>
            </item>
-           <item>
-            <widget class="QLineEdit" name="search_edit"/>
-           </item>
-           <item>
-            <widget class="QPushButton" name="prev_inst">
+           <item row="0" column="1">
+            <widget class="QLineEdit" name="search_edit">
              <property name="sizePolicy">
-              <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+              <sizepolicy hsizetype="Ignored" vsizetype="Fixed">
                <horstretch>0</horstretch>
                <verstretch>0</verstretch>
               </sizepolicy>
              </property>
-             <property name="maximumSize">
-              <size>
-               <width>50</width>
-               <height>16777215</height>
-              </size>
-             </property>
-             <property name="text">
-              <string> Prev </string>
-             </property>
             </widget>
            </item>
-           <item>
-            <widget class="QPushButton" name="next_inst">
-             <property name="sizePolicy">
-              <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
-               <horstretch>0</horstretch>
-               <verstretch>0</verstretch>
-              </sizepolicy>
+           <item row="1" column="0" colspan="2">
+            <layout class="QHBoxLayout" name="searchNavigationLayout" stretch="1,1">
+             <property name="spacing">
+              <number>6</number>
              </property>
-             <property name="maximumSize">
-              <size>
-               <width>50</width>
-               <height>16777215</height>
-              </size>
-             </property>
-             <property name="text">
-              <string> Next </string>
-             </property>
-            </widget>
+             <item>
+              <widget class="QPushButton" name="prev_inst">
+               <property name="text">
+                <string>Prev</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QPushButton" name="next_inst">
+               <property name="text">
+                <string>Next</string>
+               </property>
+              </widget>
+             </item>
+            </layout>
            </item>
           </layout>
          </item>
@@ -737,20 +691,6 @@
                    </property>
                    <property name="checked">
                     <bool>true</bool>
-                   </property>
-                  </widget>
-                 </item>
-                 <item>
-                  <widget class="QLabel" name="label_8">
-                   <property name="text">
-                    <string>Display counters</string>
-                   </property>
-                  </widget>
-                 </item>
-                 <item>
-                  <widget class="QToolButton" name="toolButton">
-                   <property name="text">
-                    <string>...</string>
                    </property>
                   </widget>
                  </item>

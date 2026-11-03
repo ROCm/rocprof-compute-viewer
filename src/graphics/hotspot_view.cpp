@@ -24,6 +24,7 @@
 #include <wave/token.h>
 #include <QMouseEvent>
 #include <QPainter>
+#include <QResizeEvent>
 #include <sstream>
 #include <unordered_map>
 #include <vector>
@@ -80,6 +81,50 @@ void HotspotView::Compile()
             for (int64_t value : bin.cycles) acc += value;
             max_value = std::max(max_value, 1.04 * acc);
         }
+    updateGeometry();
+}
+
+QSize HotspotView::minimumSizeHint() const
+{
+    const int margin = 8;
+    const int top_font_value = MainWindow::font() + IF_QT6_ELSE(1, 0);
+    const int bottom_font_value = MainWindow::font() - IF_QT6_ELSE(0, 2);
+    QFont font = MainWindow::default_font.isEmpty() ? this->font() : QFont(MainWindow::default_font);
+    font.setPointSize(top_font_value);
+    const QFontMetrics legend_metrics(font);
+    const int font_height = legend_metrics.height();
+    const int available_width = width() > 0 ? width() : 640;
+    int legend_x = margin;
+    int legend_y = margin;
+
+    for (size_t i = 0; i < Config::TokenColors().size(); i++)
+    {
+        bool enabled = false;
+        for (const auto& bin : bins)
+            if (i < bin.cycles.size() && bin.cycles.at(i) > 0) enabled = true;
+        if (!enabled) continue;
+
+        const int item_width =
+            font_height * 3 / 2 + legend_metrics.horizontalAdvance(Config::TokenColors().at(i).name.c_str());
+        if (legend_x > margin && legend_x + item_width > available_width - margin)
+        {
+            legend_x = margin;
+            legend_y += font_height + margin;
+        }
+        legend_x += item_width;
+    }
+
+    font.setPointSize(bottom_font_value);
+    const QFontMetrics label_metrics(font);
+    const int top_space = legend_y + font_height + label_metrics.height() + margin;
+    const int bottom_space = margin * 3 + 2 * label_metrics.height();
+    return QSize(0, top_space + bottom_space + 80);
+}
+
+void HotspotView::resizeEvent(QResizeEvent* event)
+{
+    BaseHistogramWidget::resizeEvent(event);
+    if (event->oldSize().width() != event->size().width()) updateGeometry();
 }
 
 // Highlights first and last line
@@ -143,18 +188,38 @@ void HotspotView::paintEvent(QPaintEvent* event)
     font.setPointSize(top_font_value);
     painter.setFont(font);
 
-    int font_height = QFontMetrics(font).height();
-    int top_space = margin * 2 + font_height;
-    int bottom_space = margin * 2 + font_height;
+    const QFontMetrics legendMetrics(font);
+    const int font_height = legendMetrics.height();
+    std::vector<std::pair<size_t, QPoint>> legend;
+    int legend_x = margin;
+    int legend_y = margin;
+    for (size_t i = 0; i < Config::TokenColors().size(); i++)
+    {
+        bool enabled = false;
+        for (auto& bin : bins)
+            if (i < bin.cycles.size() && bin.cycles.at(i) > 0) enabled = true;
+        if (!enabled) continue;
+        int item_width =
+            font_height * 3 / 2 + legendMetrics.horizontalAdvance(Config::TokenColors().at(i).name.c_str());
+        if (legend_x > margin && legend_x + item_width > width() - margin)
+        {
+            legend_x = margin;
+            legend_y += font_height + margin;
+        }
+        legend.emplace_back(i, QPoint(legend_x, legend_y));
+        legend_x += item_width;
+    }
+    font.setPointSize(bottom_font_value);
+    const QFontMetrics labelMetrics(font);
+    int top_space = legend_y + font_height + labelMetrics.height() + margin;
+    int bottom_space = margin * 3 + 2 * labelMetrics.height();
 
     int start_y = height() - bottom_space;
-    int num_divs = std::max(3, start_y / 80);
-    int left_side_x = 40;
-    int width_x = width() - left_side_x;
+    int num_divs = std::max(1, (start_y - top_space) / std::max(80, 2 * labelMetrics.height()));
+    int left_side_x = std::max(40, labelMetrics.horizontalAdvance("999.9M") + 2 * margin);
+    int width_x = std::max(0, width() - left_side_x - margin);
     double bar_width = width_x / (2 * bins.size() + 1.0);
     double bar_wid_multiplier = 1.25;
-
-    double scaling = (start_y - top_space) / max_value;
 
     QPen pen = painter.pen();
     pen.setWidth(0);
@@ -195,7 +260,7 @@ void HotspotView::paintEvent(QPaintEvent* event)
         {
             double value = y / cvt_val;
             auto str = QString("%1").arg(value, 0, 'f', value < 10 ? 2 : (value < 100 ? 1 : 0)) + letter;
-            painter.drawText(left_side_x / 3, start_y - ystep * y, str);
+            painter.drawText(left_side_x - margin - labelMetrics.horizontalAdvance(str), start_y - ystep * y, str);
         }
     }
 
@@ -207,8 +272,9 @@ void HotspotView::paintEvent(QPaintEvent* event)
     {
         QFontMetrics fm(font);
 
-        double scaling = (start_y - top_space) / double(max_value);
+        double scaling = std::max(0, start_y - top_space) / double(max_value);
         double xpos = left_side_x;
+        int label_end = left_side_x - margin;
 
         for (auto& bin : bins)
         {
@@ -240,13 +306,20 @@ void HotspotView::paintEvent(QPaintEvent* event)
             auto line = std::to_string(bin.center_line);
             int font_wid = fm.horizontalAdvance(line.c_str());
 
-            painter.drawText(xpos + bar_width / 2 - font_wid / 2, start_y + fm.height(), line.c_str());
+            int label_x = xpos + bar_width / 2 - font_wid / 2;
+            if (label_x >= label_end + margin && label_x + font_wid <= width() - margin)
+            {
+                painter.drawText(label_x, start_y + margin + fm.ascent(), line.c_str());
+                label_end = label_x + font_wid;
+            }
             xpos += bar_width;
         }
 
         // Draw code_line mid label
         std::string_view linen = "Code line number";
-        painter.drawText(width() / 2 - fm.horizontalAdvance(linen.data()) / 2, height() - margin / 2, linen.data());
+        painter.drawText(
+            width() / 2 - fm.horizontalAdvance(linen.data()) / 2, height() - margin - fm.descent(), linen.data()
+        );
     }
 
     font.setPointSize(top_font_value);
@@ -254,28 +327,12 @@ void HotspotView::paintEvent(QPaintEvent* event)
     pen.setColor(WindowColors::textColor());
     painter.setPen(pen);
 
-    size_t enable_bits = 0;
-    for (size_t i = 0; i < Config::TokenColors().size(); i++)
-        for (auto& bin : bins)
-            if (i < bin.cycles.size() && bin.cycles.at(i) > 0) enable_bits |= 1 << i;
-
-    enable_bits <<= 1;
-
-    QFontMetrics fm(font);
-    // Draw token colors
-    int total_text_width = Config::TokenColors().size() * font_height * 3 / 2;
-    for (auto& color : Config::TokenColors()) total_text_width += fm.horizontalAdvance(color.name.c_str());
-
-    int left_padding = std::max((width() - total_text_width) / 2 + font_height, 0);
-    for (auto& color : Config::TokenColors())
+    for (auto& [index, pos] : legend)
     {
-        enable_bits >>= 1;
-        if ((enable_bits & 1) == 0) continue;
-
+        const auto& color = Config::TokenColors().at(index);
         painter.fillRect(
-            QRectF(left_padding + font_height / 4, margin, font_height / 2, font_height / 2), color.qcolor
+            QRectF(pos.x() + font_height / 4, pos.y() + font_height / 4, font_height / 2, font_height / 2), color.qcolor
         );
-        painter.drawText(left_padding + font_height, margin + font_height / 2, color.name.c_str());
-        left_padding += font_height * 3 / 2 + fm.horizontalAdvance(color.name.c_str());
+        painter.drawText(pos.x() + font_height, pos.y() + legendMetrics.ascent(), color.name.c_str());
     }
 }

@@ -31,6 +31,7 @@
 #include <QApplication>
 #include <QLineEdit>
 #include <QMetaObject>
+#include <QShortcut>
 #include <QStyleFactory>
 #include <QTreeView>
 #include <memory>
@@ -116,6 +117,8 @@ public:
 
     void PrevSearch();
     void NextSearch();
+    void DoSearch(bool forward);
+    void FocusSearch();
     void SetSearchText(const std::string& text);
     void SourceHotspotSizeEdited();
     LoadResult LoadInputForTests(InputInfo info, const std::string& display_path);
@@ -234,6 +237,8 @@ private:
     int slider_cuwaves;
     int slider_global;
     int current_search_pos = 0;
+    std::string last_search_term;
+    bool search_case_sensitive = false;
 
     std::unordered_set<std::string> disabled_counters{};
 
