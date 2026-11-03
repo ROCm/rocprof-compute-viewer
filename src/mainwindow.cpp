@@ -672,21 +672,6 @@ void MainWindow::SetMainWave(int se, int simd, int sl, int wid)
     if (thread_wait.valid()) thread_wait.get();
     if (thread_branch.valid()) thread_branch.get();
 
-    QTimer* timer = new QTimer(this);
-    timer->setSingleShot(true);
-    timer->setInterval(1);
-    QObject::connect(
-        timer,
-        &QTimer::timeout,
-        this,
-        [this]()
-        {
-            if (auto* instruction = code_contents->elements.at(ASMCodeline::Element::EASM))
-                code_scrollarea->horizontalScrollBar()->setValue(instruction->x());
-        }
-    );
-    timer->start();
-
     // Print code idle/stall/wait/exec
     int64_t idle = 0;
     int64_t stall = 0;
@@ -2248,6 +2233,8 @@ void MainWindow::SetSearchText(const std::string& text)
 void MainWindow::selectInstruction(const ASMLine& instruction)
 {
     SetSearchText(instruction.getStdText());
+    last_search_term = instruction.getStdText();
+    current_search_pos = instruction.line_number;
 
     const int64_t clock = WaveInstance::GetMainClock(instruction.line_number, iteration_current.second);
     if (clock >= 0) ScrollViewsTo(clock);

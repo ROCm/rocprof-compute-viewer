@@ -28,7 +28,7 @@
 
 void HighlightTimer::Highlight()
 {
-    if (vis > 0)
+    if (vis < 1)
         vis -= 0.5f;
     else
         vis = 0.0f;

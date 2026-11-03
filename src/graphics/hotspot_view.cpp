@@ -70,7 +70,6 @@ void HotspotView::Add(const TokenMap& tokens)
     {
         QWARNING(false, e.what(), return );
     }
-    updateGeometry();
 }
 
 void HotspotView::Compile()
