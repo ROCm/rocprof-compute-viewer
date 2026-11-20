@@ -74,30 +74,6 @@ DerivedCounter::Tensor averageClock(const DerivedCounter::Tensor& values, const 
 }
 } // namespace
 
-std::vector<float> timestampDeltas(const SpmData& spm)
-{
-    std::vector<float> result(spm.timestamps.size(), 0);
-    for (size_t xcc = 0; xcc < spm.xccCount(); ++xcc)
-    {
-        const size_t count = spm.validSamples(xcc);
-        if (count == 0) continue;
-
-        const size_t base = xcc * spm.sample_count;
-        double total = 0;
-        for (size_t sample = 1; sample < count; ++sample)
-        {
-            const uint64_t delta = spm.timestamps[base + sample] - spm.timestamps[base + sample - 1];
-            result[base + sample] = static_cast<float>(delta);
-            total += delta;
-        }
-
-        const float average = count > 1 ? static_cast<float>(total / (count - 1)) : 0.0f;
-        result[base] = average;
-        for (size_t sample = count; sample < spm.sample_count; ++sample) result[base + sample] = average;
-    }
-    return result;
-}
-
 static DerivedCounter::Tensor sumSpatial(const DerivedCounter::Tensor& values)
 {
     std::vector<DerivedCounter::Axis> axes;

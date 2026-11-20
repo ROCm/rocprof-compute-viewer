@@ -8,16 +8,6 @@
 using DerivedCounter::Shape;
 using DerivedCounter::Tensor;
 
-TEST(SpmSeries, BuildsPerXccTimestampDeltas)
-{
-    SpmData spm;
-    spm.sample_count = 3;
-    spm.timestamps = {100, 110, 130, 105, 125, 125};
-    spm.sample_valid = {0b11111};
-
-    EXPECT_EQ(SpmSeries::timestampDeltas(spm), (std::vector<float>{15, 10, 20, 20, 20, 20}));
-}
-
 TEST(SpmSeries, PlacesValuesAtIntervalStarts)
 {
     Tensor values(Shape(1, 1, 1, 3), std::vector<float>{99, 1, 2});

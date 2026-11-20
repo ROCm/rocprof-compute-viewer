@@ -214,6 +214,7 @@ TEST(SpmJson, UsesNearestSamplesSqCyclesRate)
     // following sample's 500 cycles/tick rate.
     EXPECT_NEAR(data.clock.at(1), -23'500.0, 0.01);
     EXPECT_NEAR(data.clock.at(2), 26'500.0, 0.01);
+    EXPECT_EQ(data.clock_delta, (std::vector<float>{10'000, 10'000, 50'000}));
 }
 
 TEST(SpmJson, UsesPivotSamplesRateWhenPivotIsAfterAnchor)
@@ -300,6 +301,7 @@ TEST(SpmJson, Navi4KeepsBothShaderArraysWithoutRequiringSqCycles)
     EXPECT_FALSE(data.clock_aligned);
     EXPECT_EQ(data.timestamps, (std::vector<uint64_t>{1000, 1100}));
     EXPECT_EQ(data.clock, (std::vector<float>{0, 100}));
+    EXPECT_EQ(data.clock_delta, (std::vector<float>{100, 100}));
 
     const auto& waves = findCounter(data, "SQ_WAVES");
     EXPECT_EQ(waves.arrays_per_se, 2u);
@@ -834,6 +836,7 @@ TEST(SpmJson, MissingSampleEventsInterpolateByTimestampAndExtrapolateEnds)
 
     ASSERT_TRUE(alignSpmClockFromEvents(data, anchors, events));
     EXPECT_EQ(data.clock, (std::vector<float>{800, 1000, 1400, 2000, 2400, 2500}));
+    EXPECT_EQ(data.clock_delta, (std::vector<float>{200, 200, 400, 600, 400, 100}));
     EXPECT_EQ(data.sample_count, 6u);
     EXPECT_TRUE(data.sample_valid.empty());
 }
@@ -915,6 +918,7 @@ TEST(SpmJson, SampleEventAlignmentPreservesXccPadding)
 
     ASSERT_TRUE(alignSpmClockFromEvents(data, anchors, events));
     EXPECT_EQ(data.clock, (std::vector<float>{1000, 1100, 1200, 1000, 1100, 1100}));
+    EXPECT_EQ(data.clock_delta, (std::vector<float>{100, 100, 100, 100, 100, 100}));
     EXPECT_EQ(data.sample_valid, sample_valid);
     EXPECT_EQ(data.validSamples(0), 3u);
     EXPECT_EQ(data.validSamples(1), 2u);
@@ -1008,6 +1012,44 @@ TEST(SpmJson, SampleEventMatchingPreservesSmallDeltasAtLargeTimestamps)
         {{0, 1010}, {0, 1190}}
     ));
     EXPECT_EQ(data.clock, (std::vector<float>{1010, 1100, 1190}));
+}
+
+TEST(SpmJson, BuildsPerXccTimestampIntervals)
+{
+    SpmData spm;
+    spm.sample_count = 3;
+    spm.timestamps = {100, 110, 130, 105, 125, 125};
+    spm.sample_valid = {0b11111};
+
+    // The first interval and the padding copy the next interval.
+    EXPECT_EQ(timestampIntervals(spm), (std::vector<float>{10, 10, 20, 20, 20, 20}));
+}
+
+TEST(SpmJson, SingleSampleIntervalsDefaultToOne)
+{
+    SpmData spm;
+    spm.sample_count = 2;
+    spm.timestamps = {100, 100, 200, 200};
+    spm.sample_valid = {0b0001};
+
+    // XCC 0 has one sample; XCC 1 has none.
+    EXPECT_EQ(timestampIntervals(spm), (std::vector<float>{1, 1, 1, 1}));
+}
+
+TEST(SpmJson, ClockDeltasKeepCyclesBeyondFloatPrecision)
+{
+    // Float spacing is 2^16 cycles at 2^40, so deltas of the stored clock would be 0.
+    constexpr int64_t origin = int64_t{1} << 40;
+    auto data = clockSamples({1000, 1100, 1200});
+    ASSERT_TRUE(alignSpmClockFromEvents(
+        data,
+        {
+            {0, origin,       1000},
+            {0, origin + 200, 1200}
+    },
+        {{0, origin}, {0, origin + 100}, {0, origin + 200}}
+    ));
+    EXPECT_EQ(data.clock_delta, (std::vector<float>{100, 100, 100}));
 }
 
 TEST(SpmJson, MissingSpmSampleDoesNotShiftLaterEvents)

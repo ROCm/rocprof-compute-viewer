@@ -191,7 +191,9 @@ protected:
 
 private:
     std::vector<std::shared_ptr<DerivedCounter::Tensor>> sampled_counters{};
+    // Sample endpoints, used as the plot time axis.
     std::shared_ptr<DerivedCounter::Tensor> sampled_clock{};
+    std::shared_ptr<DerivedCounter::Tensor> sampled_clock_delta{};
     std::shared_ptr<DerivedCounter::Tensor> sampled_spm_clock{};
     bool clock_aligned = false;
 };
