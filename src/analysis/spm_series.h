@@ -36,7 +36,5 @@ struct Point
     float value = 0;
 };
 
-std::vector<float> timestampDeltas(const SpmData& spm);
-
 std::vector<Point> makePlotSeries(const DerivedCounter::Tensor& values, const DerivedCounter::Tensor& clock);
 } // namespace SpmSeries

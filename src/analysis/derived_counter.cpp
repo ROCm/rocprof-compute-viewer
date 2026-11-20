@@ -21,11 +21,14 @@
 // SOFTWARE.
 
 #include "derived_counter.h"
+#include <algorithm>
 #include <cctype>
 #include <cmath>
 #include <fstream>
 #include <iostream>
 #include <limits>
+#include <locale>
+#include <sstream>
 #include "util/diagnostic_log.h"
 
 namespace DerivedCounter
@@ -60,6 +63,28 @@ std::string axisToString(Axis axis)
     }
     return "Unknown";
 }
+
+namespace
+{
+// Qt applies the system locale, where std::stod may read "0.1" as 0.
+double parseNumber(const std::string& text)
+{
+    std::istringstream stream(text);
+    stream.imbue(std::locale::classic());
+    double value = 0;
+    stream >> value;
+    return value;
+}
+
+// Indexing operations need one dimension; only reductions accept Axis::All.
+size_t concreteAxis(Axis axis, const char* operation)
+{
+    const auto index = static_cast<size_t>(axis);
+    if (axis == Axis::All || index >= NUM_DIMS)
+        throw std::runtime_error(std::string(operation) + " requires a single axis, not " + axisToString(axis));
+    return index;
+}
+} // namespace
 
 // ============================================================================
 // Shape implementation
@@ -123,7 +148,7 @@ std::string Shape::toString() const
 
 Tensor::Tensor() : m_shape(), m_data(1, 0.0), m_xcc_indices{0} {}
 
-Tensor::Tensor(float scalar) : m_shape(1, 1, 1, 1), m_data(1, scalar), m_xcc_indices{0} {}
+Tensor::Tensor(float scalar) : m_shape(1, 1, 1, 1), m_data(1, scalar) {}
 
 Tensor::Tensor(const Shape& shape, float fillValue) :
 m_shape(shape), m_data(shape.totalSize(), fillValue), m_xcc_indices(shape.getXCC())
@@ -334,7 +359,7 @@ Tensor Tensor::minAll() const { return min({Axis::All}); }
 
 Tensor Tensor::select(int64_t index, Axis axis) const
 {
-    size_t axisIdx = static_cast<size_t>(axis);
+    size_t axisIdx = concreteAxis(axis, "select");
     int64_t axisSize = static_cast<int64_t>(m_shape.dimSize(axisIdx));
 
     // Handle negative indexing
@@ -387,7 +412,7 @@ Tensor Tensor::select(int64_t index, Axis axis) const
 
 Tensor Tensor::selectRange(size_t start, size_t stop, size_t step, Axis axis) const
 {
-    size_t axisIdx = static_cast<size_t>(axis);
+    size_t axisIdx = concreteAxis(axis, "select");
     size_t axisSize = m_shape.dimSize(axisIdx);
 
     if (start >= axisSize)
@@ -468,7 +493,7 @@ Tensor Tensor::selectRange(size_t start, size_t stop, size_t step, Axis axis) co
 
 Tensor Tensor::remove(int index, Axis axis) const
 {
-    size_t axisIdx = static_cast<size_t>(axis);
+    size_t axisIdx = concreteAxis(axis, "remove");
     size_t axisSize = m_shape.dimSize(axisIdx);
 
     if (axisSize <= 1)
@@ -556,7 +581,7 @@ Tensor Tensor::remove(int index, Axis axis) const
 
 Tensor Tensor::delta(Axis axis) const
 {
-    size_t axisIdx = static_cast<size_t>(axis);
+    size_t axisIdx = concreteAxis(axis, "delta");
     size_t axisSize = m_shape.dimSize(axisIdx);
 
     if (axisSize <= 1)
@@ -624,28 +649,38 @@ Tensor Tensor::delta(Axis axis) const
     return result;
 }
 
+std::vector<size_t> Tensor::mergedXccIndices(const Tensor& other, size_t result_xcc) const
+{
+    if (result_xcc > 1)
+    {
+        // Only an operand spanning every row says which XCC each row is.
+        // Rows pairing different hardware XCCs have no single clock: unknown.
+        const auto rows = [&](const Tensor& t)
+        { return t.m_shape.getXCC() == result_xcc ? t.m_xcc_indices : std::vector<size_t>{}; };
+        const auto a = rows(*this);
+        const auto b = rows(other);
+        if (a.empty() || a == b) return b;
+        return b.empty() ? a : std::vector<size_t>{};
+    }
+    if (isScalar() && !other.isScalar()) return other.m_xcc_indices;
+    if (other.isScalar() && !isScalar()) return m_xcc_indices;
+    // Generated operands contribute nothing. Different hardware XCCs combine
+    // as in an XCC reduction, independently of operand order.
+    std::vector<size_t> result = m_xcc_indices;
+    result.insert(result.end(), other.m_xcc_indices.begin(), other.m_xcc_indices.end());
+    std::sort(result.begin(), result.end());
+    result.erase(std::unique(result.begin(), result.end()), result.end());
+    return result;
+}
+
 // Template helper for broadcasting operations
 template <typename BinaryOp> Tensor Tensor::broadcastOp(const Tensor& other, BinaryOp op) const
 {
-    auto xcc_indices = [&](size_t result_xcc)
-    {
-        if (result_xcc > 1)
-        {
-            if (m_shape.getXCC() == result_xcc && m_xcc_indices.size() == result_xcc) return m_xcc_indices;
-            if (other.m_shape.getXCC() == result_xcc && other.m_xcc_indices.size() == result_xcc)
-                return other.m_xcc_indices;
-            return std::vector<size_t>{};
-        }
-        if (isScalar() && !other.isScalar()) return other.m_xcc_indices;
-        if (other.isScalar() && !isScalar()) return m_xcc_indices;
-        return m_xcc_indices == other.m_xcc_indices ? m_xcc_indices : std::vector<size_t>{};
-    };
-
     // Fast path for same-shape tensors (no broadcasting needed)
     if (m_shape == other.m_shape)
     {
         Tensor result(m_shape);
-        result.m_xcc_indices = xcc_indices(m_shape.getXCC());
+        result.m_xcc_indices = mergedXccIndices(other, m_shape.getXCC());
         if (m_validity.empty() && other.m_validity.empty())
         {
             for (size_t i = 0; i < m_data.size(); ++i) result[i] = op(m_data[i], other.m_data[i]);
@@ -663,7 +698,7 @@ template <typename BinaryOp> Tensor Tensor::broadcastOp(const Tensor& other, Bin
 
     Shape resultShape = Shape::broadcastShape(m_shape, other.m_shape);
     Tensor result(resultShape);
-    result.m_xcc_indices = xcc_indices(resultShape.getXCC());
+    result.m_xcc_indices = mergedXccIndices(other, resultShape.getXCC());
     if (!m_validity.empty() || !other.m_validity.empty()) result.allocateValidity();
 
     for (size_t xcc = 0; xcc < resultShape[0]; ++xcc)
@@ -708,6 +743,7 @@ template <typename BinaryOp> Tensor& Tensor::inPlaceOp(const Tensor& other, Bina
         *this = broadcastOp(other, op);
         return *this;
     }
+    m_xcc_indices = mergedXccIndices(other, m_shape.getXCC());
     if (m_validity.empty() && other.m_validity.empty())
     {
         for (size_t i = 0; i < size(); ++i) m_data[i] = op(m_data[i], other.m_data[i]);
@@ -1001,15 +1037,19 @@ Tensor operator&(float scalar, const Tensor& t) { return t & scalar; }
 // Create a tensor with linear values along an axis
 Tensor linear(size_t size, Axis axis)
 {
+    const size_t axis_index = concreteAxis(axis, "linear");
+    if (size == 0) throw std::runtime_error("linear() size must be positive");
     Shape shape(1, 1, 1, 1);
-    shape.dim[static_cast<size_t>(axis)] = size;
+    shape.dim[axis_index] = size;
 
+    // Generated values have no hardware XCC provenance.
     Tensor result(shape);
+    result.m_xcc_indices.clear();
     for (size_t i = 0; i < size; ++i)
     {
         // Set the value at position i along the specified axis
         size_t indices[NUM_DIMS] = {0, 0, 0, 0};
-        indices[static_cast<size_t>(axis)] = i;
+        indices[axis_index] = i;
         result.at(indices[0], indices[1], indices[2], indices[3]) = static_cast<float>(i);
     }
 
@@ -1181,8 +1221,9 @@ Tensor LinearExpr::evaluate(CounterContext& ctx) const
 {
     Tensor sizeTensor = m_size->evaluate(ctx);
     if (!sizeTensor.isScalar()) throw std::runtime_error("linear() size argument must be a scalar");
-    size_t size = static_cast<size_t>(sizeTensor.scalar());
-    return linear(size, m_axis);
+    const float size = sizeTensor.scalar();
+    if (!(size >= 1) || !std::isfinite(size)) throw std::runtime_error("linear() size must be positive");
+    return linear(static_cast<size_t>(size), m_axis);
 }
 
 std::string LinearExpr::toString() const
@@ -1463,7 +1504,7 @@ std::vector<Parser::Token> Parser::tokenize(const std::string& input)
             Token tok;
             tok.type = TokenType::Number;
             tok.text = input.substr(start, i - start);
-            tok.numValue = std::stod(tok.text);
+            tok.numValue = parseNumber(tok.text);
             tokens.push_back(tok);
             continue;
         }

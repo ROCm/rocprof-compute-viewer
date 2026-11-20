@@ -238,8 +238,12 @@ public:
     std::string toString() const;
 
 private:
+    friend Tensor linear(size_t size, Axis axis);
+
     Shape m_shape;
     std::vector<float> m_data;
+    // Hardware XCC that each XCC entry was measured on, used to pick its clock.
+    // Empty for generated values (literals, linear) or when it is unknown.
     std::vector<size_t> m_xcc_indices;
     // One bit per value. Empty means every value is valid.
     ValidityMask m_validity;
@@ -247,6 +251,7 @@ private:
     void allocateValidity();
     void setValid(size_t index);
     template <typename BinaryOp> Tensor& inPlaceOp(const Tensor& other, BinaryOp op);
+    std::vector<size_t> mergedXccIndices(const Tensor& other, size_t result_xcc) const;
 
     // Helper for reduction operations
     template <typename ReduceOp> Tensor reduceAxes(const std::vector<Axis>& axes, ReduceOp op, float identity) const;

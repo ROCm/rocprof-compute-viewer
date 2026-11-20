@@ -309,7 +309,37 @@ Timelines buildTimelines(const GroupedSamples& groups, size_t xcc_count, bool re
     }
     return timelines;
 }
+
+// Writes one XCC row of `delta`. intervals[sample] is the length of the window
+// ending at that sample. The first window has no start, so it copies the next
+// interval, as the plot does; a lone sample uses 1 so divisions stay finite.
+// Padding repeats the first interval.
+void storeIntervals(std::vector<double> intervals, std::vector<float>& delta, size_t xcc, size_t sample_count)
+{
+    if (intervals.empty()) return;
+    intervals.front() = intervals.size() > 1 ? intervals[1] : 1;
+    float* row = delta.data() + xcc * sample_count;
+    for (size_t sample = 0; sample < sample_count; ++sample)
+        row[sample] = static_cast<float>(sample < intervals.size() ? intervals[sample] : intervals.front());
+}
 } // namespace
+
+std::vector<float> timestampIntervals(const SpmData& spm)
+{
+    std::vector<float> result(spm.timestamps.size(), 1);
+    for (size_t xcc = 0; xcc < spm.xccCount(); ++xcc)
+    {
+        const size_t count = spm.validSamples(xcc);
+        if (count == 0) continue;
+
+        const uint64_t* timestamps = spm.timestamps.data() + xcc * spm.sample_count;
+        std::vector<double> intervals(count, 0);
+        for (size_t sample = 1; sample < count; ++sample)
+            intervals[sample] = static_cast<double>(timestamps[sample] - timestamps[sample - 1]);
+        storeIntervals(std::move(intervals), result, xcc, spm.sample_count);
+    }
+    return result;
+}
 
 SpmData loadSpmJson(const std::string& path)
 {
@@ -502,6 +532,7 @@ SpmData loadSpmJson(const std::string& path)
             result.clock[xcc * result.sample_count + sample++] = last_clock;
         }
     }
+    result.clock_delta = timestampIntervals(result);
 
     for (auto& [counter_id, info] : metadata)
     {
@@ -609,6 +640,7 @@ bool alignSpmClock(SpmData& spm, const std::vector<SpmClockAnchor>& anchors)
     if (!sq_cycles && (!has_fallback_slope || !spmClockRangesOverlap(spm, anchors))) return false;
 
     std::vector<float> aligned_clock = spm.clock;
+    std::vector<float> aligned_delta(spm.clock.size(), 1);
     for (size_t xcc = 0; xcc < spm.xccCount(); ++xcc)
     {
         const size_t count = spm.validSamples(xcc);
@@ -658,9 +690,11 @@ bool alignSpmClock(SpmData& spm, const std::vector<SpmClockAnchor>& anchors)
             aligned_clock[xcc * spm.sample_count + sample] = static_cast<float>(xcc_clock[sample]);
         for (size_t sample = count; sample < spm.sample_count; ++sample)
             aligned_clock[xcc * spm.sample_count + sample] = static_cast<float>(xcc_clock.back());
+        storeIntervals(std::move(interval_cycles), aligned_delta, xcc, spm.sample_count);
     }
 
     spm.clock = std::move(aligned_clock);
+    spm.clock_delta = std::move(aligned_delta);
     spm.clock_aligned = true;
     return true;
 }
@@ -709,6 +743,7 @@ bool alignSpmClockFromEvents(
         if (sample_anchors.size() < 2) continue;
 
         std::vector<float> aligned_clock = spm.clock;
+        std::vector<float> aligned_delta(spm.clock.size(), 1);
         bool aligned = false;
         for (size_t xcc = 0; xcc < spm.xccCount(); ++xcc)
         {
@@ -741,6 +776,7 @@ bool alignSpmClockFromEvents(
 
             auto left = matched.begin();
             auto right = std::next(left);
+            std::vector<long double> xcc_clock(count);
             for (size_t sample = 0; sample < count; ++sample)
             {
                 while (sample > right->first && std::next(right) != matched.end()) left = right++;
@@ -749,16 +785,23 @@ bool alignSpmClockFromEvents(
                 // Matched samples keep the event clock, up to float precision.
                 // Missing events are interpolated; samples outside the matches
                 // use the end pair.
-                aligned_clock[xcc * spm.sample_count + sample] =
+                xcc_clock[sample] =
                     left->second.shader_clock +
                     fraction * (static_cast<long double>(right->second.shader_clock) - left->second.shader_clock);
+                aligned_clock[xcc * spm.sample_count + sample] = static_cast<float>(xcc_clock[sample]);
             }
             for (size_t sample = count; sample < spm.sample_count; ++sample)
                 aligned_clock[xcc * spm.sample_count + sample] = aligned_clock[xcc * spm.sample_count + count - 1];
+
+            std::vector<double> intervals(count, 0);
+            for (size_t sample = 1; sample < count; ++sample)
+                intervals[sample] = static_cast<double>(xcc_clock[sample] - xcc_clock[sample - 1]);
+            storeIntervals(std::move(intervals), aligned_delta, xcc, spm.sample_count);
             aligned = true;
         }
         if (!aligned) continue;
         spm.clock = std::move(aligned_clock);
+        spm.clock_delta = std::move(aligned_delta);
         spm.clock_aligned = true;
         return true;
     }
