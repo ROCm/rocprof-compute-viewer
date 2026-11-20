@@ -96,8 +96,7 @@ public:
     static int64_t global_max_sqtt_latency;
     static int64_t global_max_pcs_latency;
 
-protected:
-    void changeEvent(QEvent* event) override;
+    void refreshLayout();
 
 private:
     int sizex = 0;

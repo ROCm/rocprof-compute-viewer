@@ -115,8 +115,6 @@ public:
 
     static uint64_t ToMask(const std::vector<bool>& list);
 
-    void PrevSearch();
-    void NextSearch();
     void DoSearch(bool forward);
     void FocusSearch();
     void SetSearchText(const std::string& text);
@@ -238,7 +236,6 @@ private:
     int slider_global;
     int current_search_pos = 0;
     std::string last_search_term;
-    bool search_case_sensitive = false;
 
     std::unordered_set<std::string> disabled_counters{};
 

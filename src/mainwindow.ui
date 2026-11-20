@@ -36,6 +36,12 @@
        <enum>Qt::Horizontal</enum>
       </property>
       <widget class="QTabWidget" name="tabWidget_3">
+       <property name="minimumSize">
+        <size>
+         <width>220</width>
+         <height>0</height>
+        </size>
+       </property>
        <property name="maximumSize">
         <size>
          <width>16777215</width>
@@ -53,11 +59,8 @@
          <property name="spacing">
           <number>6</number>
          </property>
-         <property name="sizeConstraint">
-          <enum>QLayout::SetMinimumSize</enum>
-         </property>
          <item>
-          <layout class="QHBoxLayout" name="horizontalLayout" stretch="0,0,0,0,0">
+          <layout class="QHBoxLayout" name="horizontalLayout" stretch="1,1,1,1,0">
            <property name="spacing">
             <number>1</number>
            </property>
@@ -69,7 +72,7 @@
              <item>
               <widget class="QPushButton" name="ShaderSel">
                <property name="sizePolicy">
-                <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+                <sizepolicy hsizetype="Ignored" vsizetype="Fixed">
                  <horstretch>0</horstretch>
                  <verstretch>0</verstretch>
                 </sizepolicy>
@@ -89,7 +92,7 @@
              <item>
               <widget class="QPushButton" name="SimdSel">
                <property name="sizePolicy">
-                <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+                <sizepolicy hsizetype="Ignored" vsizetype="Fixed">
                  <horstretch>0</horstretch>
                  <verstretch>0</verstretch>
                 </sizepolicy>
@@ -109,7 +112,7 @@
              <item>
               <widget class="QPushButton" name="WSLSel">
                <property name="sizePolicy">
-                <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+                <sizepolicy hsizetype="Ignored" vsizetype="Fixed">
                  <horstretch>0</horstretch>
                  <verstretch>0</verstretch>
                 </sizepolicy>
@@ -129,7 +132,7 @@
              <item>
               <widget class="QPushButton" name="WIDSel">
                <property name="sizePolicy">
-                <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+                <sizepolicy hsizetype="Ignored" vsizetype="Fixed">
                  <horstretch>0</horstretch>
                  <verstretch>0</verstretch>
                 </sizepolicy>
@@ -346,6 +349,12 @@
              </property>
              <item>
               <widget class="QPushButton" name="prev_inst">
+               <property name="sizePolicy">
+                <sizepolicy hsizetype="Ignored" vsizetype="Fixed">
+                 <horstretch>0</horstretch>
+                 <verstretch>0</verstretch>
+                </sizepolicy>
+               </property>
                <property name="text">
                 <string>Prev</string>
                </property>
@@ -353,6 +362,12 @@
              </item>
              <item>
               <widget class="QPushButton" name="next_inst">
+               <property name="sizePolicy">
+                <sizepolicy hsizetype="Ignored" vsizetype="Fixed">
+                 <horstretch>0</horstretch>
+                 <verstretch>0</verstretch>
+                </sizepolicy>
+               </property>
                <property name="text">
                 <string>Next</string>
                </property>
@@ -401,9 +416,6 @@
          <string>Plots</string>
         </attribute>
         <layout class="QVBoxLayout" name="verticalLayout_7" stretch="0">
-         <property name="sizeConstraint">
-          <enum>QLayout::SetMinimumSize</enum>
-         </property>
          <item>
           <layout class="QVBoxLayout" name="verticalLayout" stretch="0,1,0,0">
            <property name="spacing">

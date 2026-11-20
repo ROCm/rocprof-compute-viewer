@@ -73,6 +73,28 @@ struct PlotCurve
     void UpdateLOD(float range, int width, int bias);
 };
 
+struct LegendLayoutItem
+{
+    size_t index;
+    QString label;
+};
+
+struct LegendLayoutResult
+{
+    std::vector<std::pair<size_t, QPoint>> positions;
+    int last_row_y = 0;
+};
+
+LegendLayoutResult ComputeCenteredLegendLayout(
+    const std::vector<LegendLayoutItem>& items,
+    const QFontMetrics& fm,
+    int total_width,
+    int left_x,
+    int right_limit,
+    int start_y,
+    int margin
+);
+
 class PlotGraph : public BasePlotWidget
 {
     Q_OBJECT
@@ -104,6 +126,7 @@ public:
     {
         for (auto& curve : curves)
             if (curve.fullname == name) curve.disabled = disable;
+        updateLayoutMetrics();
         updateGeometry();
     }
 
@@ -112,6 +135,8 @@ public:
         for (auto& name : names) setDisabled(name.first, name.second);
         update();
     }
+
+    void updateLayoutMetrics();
 
     std::vector<std::pair<std::string, bool>> getDisabled() const
     {
@@ -128,9 +153,9 @@ private slots:
 
 protected:
     virtual bool supportsTraceAlignment() const { return true; }
-    QSize minimumSizeHint() const override;
     void paintEvent(QPaintEvent*) override;
     void resizeEvent(QResizeEvent*) override;
+    void changeEvent(QEvent*) override;
     virtual void UpdateGraphTable(float timepos) = 0;
     bool applyAlignedRange();
     int lodBias = 0;
@@ -150,6 +175,9 @@ protected:
     std::vector<PlotCurve> curves;
 
 private:
+    QFont plotFont() const;
+    LegendLayoutResult computeLegendForWidth(int available_width, const QFontMetrics& fm, int plot_left) const;
+    std::vector<std::pair<size_t, QPoint>> legend_positions;
     int bottom_space = 20;
     int top_space = 35;
     int left_space = 50;

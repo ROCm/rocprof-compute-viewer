@@ -81,10 +81,27 @@ void HotspotView::Compile()
             for (int64_t value : bin.cycles) acc += value;
             max_value = std::max(max_value, 1.04 * acc);
         }
+    updateLayoutMetrics();
     updateGeometry();
 }
 
-QSize HotspotView::minimumSizeHint() const
+LegendLayoutResult HotspotView::computeLegendForWidth(int available_width, const QFontMetrics& legend_metrics) const
+{
+    const int margin = 8;
+    std::vector<LegendLayoutItem> items;
+    for (size_t i = 0; i < Config::TokenColors().size(); i++)
+    {
+        bool enabled = false;
+        for (const auto& bin : bins)
+            if (i < bin.cycles.size() && bin.cycles.at(i) > 0) enabled = true;
+        if (enabled) items.push_back({i, QString::fromStdString(Config::TokenColors().at(i).name)});
+    }
+    return ComputeCenteredLegendLayout(
+        items, legend_metrics, available_width, margin, available_width - margin, margin, margin
+    );
+}
+
+void HotspotView::updateLayoutMetrics()
 {
     const int margin = 8;
     const int top_font_value = MainWindow::font() + IF_QT6_ELSE(1, 0);
@@ -92,39 +109,27 @@ QSize HotspotView::minimumSizeHint() const
     QFont font = MainWindow::default_font.isEmpty() ? this->font() : QFont(MainWindow::default_font);
     font.setPointSize(top_font_value);
     const QFontMetrics legend_metrics(font);
-    const int font_height = legend_metrics.height();
     const int available_width = width() > 0 ? width() : 640;
-    int legend_x = margin;
-    int legend_y = margin;
-
-    for (size_t i = 0; i < Config::TokenColors().size(); i++)
-    {
-        bool enabled = false;
-        for (const auto& bin : bins)
-            if (i < bin.cycles.size() && bin.cycles.at(i) > 0) enabled = true;
-        if (!enabled) continue;
-
-        const int item_width =
-            font_height * 3 / 2 + legend_metrics.horizontalAdvance(Config::TokenColors().at(i).name.c_str());
-        if (legend_x > margin && legend_x + item_width > available_width - margin)
-        {
-            legend_x = margin;
-            legend_y += font_height + margin;
-        }
-        legend_x += item_width;
-    }
+    const LegendLayoutResult legend = computeLegendForWidth(available_width, legend_metrics);
+    legend_positions = legend.positions;
 
     font.setPointSize(bottom_font_value);
     const QFontMetrics label_metrics(font);
-    const int top_space = legend_y + font_height + label_metrics.height() + margin;
-    const int bottom_space = margin * 3 + 2 * label_metrics.height();
-    return QSize(0, top_space + bottom_space + 80);
+    top_space = legend.last_row_y + legend_metrics.height() + label_metrics.height() + margin;
+    bottom_space = margin * 3 + 2 * label_metrics.height();
+    left_side_x = std::max(40, label_metrics.horizontalAdvance("999.9M") + 2 * margin);
 }
 
 void HotspotView::resizeEvent(QResizeEvent* event)
 {
     BaseHistogramWidget::resizeEvent(event);
-    if (event->oldSize().width() != event->size().width()) updateGeometry();
+    if (event->oldSize().width() != event->size().width()) updateLayoutMetrics();
+}
+
+void HotspotView::changeEvent(QEvent* event)
+{
+    BaseHistogramWidget::changeEvent(event);
+    if (event->type() == QEvent::FontChange) updateLayoutMetrics();
 }
 
 // Highlights first and last line
@@ -190,33 +195,11 @@ void HotspotView::paintEvent(QPaintEvent* event)
 
     const QFontMetrics legendMetrics(font);
     const int font_height = legendMetrics.height();
-    std::vector<std::pair<size_t, QPoint>> legend;
-    int legend_x = margin;
-    int legend_y = margin;
-    for (size_t i = 0; i < Config::TokenColors().size(); i++)
-    {
-        bool enabled = false;
-        for (auto& bin : bins)
-            if (i < bin.cycles.size() && bin.cycles.at(i) > 0) enabled = true;
-        if (!enabled) continue;
-        int item_width =
-            font_height * 3 / 2 + legendMetrics.horizontalAdvance(Config::TokenColors().at(i).name.c_str());
-        if (legend_x > margin && legend_x + item_width > width() - margin)
-        {
-            legend_x = margin;
-            legend_y += font_height + margin;
-        }
-        legend.emplace_back(i, QPoint(legend_x, legend_y));
-        legend_x += item_width;
-    }
     font.setPointSize(bottom_font_value);
     const QFontMetrics labelMetrics(font);
-    int top_space = legend_y + font_height + labelMetrics.height() + margin;
-    int bottom_space = margin * 3 + 2 * labelMetrics.height();
 
     int start_y = height() - bottom_space;
     int num_divs = std::max(1, (start_y - top_space) / std::max(80, 2 * labelMetrics.height()));
-    int left_side_x = std::max(40, labelMetrics.horizontalAdvance("999.9M") + 2 * margin);
     int width_x = std::max(0, width() - left_side_x - margin);
     double bar_width = width_x / (2 * bins.size() + 1.0);
     double bar_wid_multiplier = 1.25;
@@ -327,7 +310,7 @@ void HotspotView::paintEvent(QPaintEvent* event)
     pen.setColor(WindowColors::textColor());
     painter.setPen(pen);
 
-    for (auto& [index, pos] : legend)
+    for (const auto& [index, pos] : legend_positions)
     {
         const auto& color = Config::TokenColors().at(index);
         painter.fillRect(

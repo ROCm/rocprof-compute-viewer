@@ -78,15 +78,11 @@ parent(_parent), filename(_filename)
     setMouseTracking(true);
 }
 
-void SourceFile::changeEvent(QEvent* event)
+void SourceFile::refreshLayout()
 {
-    Super::changeEvent(event);
-    if (event->type() == QEvent::FontChange)
-    {
-        sizex = 0;
-        for (auto& line : lines) line->InvalidateCache();
-        update();
-    }
+    sizex = 0;
+    for (auto& line : lines) line->InvalidateCache();
+    update();
 }
 
 void SourceFile::paintEvent(class QPaintEvent* event)

@@ -26,6 +26,7 @@
 #include <atomic>
 #include <vector>
 #include "data/wavemanager.h"
+#include "graphics/plot.h"
 #include "util/custom_layouts.h"
 
 #ifdef RCV_DISABLE_OPENGL
@@ -53,9 +54,10 @@ public:
     HotspotView(int begin, int end, int bins, double max_value);
     void Add(const TokenMap& tokens);
     void Compile();
-    QSize minimumSizeHint() const override;
+    void updateLayoutMetrics();
     void paintEvent(QPaintEvent*) override;
     void resizeEvent(QResizeEvent*) override;
+    void changeEvent(QEvent*) override;
 
     void HighlightLines(int bin);
     virtual void mouseMoveEvent(QMouseEvent*) override;
@@ -68,4 +70,11 @@ protected:
     const int code_end;
     int step;
     std::vector<HotspotBin> bins;
+
+private:
+    LegendLayoutResult computeLegendForWidth(int available_width, const QFontMetrics& legend_metrics) const;
+    std::vector<std::pair<size_t, QPoint>> legend_positions;
+    int top_space = 35;
+    int bottom_space = 35;
+    int left_side_x = 40;
 };
