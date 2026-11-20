@@ -2178,3 +2178,41 @@ TEST(ElementWiseFuncTest, MinTooFewArgumentsFails)
     Parser parser;
     EXPECT_THROW(parser.parseExpression("min(A)"), std::runtime_error);
 }
+
+TEST(GeneratorTest, EmptyAndUnboundedGeneratorsAreRejected)
+{
+    CounterContext context;
+    Parser parser;
+    EXPECT_THROW(parser.parseExpression("linear(0) + 1")->evaluate(context), std::runtime_error);
+    EXPECT_THROW(parser.parseExpression("linear(-1)")->evaluate(context), std::runtime_error);
+}
+
+TEST(GeneratorTest, IndexingOperationsRequireOneAxis)
+{
+    CounterContext context;
+    context.setCounter("C", std::make_shared<Tensor>(Shape(1, 1, 1, 3), std::vector<float>{1, 2, 3}));
+    Parser parser;
+    for (const char* expression :
+         {"linear(3, axis=All)",
+          "select[C, 0, axis=All]",
+          "select[C, 0:2, axis=All]",
+          "remove[C, 0, axis=All]",
+          "delta[C, axis=All]"})
+        EXPECT_THROW(parser.parseExpression(expression)->evaluate(context), std::runtime_error) << expression;
+}
+
+TEST(GeneratorTest, OperandOrderKeepsTheSelectedXcc)
+{
+    CounterContext context;
+    context.setCounter("C", std::make_shared<Tensor>(Shape(2, 1, 1, 4), std::vector<float>{1, 2, 3, 4, 5, 6, 7, 8}));
+    Parser parser;
+    const auto left = parser.parseExpression("select[C, 1, axis=XCC] * (linear(NUM_SAMPLES) > 0)")->evaluate(context);
+    const auto right = parser.parseExpression("(linear(NUM_SAMPLES) > 0) * select[C, 1, axis=XCC]")->evaluate(context);
+    EXPECT_EQ(left.data(), right.data());
+    EXPECT_EQ(left.xccIndices(), (std::vector<size_t>{1}));
+    EXPECT_EQ(right.xccIndices(), (std::vector<size_t>{1}));
+
+    // Different hardware XCCs combine like an XCC reduction in either order.
+    const auto sum = parser.parseExpression("select[C, 1, axis=XCC] + select[C, 0, axis=XCC]")->evaluate(context);
+    EXPECT_EQ(sum.xccIndices(), (std::vector<size_t>{0, 1}));
+}

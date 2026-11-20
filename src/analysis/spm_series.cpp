@@ -23,6 +23,7 @@
 #include "spm_series.h"
 
 #include <algorithm>
+#include <cmath>
 #include <queue>
 #include <tuple>
 
@@ -50,27 +51,37 @@ size_t validSamples(const DerivedCounter::Tensor& values, const DerivedCounter::
     return count;
 }
 
+// Averages the intervals of the XCCs valid at each sample and accumulates them.
+// While every XCC participates this equals the average endpoint; when a shorter
+// XCC ends, time keeps advancing with the remaining XCCs instead of jumping back.
 DerivedCounter::Tensor averageClock(const DerivedCounter::Tensor& values, const DerivedCounter::Tensor& clock)
 {
     const size_t samples = clock.shape().getSamples();
     std::vector<float> data(samples);
     DerivedCounter::ValidityMask valid(Validity::words(samples), 0);
+    double time = 0;
     for (size_t sample = 0; sample < samples; ++sample)
     {
+        double total = 0;
         size_t count = 0;
         for (size_t xcc : values.xccIndices())
             if (xcc < clock.shape().getXCC() && clock.isValid(clock.linearIndex(xcc, 0, 0, sample)))
             {
-                data[sample] += clock.at(xcc, 0, 0, sample);
+                total += sample == 0 ? clock.at(xcc, 0, 0, 0) : clock.at(xcc, 0, 0, sample) - clock.at(xcc, 0, 0, sample - 1);
                 ++count;
             }
-        if (count)
-        {
-            data[sample] /= count;
-            Validity::set(valid, sample);
-        }
+        if (!count) break;
+        time = sample == 0 ? total / count : time + total / count;
+        data[sample] = static_cast<float>(time);
+        Validity::set(valid, sample);
     }
     return DerivedCounter::Tensor({1, 1, 1, samples}, data, valid);
+}
+
+// Non-finite results, such as ratios over zero activity, are not plotted.
+bool plottable(const DerivedCounter::Tensor& values, size_t index)
+{
+    return values.isValid(index) && std::isfinite(values[index]);
 }
 } // namespace
 
@@ -95,7 +106,7 @@ static std::vector<Point> interval(
     for (size_t sample = 0; sample < samples; ++sample)
     {
         const size_t index = values.linearIndex(xcc, 0, 0, sample);
-        if (!values.isValid(index)) continue;
+        if (!plottable(values, index)) continue;
         const float time =
             sample == 0 ? firstWindowStart(clock, clock_xcc, samples) : clock.at(clock_xcc, 0, 0, sample - 1);
         result.push_back({time, values[index]});
@@ -139,7 +150,7 @@ static std::vector<Point> mergeXcc(const DerivedCounter::Tensor& values, const D
             const size_t xcc = std::get<1>(event);
             size_t sample = std::get<2>(event);
             const size_t index = values.linearIndex(xcc, 0, 0, sample);
-            if (values.isValid(index))
+            if (plottable(values, index))
             {
                 current[xcc] = values[index];
                 changed = true;

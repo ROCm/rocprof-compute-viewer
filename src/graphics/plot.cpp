@@ -71,6 +71,15 @@ float LODCurve::search(float time) const
 void PlotCurve::SetData(std::vector<WeightedPoint>&& data)
 {
     int n_lods = 0;
+    // Non-finite points would make the shared scale infinite and cannot be drawn.
+    data.erase(
+        std::remove_if(
+            data.begin(),
+            data.end(),
+            [](const WeightedPoint& point) { return !std::isfinite(point.time) || !std::isfinite(point.value); }
+        ),
+        data.end()
+    );
     ymax = 1E-3;
     for (auto& elem : data) ymax = std::max(ymax, 1.025 * elem.value);
 
@@ -425,7 +434,8 @@ void PlotGraph::paintEvent(QPaintEvent* ev)
 
 void PlotGraph::AddData(std::string name, QColor color, std::vector<WeightedPoint>&& data)
 {
-    for (const auto& point : data) xmax = std::max(xmax, (double) point.time);
+    for (const auto& point : data)
+        if (std::isfinite(point.time) && std::isfinite(point.value)) xmax = std::max(xmax, (double) point.time);
 
     PlotCurve& curve = curves.emplace_back(PlotCurve{});
     curve.fullname = name;
