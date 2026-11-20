@@ -15,7 +15,7 @@ option(RCV_FETCH_TRACE_DECODER_WITH_DISASSEMBLY
        "When fetching rocprof-trace-decoder, build with a disassembly backend (amd_comgr)" ON)
 set(RCV_TRACE_DECODER_REPO "https://github.com/ROCm/rocm-systems.git"
     CACHE STRING "Git repository for rocprof-trace-decoder")
-set(RCV_TRACE_DECODER_TAG "develop"
+set(RCV_TRACE_DECODER_TAG "users/gbaraldi/markerapi"
     CACHE STRING "Git branch/tag for rocprof-trace-decoder")
 if(NOT DEFINED RCV_TRACE_DECODER_FETCH_DIR)
     get_filename_component(_rcv_repo_root "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
@@ -107,6 +107,31 @@ function(rcv_fetch_trace_decoder)
         if(NOT _sparse_result EQUAL 0)
             message(FATAL_ERROR "Failed to sparse-checkout ${_subdir}")
         endif()
+        file(WRITE "${_src_dir}/.rcv_trace_decoder_tag" "${RCV_TRACE_DECODER_TAG}")
+    endif()
+
+    # An existing checkout may be from a different branch/tag; re-sync it so
+    # changing RCV_TRACE_DECODER_TAG does not silently keep the old sources.
+    set(_fetched_tag "")
+    if(EXISTS "${_src_dir}/.rcv_trace_decoder_tag")
+        file(READ "${_src_dir}/.rcv_trace_decoder_tag" _fetched_tag)
+    endif()
+    if(NOT _fetched_tag STREQUAL RCV_TRACE_DECODER_TAG)
+        message(STATUS "Switching rocprof-trace-decoder checkout to ${RCV_TRACE_DECODER_TAG}")
+        execute_process(
+            COMMAND ${GIT_EXECUTABLE} -C ${_src_dir} fetch --filter=blob:none --depth 1
+                    ${RCV_TRACE_DECODER_REPO} ${RCV_TRACE_DECODER_TAG}
+            RESULT_VARIABLE _fetch_result)
+        if(NOT _fetch_result EQUAL 0)
+            message(FATAL_ERROR "Failed to fetch ${RCV_TRACE_DECODER_TAG} from ${RCV_TRACE_DECODER_REPO}")
+        endif()
+        execute_process(
+            COMMAND ${GIT_EXECUTABLE} -C ${_src_dir} checkout --detach FETCH_HEAD
+            RESULT_VARIABLE _checkout_result)
+        if(NOT _checkout_result EQUAL 0)
+            message(FATAL_ERROR "Failed to check out ${RCV_TRACE_DECODER_TAG}")
+        endif()
+        file(WRITE "${_src_dir}/.rcv_trace_decoder_tag" "${RCV_TRACE_DECODER_TAG}")
     endif()
     if(NOT EXISTS "${_decoder_src}/CMakeLists.txt")
         message(FATAL_ERROR "rocprof-trace-decoder checkout is incomplete at ${_decoder_src}")
