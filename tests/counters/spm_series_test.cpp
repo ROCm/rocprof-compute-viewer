@@ -1,22 +1,13 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <cmath>
 #include <memory>
 
 #include "analysis/spm_series.h"
 
 using DerivedCounter::Shape;
 using DerivedCounter::Tensor;
-
-TEST(SpmSeries, BuildsPerXccTimestampDeltas)
-{
-    SpmData spm;
-    spm.sample_count = 3;
-    spm.timestamps = {100, 110, 130, 105, 125, 125};
-    spm.sample_valid = {0b11111};
-
-    EXPECT_EQ(SpmSeries::timestampDeltas(spm), (std::vector<float>{15, 10, 20, 20, 20, 20}));
-}
 
 TEST(SpmSeries, PlacesValuesAtIntervalStarts)
 {
@@ -141,4 +132,43 @@ TEST(SpmSeries, XccReductionUsesAverageClock)
     EXPECT_FLOAT_EQ(points[2].time, 22);
     EXPECT_FLOAT_EQ(points[2].value, 33);
     EXPECT_FLOAT_EQ(points[3].time, 32);
+}
+
+TEST(SpmSeries, XccReductionEndsWithTheShortestXcc)
+{
+    Tensor values(Shape(2, 1, 1, 4), std::vector<float>{1, 2, 3, 4, 10, 20, 0, 0}, {0x3f});
+    Tensor clock(Shape(2, 1, 1, 4), std::vector<float>{100, 110, 120, 130, 100, 140, 140, 140}, {0x3f});
+
+    const auto points = SpmSeries::makePlotSeries(values.sum({DerivedCounter::Axis::XCC}), clock);
+
+    // Average endpoints 100 and 125; later samples only contain XCC 0.
+    ASSERT_EQ(points.size(), 3u);
+    EXPECT_FLOAT_EQ(points[0].time, 75);
+    EXPECT_FLOAT_EQ(points[0].value, 11);
+    EXPECT_FLOAT_EQ(points[1].time, 100);
+    EXPECT_FLOAT_EQ(points[1].value, 22);
+    EXPECT_FLOAT_EQ(points[2].time, 125);
+}
+
+TEST(SpmSeries, TimeReductionsSpanTheCapture)
+{
+    Tensor clock(Shape(1, 1, 1, 3), std::vector<float>{100, 200, 300});
+
+    const auto points = SpmSeries::makePlotSeries(Tensor(Shape(1, 1, 1, 1), 5), clock);
+
+    ASSERT_FALSE(points.empty());
+    EXPECT_FLOAT_EQ(points.front().time, 0);
+    EXPECT_FLOAT_EQ(points.back().time, 300);
+    for (const auto& point : points) EXPECT_FLOAT_EQ(point.value, 5);
+}
+
+TEST(SpmSeries, LoneSampleHasUnitWidth)
+{
+    Tensor clock(Shape(1, 1, 1, 1), std::vector<float>{0});
+
+    const auto points = SpmSeries::makePlotSeries(Tensor(Shape(1, 1, 1, 1), 100), clock);
+
+    ASSERT_EQ(points.size(), 2u);
+    EXPECT_FLOAT_EQ(points.front().time, -1);
+    EXPECT_FLOAT_EQ(points.back().time, 0);
 }

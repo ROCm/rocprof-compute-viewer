@@ -36,20 +36,31 @@ size_t clockXcc(const DerivedCounter::Tensor& values, size_t xcc)
     return indices.size() == values.shape().getXCC() ? indices[xcc] : xcc;
 }
 
+// A lone sample has no measured width; use 1, as SpmData::clock_delta does.
 float firstWindowStart(const DerivedCounter::Tensor& clock, size_t xcc, size_t samples)
 {
     const float endpoint = clock.at(xcc, 0, 0, 0);
-    return samples > 1 ? endpoint - (clock.at(xcc, 0, 0, 1) - endpoint) : endpoint;
+    return samples > 1 ? endpoint - (clock.at(xcc, 0, 0, 1) - endpoint) : endpoint - 1;
+}
+
+// A single TIME entry, such as a TIME reduction, applies to every sample.
+size_t valueIndex(const DerivedCounter::Tensor& values, size_t xcc, size_t sample)
+{
+    return values.linearIndex(xcc, 0, 0, values.shape().getSamples() == 1 ? 0 : sample);
 }
 
 size_t validSamples(const DerivedCounter::Tensor& values, const DerivedCounter::Tensor& clock, size_t xcc)
 {
     const size_t clock_xcc = clockXcc(values, xcc);
-    size_t count = std::min(values.shape().getSamples(), clock.shape().getSamples());
+    const size_t value_samples = values.shape().getSamples();
+    size_t count = value_samples == 1 ? clock.shape().getSamples() : std::min(value_samples, clock.shape().getSamples());
     while (count > 0 && !clock.isValid(clock.linearIndex(clock_xcc, 0, 0, count - 1))) --count;
     return count;
 }
 
+// Average endpoint of the reduced XCCs. Once one of them has no more samples,
+// the remaining values are partial reductions without a common time, so the
+// clock ends there.
 DerivedCounter::Tensor averageClock(const DerivedCounter::Tensor& values, const DerivedCounter::Tensor& clock)
 {
     const size_t samples = clock.shape().getSamples();
@@ -57,46 +68,23 @@ DerivedCounter::Tensor averageClock(const DerivedCounter::Tensor& values, const 
     DerivedCounter::ValidityMask valid(Validity::words(samples), 0);
     for (size_t sample = 0; sample < samples; ++sample)
     {
+        double total = 0;
         size_t count = 0;
+        bool complete = true;
         for (size_t xcc : values.xccIndices())
-            if (xcc < clock.shape().getXCC() && clock.isValid(clock.linearIndex(xcc, 0, 0, sample)))
-            {
-                data[sample] += clock.at(xcc, 0, 0, sample);
-                ++count;
-            }
-        if (count)
         {
-            data[sample] /= count;
-            Validity::set(valid, sample);
+            if (xcc >= clock.shape().getXCC()) continue;
+            complete = complete && clock.isValid(clock.linearIndex(xcc, 0, 0, sample));
+            total += clock.at(xcc, 0, 0, sample);
+            ++count;
         }
+        if (!complete || !count) break;
+        data[sample] = static_cast<float>(total / count);
+        Validity::set(valid, sample);
     }
     return DerivedCounter::Tensor({1, 1, 1, samples}, data, valid);
 }
 } // namespace
-
-std::vector<float> timestampDeltas(const SpmData& spm)
-{
-    std::vector<float> result(spm.timestamps.size(), 0);
-    for (size_t xcc = 0; xcc < spm.xccCount(); ++xcc)
-    {
-        const size_t count = spm.validSamples(xcc);
-        if (count == 0) continue;
-
-        const size_t base = xcc * spm.sample_count;
-        double total = 0;
-        for (size_t sample = 1; sample < count; ++sample)
-        {
-            const uint64_t delta = spm.timestamps[base + sample] - spm.timestamps[base + sample - 1];
-            result[base + sample] = static_cast<float>(delta);
-            total += delta;
-        }
-
-        const float average = count > 1 ? static_cast<float>(total / (count - 1)) : 0.0f;
-        result[base] = average;
-        for (size_t sample = count; sample < spm.sample_count; ++sample) result[base + sample] = average;
-    }
-    return result;
-}
 
 static DerivedCounter::Tensor sumSpatial(const DerivedCounter::Tensor& values)
 {
@@ -118,7 +106,7 @@ static std::vector<Point> interval(
     result.reserve(samples + 1);
     for (size_t sample = 0; sample < samples; ++sample)
     {
-        const size_t index = values.linearIndex(xcc, 0, 0, sample);
+        const size_t index = valueIndex(values, xcc, sample);
         if (!values.isValid(index)) continue;
         const float time =
             sample == 0 ? firstWindowStart(clock, clock_xcc, samples) : clock.at(clock_xcc, 0, 0, sample - 1);
@@ -162,7 +150,7 @@ static std::vector<Point> mergeXcc(const DerivedCounter::Tensor& values, const D
             events.pop();
             const size_t xcc = std::get<1>(event);
             size_t sample = std::get<2>(event);
-            const size_t index = values.linearIndex(xcc, 0, 0, sample);
+            const size_t index = valueIndex(values, xcc, sample);
             if (values.isValid(index))
             {
                 current[xcc] = values[index];

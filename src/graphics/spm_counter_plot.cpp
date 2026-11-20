@@ -42,6 +42,7 @@ void SPMCounterPlotView::LoadCounterData(const DataStore& store)
 {
     sampled_counters.clear();
     sampled_clock.reset();
+    sampled_clock_delta.reset();
     sampled_spm_clock.reset();
     clock_aligned = store.spm.clock_aligned;
 
@@ -49,9 +50,10 @@ void SPMCounterPlotView::LoadCounterData(const DataStore& store)
 
     const DerivedCounter::Shape clock_shape(store.spm.xccCount(), 1, 1, store.spm.sample_count);
     sampled_clock = std::make_shared<DerivedCounter::Tensor>(clock_shape, store.spm.clock, store.spm.sample_valid);
-    sampled_spm_clock = std::make_shared<DerivedCounter::Tensor>(
-        clock_shape, SpmSeries::timestampDeltas(store.spm), store.spm.sample_valid
-    );
+    sampled_clock_delta =
+        std::make_shared<DerivedCounter::Tensor>(clock_shape, store.spm.clock_delta, store.spm.sample_valid);
+    sampled_spm_clock =
+        std::make_shared<DerivedCounter::Tensor>(clock_shape, timestampIntervals(store.spm), store.spm.sample_valid);
 
     sampled_counters.reserve(store.spm.counters.size());
     for (const auto& counter : store.spm.counters)
@@ -77,10 +79,11 @@ void SPMCounterPlotView::addRawCounters()
 }
 
 void SPMCounterPlotView::addDerivedSeries(
-    const std::string& name, const DerivedCounter::Tensor& values, const DerivedCounter::Tensor& clock, int& color_index
+    const std::string& name, const DerivedCounter::Tensor& values, const DerivedCounter::Tensor&, int& color_index
 )
 {
-    AddData(name, Config::PlotColors(color_index++), weightedPoints(SpmSeries::makePlotSeries(values, clock)));
+    // The registered SCLOCK holds intervals; plot against the sample endpoints.
+    AddData(name, Config::PlotColors(color_index++), weightedPoints(SpmSeries::makePlotSeries(values, *sampled_clock)));
 }
 
 void SPMCounterPlotView::registerCounters(DerivedCounter::CounterContext& context)
@@ -90,6 +93,7 @@ void SPMCounterPlotView::registerCounters(DerivedCounter::CounterContext& contex
     for (size_t i = 0; i < sampled_counters.size() && i < counter_names.size(); ++i)
         context.setCounter(counter_names[i], sampled_counters[i]);
 
-    context.setCounter("SCLOCK", sampled_clock);
-    if (sampled_spm_clock) context.setCounter("SPM_CLOCK", sampled_spm_clock);
+    // Per-sample intervals: SCLOCK in SpmData::clock units, SPM_CLOCK in SPM timestamp units.
+    context.setCounter("SCLOCK", sampled_clock_delta);
+    context.setCounter("SPM_CLOCK", sampled_spm_clock);
 }
