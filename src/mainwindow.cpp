@@ -31,9 +31,7 @@
 #include <QLabel>
 #include <QMessageBox>
 #include <QPainterPath>
-#ifdef Q_OS_MACOS
 #include <QProxyStyle>
-#endif
 #include <QScrollArea>
 #include <QSignalBlocker>
 #include <QSpinBox>
@@ -94,7 +92,6 @@ namespace fs = std::filesystem;
 
 namespace
 {
-#ifdef Q_OS_MACOS
 class PersistentScrollBarStyle : public QProxyStyle
 {
 public:
@@ -109,7 +106,6 @@ public:
         return QProxyStyle::styleHint(hint, option, widget, returnData);
     }
 };
-#endif
 
 struct LoadedSpm
 {
@@ -195,7 +191,6 @@ MainWindow::MainWindow(std::string uidir) : QMainWindow(nullptr), ui(new Ui::Mai
     default_font = []()
     {
         const QStringList families = QFontDatabase().families();
-#ifdef Q_OS_MACOS
         QFont fixed = QFontDatabase::systemFont(QFontDatabase::FixedFont);
         QFontInfo fi(fixed);
         if (fi.fixedPitch() && !fi.family().isEmpty())
@@ -206,7 +201,6 @@ MainWindow::MainWindow(std::string uidir) : QMainWindow(nullptr), ui(new Ui::Mai
                     QFont qf(family); QFontInfo cfi(qf);
                     if (cfi.fixedPitch()) return family;
                 }
-#endif
         for (const char* desired : {"Consolas", "Arial", "Times"})
             for (auto& font : families)
                 if (font.toStdString().find(desired) != std::string::npos) return font;
@@ -286,13 +280,10 @@ MainWindow::MainWindow(std::string uidir) : QMainWindow(nullptr), ui(new Ui::Mai
         this->code_scrollarea->setWidgetResizable(true);
         this->code_scrollarea->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
 
-#ifdef Q_OS_MACOS
-        this->code_scrollarea->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOn);
         auto* horizontalScrollBar = code_scrollarea->horizontalScrollBar();
         auto* scrollBarStyle = new PersistentScrollBarStyle();
         scrollBarStyle->setParent(horizontalScrollBar);
         horizontalScrollBar->setStyle(scrollBarStyle);
-#endif
 
         this->code_contents = new QCodelist(*this);
         this->code_scrollarea->setWidget(this->code_contents);

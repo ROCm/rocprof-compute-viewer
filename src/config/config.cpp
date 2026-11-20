@@ -137,7 +137,7 @@ bool isDark() { return bDarkTheme; }
 void setDark(bool bDark)
 {
     bDarkTheme = bDark;
-#if defined(Q_OS_MACOS) && QT_VERSION >= QT_VERSION_CHECK(6, 8, 0)
+#if QT_VERSION >= QT_VERSION_CHECK(6, 8, 0)
     qApp->styleHints()->setColorScheme(bDark ? Qt::ColorScheme::Dark : Qt::ColorScheme::Light);
 #endif
     qApp->setPalette(bDarkTheme ? getDarkPalette() : getLightPalette());
