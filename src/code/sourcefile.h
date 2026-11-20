@@ -96,6 +96,8 @@ public:
     static int64_t global_max_sqtt_latency;
     static int64_t global_max_pcs_latency;
 
+    void refreshLayout();
+
 private:
     int sizex = 0;
     int sizey = 0;

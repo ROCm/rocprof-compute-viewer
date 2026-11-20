@@ -21,6 +21,7 @@
 // SOFTWARE.
 
 #include "plot.h"
+#include <QResizeEvent>
 #include <QWheelEvent>
 #include <algorithm>
 #include <cmath>
@@ -161,6 +162,56 @@ void PlotCurve::UpdateLOD(float range, int width, int bias)
     lod = std::clamp(lod - 1 + bias, 0, static_cast<int>(lods.size()) - 1);
 }
 
+LegendLayoutResult ComputeCenteredLegendLayout(
+    const std::vector<LegendLayoutItem>& items,
+    const QFontMetrics& fm,
+    int total_width,
+    int left_x,
+    int right_limit,
+    int start_y,
+    int margin
+)
+{
+    LegendLayoutResult result;
+    result.last_row_y = start_y;
+    if (items.empty()) return result;
+
+    const int font_height = fm.height();
+    struct Row
+    {
+        std::vector<std::pair<size_t, int>> entries;
+        int total_item_width = 0;
+    };
+    std::vector<Row> rows(1);
+
+    for (const auto& item : items)
+    {
+        const int item_width = font_height * 3 / 2 + fm.horizontalAdvance(item.label);
+        Row& cur = rows.back();
+        if (!cur.entries.empty() && left_x + cur.total_item_width + item_width > right_limit)
+        {
+            rows.emplace_back();
+        }
+        rows.back().entries.emplace_back(item.index, item_width);
+        rows.back().total_item_width += item_width;
+    }
+
+    int y = start_y;
+    for (size_t r = 0; r < rows.size(); ++r)
+    {
+        const Row& row = rows[r];
+        int x = std::max(left_x, (total_width - row.total_item_width) / 2);
+        for (const auto& [idx, item_width] : row.entries)
+        {
+            result.positions.emplace_back(idx, QPoint(x, y));
+            x += item_width;
+        }
+        result.last_row_y = y;
+        if (r + 1 < rows.size()) y += font_height + margin;
+    }
+    return result;
+}
+
 PlotGraph::PlotGraph(int _penwidth, QWidget* parent) : BasePlotWidget(parent), penwidth(_penwidth)
 {
     setMouseTracking(true);
@@ -168,6 +219,46 @@ PlotGraph::PlotGraph(int _penwidth, QWidget* parent) : BasePlotWidget(parent), p
     QPalette pal = QPalette();
     pal.setColor(QPalette::Window, WindowColors::GraphBkg());
     setPalette(pal);
+    updateLayoutMetrics();
+}
+
+QFont PlotGraph::plotFont() const
+{
+    QFont font = MainWindow::default_font.isEmpty() ? this->font() : QFont(MainWindow::default_font);
+    font.setPointSize(MainWindow::font() - 1);
+    return font;
+}
+
+LegendLayoutResult PlotGraph::computeLegendForWidth(int available_width, const QFontMetrics& fm, int plot_left) const
+{
+    std::vector<LegendLayoutItem> items;
+    items.reserve(curves.size());
+    for (size_t i = 0; i < curves.size(); ++i)
+        if (!curves[i].disabled) items.push_back({i, QString::fromStdString(curves[i].shortname)});
+    return ComputeCenteredLegendLayout(items, fm, available_width, plot_left, available_width - margin, margin, margin);
+}
+
+void PlotGraph::updateLayoutMetrics()
+{
+    const QFontMetrics fm(plotFont());
+    left_space = std::max(50, fm.horizontalAdvance("999.9M") + 2 * margin);
+    bottom_space = std::max(20, fm.height() + 2 * margin);
+    const int available_width = width() > 0 ? width() : 640;
+    const LegendLayoutResult legend = computeLegendForWidth(available_width, fm, left_space);
+    legend_positions = legend.positions;
+    top_space = std::max(35, legend.last_row_y + 2 * fm.height() + margin);
+}
+
+void PlotGraph::resizeEvent(QResizeEvent* event)
+{
+    BasePlotWidget::resizeEvent(event);
+    if (event->oldSize().width() != event->size().width()) updateLayoutMetrics();
+}
+
+void PlotGraph::changeEvent(QEvent* event)
+{
+    BasePlotWidget::changeEvent(event);
+    if (event->type() == QEvent::FontChange) updateLayoutMetrics();
 }
 
 void PlotGraph::wheelEvent(QWheelEvent* ev)
@@ -236,7 +327,6 @@ void PlotGraph::mouseReleaseEvent(QMouseEvent* ev)
 void PlotGraph::paintEvent(QPaintEvent* ev)
 {
     QWidget::paintEvent(ev);
-    const bool range_aligned = applyAlignedRange();
     const QColor bkgcolor = WindowColors::GraphBkg();
 
     QPainter painter(this);
@@ -245,7 +335,12 @@ void PlotGraph::paintEvent(QPaintEvent* ev)
     painter.setRenderHint(QPainter::Antialiasing);
 #endif
 
-    painter.fillRect(QRect(left_space, 0, width() - left_space, height()), bkgcolor);
+    const QFont font = plotFont();
+    painter.setFont(font);
+    const QFontMetrics fm(font);
+    const bool range_aligned = applyAlignedRange();
+
+    painter.fillRect(rect(), bkgcolor);
 
     if (!range_aligned && supportsTraceAlignment())
     {
@@ -261,10 +356,6 @@ void PlotGraph::paintEvent(QPaintEvent* ev)
                 painter.fillRect(QRect(pos_start, 0, pos_end - pos_start, height()), viewcolor);
         }
     }
-
-    QFont font = MainWindow::default_font.isEmpty() ? painter.font() : QFont(MainWindow::default_font);
-    font.setPointSize(MainWindow::font() - 1);
-    painter.setFont(font);
 
     QPen pen = painter.pen();
     pen.setWidth(penwidth);
@@ -334,8 +425,7 @@ void PlotGraph::paintEvent(QPaintEvent* ev)
 
     double xview = smallwidth() / double(xticks + 1);
 
-    QFontMetrics fm(font);
-
+    int label_end = left_space - margin;
     for (int i = 0; i <= xticks; i++)
     {
         double xpos = left_space + i * xview;
@@ -343,21 +433,27 @@ void PlotGraph::paintEvent(QPaintEvent* ev)
         std::string line = std::to_string(int64_t(pixelToPos(xpos)));
 
         painter.setPen(pen);
-        painter.drawText(xpos + ticksize, start_y + bottom_space - 5, line.c_str());
+        int label_x = xpos + ticksize;
+        int label_width = fm.horizontalAdvance(line.c_str());
+        if (label_x >= label_end + margin && label_x + label_width <= width() - margin)
+        {
+            painter.drawText(label_x, height() - margin - fm.descent(), line.c_str());
+            label_end = label_x + label_width;
+        }
 
         painter.setPen(whitepen);
         painter.drawLine(xpos, start_y - ticksize, xpos, start_y + ticksize);
     }
 
-    double yview = double(height() - bottom_space - top_space) / yticks;
-    int yalign = fm.horizontalAdvance("AAAAA");
+    int divisions = std::max(1, std::min(yticks, (start_y - top_space) / (2 * fm.height())));
+    double yview = double(start_y - top_space) / divisions;
 
     std::array<char, 5> exp_char = {' ', 'K', 'M', 'G', 'T'};
     std::array<double, 5> exp_value = {1.0, 1E3, 1E6, 1E9, 1E12};
 
-    for (int i = 0; i <= yticks; i++)
+    for (int i = 0; i <= divisions; i++)
     {
-        double d_value = i * ymax / yscale / yticks;
+        double d_value = i * ymax / yscale / divisions;
 
         int exp_idx = 0;
         for (int i = 1; i < exp_value.size(); i++) exp_idx += d_value >= exp_value.at(i);
@@ -368,7 +464,7 @@ void PlotGraph::paintEvent(QPaintEvent* ev)
         double ypos = height() - bottom_space - i * yview;
 
         painter.setPen(pen);
-        painter.drawText(2 + yalign - fm.horizontalAdvance(value), ypos - 3, value);
+        painter.drawText(left_space - margin - ticksize - fm.horizontalAdvance(value), ypos - 3, value);
 
         painter.setPen(whitepen);
         painter.drawLine(left_space - ticksize, ypos, left_space + ticksize, ypos);
@@ -377,22 +473,15 @@ void PlotGraph::paintEvent(QPaintEvent* ev)
     painter.setPen(pen);
     int font_height = fm.height();
 
-    // Draw token colors
-    int total_text_width = curves.size() * font_height * 3 / 2;
-    for (auto& data : curves)
-        if (!data.disabled) total_text_width += fm.horizontalAdvance(data.shortname.c_str());
-
-    int left_padding = std::max((width() - total_text_width) / 2 + font_height, 0);
-
-    for (auto& data : curves)
-        if (!data.disabled)
-        {
-            painter.fillRect(
-                QRectF(left_padding + font_height / 4, font_height / 2, font_height / 2, font_height / 2), data.color
-            );
-            painter.drawText(left_padding + font_height, font_height, data.shortname.c_str());
-            left_padding += font_height * 3 / 2 + fm.horizontalAdvance(data.shortname.c_str());
-        }
+    for (const auto& [idx, pos] : legend_positions)
+    {
+        if (idx >= curves.size()) continue;
+        const auto& data = curves[idx];
+        painter.fillRect(
+            QRectF(pos.x() + font_height / 4, pos.y() + font_height / 4, font_height / 2, font_height / 2), data.color
+        );
+        painter.drawText(pos.x() + font_height, pos.y() + fm.ascent(), data.shortname.c_str());
+    }
 
     pen.setStyle(Qt::DotLine);
 
@@ -433,6 +522,8 @@ void PlotGraph::AddData(std::string name, QColor color, std::vector<WeightedPoin
     curve.color = color;
     curve.SetData(std::move(data));
 
+    updateLayoutMetrics();
+    updateGeometry();
     update();
 };
 

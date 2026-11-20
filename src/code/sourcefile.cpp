@@ -78,6 +78,13 @@ parent(_parent), filename(_filename)
     setMouseTracking(true);
 }
 
+void SourceFile::refreshLayout()
+{
+    sizex = 0;
+    for (auto& line : lines) line->InvalidateCache();
+    update();
+}
+
 void SourceFile::paintEvent(class QPaintEvent* event)
 {
     int HISTOGRAM_WIDTH = HorizontalHotspot::GetHistogramWidth();

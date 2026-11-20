@@ -35,9 +35,7 @@ int main(int argc, char* argv[])
         QIcon icon(QPixmap(":/amd.ico"));
         a.setWindowIcon(icon);
 
-#ifdef _WIN32
         a.setStyle(QStyleFactory::create("Fusion"));
-#endif
 
         // Parse CLI arguments: positional paths auto-detected by filename
         // Recognizes: code.json, snapshots.json, directories, .rocpd files

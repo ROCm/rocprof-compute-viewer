@@ -25,6 +25,7 @@
 #include <QDebug>
 #include <QFile>
 #include <QPalette>
+#include <QStyleHints>
 #include <QTextStream>
 #include <cstdlib>
 #include <filesystem>
@@ -136,6 +137,9 @@ bool isDark() { return bDarkTheme; }
 void setDark(bool bDark)
 {
     bDarkTheme = bDark;
+#if QT_VERSION >= QT_VERSION_CHECK(6, 8, 0)
+    qApp->styleHints()->setColorScheme(bDark ? Qt::ColorScheme::Dark : Qt::ColorScheme::Light);
+#endif
     qApp->setPalette(bDarkTheme ? getDarkPalette() : getLightPalette());
 
     const_cast<QColor&>(Config::PlotColors(6)) = bDark ? QColor(255, 255, 255) : QColor(0, 0, 0);
