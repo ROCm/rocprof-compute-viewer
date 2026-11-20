@@ -84,8 +84,10 @@ public:
     void AddData(std::string name, QColor color, std::vector<WeightedPoint>&& data);
     inline int smallwidth() const { return width() - left_space - margin; }
     inline double scaledwidth() const { return smallwidth() * xscale; }
-    inline double posToPixel(double x) const { return left_space + (x + xoffset) * scaledwidth() / xmax; }
-    inline double pixelToPos(double x) const { return (x - left_space) * xmax / scaledwidth() - xoffset; }
+    // The view spans [xmin, xmax] unless panned or zoomed; never an empty range.
+    inline double xrange() const { return xmax > xmin ? xmax - xmin : 1; }
+    inline double posToPixel(double x) const { return left_space + (x - xmin + xoffset) * scaledwidth() / xrange(); }
+    inline double pixelToPos(double x) const { return (x - left_space) * xrange() / scaledwidth() - xoffset + xmin; }
 
     void SetBarPos(double x)
     {

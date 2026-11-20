@@ -22,6 +22,7 @@
 
 #include "derived_counter.h"
 #include <gtest/gtest.h>
+#include <clocale>
 #include <cmath>
 
 using namespace DerivedCounter;
@@ -2215,4 +2216,25 @@ TEST(GeneratorTest, OperandOrderKeepsTheSelectedXcc)
     // Different hardware XCCs combine like an XCC reduction in either order.
     const auto sum = parser.parseExpression("select[C, 1, axis=XCC] + select[C, 0, axis=XCC]")->evaluate(context);
     EXPECT_EQ(sum.xccIndices(), (std::vector<size_t>{0, 1}));
+
+    context.setCounter(
+        "D", std::make_shared<Tensor>(Shape(3, 1, 1, 2), std::vector<float>{1, 2, 3, 4, 5, 6})
+    );
+    const auto shifted = parser.parseExpression("select[D, 0:2, axis=XCC] + select[D, 1:3, axis=XCC]")->evaluate(context);
+    const auto swapped = parser.parseExpression("select[D, 1:3, axis=XCC] + select[D, 0:2, axis=XCC]")->evaluate(context);
+    EXPECT_EQ(shifted.data(), swapped.data());
+    EXPECT_TRUE(shifted.xccIndices().empty());
+    EXPECT_TRUE(swapped.xccIndices().empty());
+}
+
+TEST(ParserLocaleTest, NumbersIgnoreTheProcessLocale)
+{
+    // Qt applies LC_NUMERIC; a German locale uses ',' as the decimal separator.
+    const std::string previous = std::setlocale(LC_NUMERIC, nullptr);
+    if (!std::setlocale(LC_NUMERIC, "de_DE.UTF-8")) GTEST_SKIP() << "de_DE.UTF-8 locale unavailable";
+    CounterContext context;
+    Parser parser;
+    const float value = parser.parseExpression("0.1 * 20")->evaluate(context).scalar();
+    std::setlocale(LC_NUMERIC, previous.c_str());
+    EXPECT_FLOAT_EQ(value, 2);
 }

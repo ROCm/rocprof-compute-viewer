@@ -27,6 +27,8 @@
 #include <fstream>
 #include <iostream>
 #include <limits>
+#include <locale>
+#include <sstream>
 #include "util/diagnostic_log.h"
 
 namespace DerivedCounter
@@ -64,6 +66,16 @@ std::string axisToString(Axis axis)
 
 namespace
 {
+// Qt applies the system locale, where std::stod may read "0.1" as 0.
+double parseNumber(const std::string& text)
+{
+    std::istringstream stream(text);
+    stream.imbue(std::locale::classic());
+    double value = 0;
+    stream >> value;
+    return value;
+}
+
 // Indexing operations need one dimension; only reductions accept Axis::All.
 size_t concreteAxis(Axis axis, const char* operation)
 {
@@ -641,9 +653,13 @@ std::vector<size_t> Tensor::mergedXccIndices(const Tensor& other, size_t result_
 {
     if (result_xcc > 1)
     {
-        if (m_shape.getXCC() == result_xcc && m_xcc_indices.size() == result_xcc) return m_xcc_indices;
-        if (other.m_shape.getXCC() == result_xcc && other.m_xcc_indices.size() == result_xcc)
-            return other.m_xcc_indices;
+        const bool mapped = m_shape.getXCC() == result_xcc && m_xcc_indices.size() == result_xcc;
+        const bool other_mapped =
+            other.m_shape.getXCC() == result_xcc && other.m_xcc_indices.size() == result_xcc;
+        // Rows pairing different hardware XCCs have no single clock: unknown.
+        if (mapped && other_mapped) return m_xcc_indices == other.m_xcc_indices ? m_xcc_indices : std::vector<size_t>{};
+        if (mapped) return m_xcc_indices;
+        if (other_mapped) return other.m_xcc_indices;
         return {};
     }
     if (isScalar() && !other.isScalar()) return other.m_xcc_indices;
@@ -1488,7 +1504,7 @@ std::vector<Parser::Token> Parser::tokenize(const std::string& input)
             Token tok;
             tok.type = TokenType::Number;
             tok.text = input.substr(start, i - start);
-            tok.numValue = std::stod(tok.text);
+            tok.numValue = parseNumber(tok.text);
             tokens.push_back(tok);
             continue;
         }

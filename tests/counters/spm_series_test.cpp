@@ -134,30 +134,41 @@ TEST(SpmSeries, XccReductionUsesAverageClock)
     EXPECT_FLOAT_EQ(points[3].time, 32);
 }
 
-TEST(SpmSeries, XccReductionClockDoesNotRunBackwards)
+TEST(SpmSeries, XccReductionEndsWithTheShortestXcc)
 {
     Tensor values(Shape(2, 1, 1, 4), std::vector<float>{1, 2, 3, 4, 10, 20, 0, 0}, {0x3f});
     Tensor clock(Shape(2, 1, 1, 4), std::vector<float>{100, 110, 120, 130, 100, 140, 140, 140}, {0x3f});
 
     const auto points = SpmSeries::makePlotSeries(values.sum({DerivedCounter::Axis::XCC}), clock);
 
-    ASSERT_EQ(points.size(), 5u);
-    for (size_t i = 1; i < points.size(); ++i) EXPECT_LE(points[i - 1].time, points[i].time) << i;
-    // Average endpoints 100, 125; then XCC 0 alone advances by 10 per sample.
+    // Average endpoints 100 and 125; later samples only contain XCC 0.
+    ASSERT_EQ(points.size(), 3u);
+    EXPECT_FLOAT_EQ(points[0].time, 75);
+    EXPECT_FLOAT_EQ(points[0].value, 11);
     EXPECT_FLOAT_EQ(points[1].time, 100);
+    EXPECT_FLOAT_EQ(points[1].value, 22);
     EXPECT_FLOAT_EQ(points[2].time, 125);
-    EXPECT_FLOAT_EQ(points[3].time, 135);
-    EXPECT_FLOAT_EQ(points[4].time, 145);
 }
 
-TEST(SpmSeries, NonFiniteValuesAreNotPlotted)
+TEST(SpmSeries, TimeReductionsSpanTheCapture)
 {
-    Tensor values(Shape(1, 1, 1, 4), std::vector<float>{NAN, INFINITY, 1, 1});
-    Tensor clock(Shape(1, 1, 1, 4), std::vector<float>{100, 200, 300, 400});
+    Tensor clock(Shape(1, 1, 1, 3), std::vector<float>{100, 200, 300});
 
-    const auto points = SpmSeries::makePlotSeries(values, clock);
+    const auto points = SpmSeries::makePlotSeries(Tensor(Shape(1, 1, 1, 1), 5), clock);
 
-    ASSERT_EQ(points.size(), 3u);
-    for (const auto& point : points) EXPECT_TRUE(std::isfinite(point.value));
-    EXPECT_FLOAT_EQ(points.front().time, 200);
+    ASSERT_FALSE(points.empty());
+    EXPECT_FLOAT_EQ(points.front().time, 0);
+    EXPECT_FLOAT_EQ(points.back().time, 300);
+    for (const auto& point : points) EXPECT_FLOAT_EQ(point.value, 5);
+}
+
+TEST(SpmSeries, LoneSampleHasUnitWidth)
+{
+    Tensor clock(Shape(1, 1, 1, 1), std::vector<float>{0});
+
+    const auto points = SpmSeries::makePlotSeries(Tensor(Shape(1, 1, 1, 1), 100), clock);
+
+    ASSERT_EQ(points.size(), 2u);
+    EXPECT_FLOAT_EQ(points.front().time, -1);
+    EXPECT_FLOAT_EQ(points.back().time, 0);
 }

@@ -536,7 +536,9 @@ TEST(SpmJson, Navi4SupportsExplicitXccWithIndependentSampleCounts)
     const DerivedCounter::Tensor clock({2, 1, 1, data.sample_count}, data.clock, data.sample_valid);
     const auto selected = SpmSeries::makePlotSeries(waves.select(1, DerivedCounter::Axis::XCC), clock);
     ASSERT_FALSE(selected.empty());
-    EXPECT_FLOAT_EQ(selected.front().time, 50);
+    // XCC 1 has one sample, whose window has unit width.
+    EXPECT_FLOAT_EQ(selected.front().time, 49);
+    EXPECT_FLOAT_EQ(selected.back().time, 50);
     EXPECT_FLOAT_EQ(selected.front().value, 6000);
 }
 
