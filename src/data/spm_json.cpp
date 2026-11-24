@@ -725,10 +725,12 @@ bool alignSpmClockFromEvents(
                 event.shader_clock,
                 [](const auto& anchor, int64_t clock) { return anchor.shader_clock < clock; }
             );
-            // Outside the realtime records, extrapolate using the nearest pair.
+            // Outside the realtime records, extrapolate with the overall rate:
+            // the nearest pair can be a few cycles apart, giving a meaningless slope.
+            const bool outside = upper == realtime.begin() || upper == realtime.end();
             const size_t right = std::clamp<size_t>(upper - realtime.begin(), 1, realtime.size() - 1);
-            const auto& a = realtime[right - 1];
-            const auto& b = realtime[right];
+            const auto& a = outside ? realtime.front() : realtime[right - 1];
+            const auto& b = outside ? realtime.back() : realtime[right];
             const long double fraction = (static_cast<long double>(event.shader_clock) - a.shader_clock) /
                                          (static_cast<long double>(b.shader_clock) - a.shader_clock);
             const long double offset = std::round(fraction * (b.realtime_clock - a.realtime_clock));

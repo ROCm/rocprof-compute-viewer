@@ -843,7 +843,7 @@ TEST(SpmJson, MissingSampleEventsInterpolateByTimestampAndExtrapolateEnds)
     EXPECT_TRUE(data.sample_valid.empty());
 }
 
-TEST(SpmJson, SampleEventsOutsideRealtimeUseNearestPair)
+TEST(SpmJson, SampleEventsOutsideTwoRealtimeRecordsExtrapolate)
 {
     auto data = clockSamples({1000, 1100, 1200, 1300});
     const std::vector<SpmClockAnchor> anchors{
@@ -861,6 +861,26 @@ TEST(SpmJson, SampleEventsOutsideRealtimeUseNearestPair)
     EXPECT_FLOAT_EQ(data.clock.back(), 590);
     EXPECT_NEAR(data.clock[1], 203.333333, 0.001);
     EXPECT_NEAR(data.clock[2], 396.666667, 0.001);
+}
+
+TEST(SpmJson, SampleEventsOutsideRealtimeUseTheOverallRate)
+{
+    auto data = clockSamples({1840, 1995, 2250, 2500});
+    // The first two records are 8 cycles apart: 0.5 cycles per tick, against
+    // 16 overall. The early event is 5 ticks before the first record, not 160.
+    const std::vector<SpmClockAnchor> anchors{
+        {0, 1000, 2000},
+        {0, 1008, 2016},
+        {0, 9000, 2500}
+    };
+    const std::vector<SpmSampleEvent> events{
+        {0, 920},
+        {0, 9000}
+    };
+
+    ASSERT_TRUE(alignSpmClockFromEvents(data, anchors, events));
+    EXPECT_EQ(data.clock, (std::vector<float>{-1560, 920, 5000, 9000}));
+    EXPECT_EQ(data.clock_delta, (std::vector<float>{2480, 2480, 4080, 4000}));
 }
 
 TEST(SpmJson, DuplicateSampleEventsAreIgnored)
