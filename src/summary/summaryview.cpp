@@ -109,8 +109,13 @@ void PieChartWidget::paintEvent(QPaintEvent* event)
         {
             QRect numericValueRect = fm.boundingRect(numericValueStr);
             qreal spacing = fm.lineSpacing() * 0.5;
-            QPointF numericValueDrawPos =
-                QPointF(labelPos.x() - numericValueRect.width() / 2.0, labelPos.y() + textRect.height() + spacing);
+            const qreal centerX = textDrawPos.x() + textRect.width() / 2.0;
+            const qreal valueX = std::clamp(
+                centerX - numericValueRect.width() / 2.0,
+                qreal(0),
+                qreal(std::max(0, width() - numericValueRect.width()))
+            );
+            QPointF numericValueDrawPos = QPointF(valueX, labelPos.y() + textRect.height() + spacing);
             painter.drawText(numericValueDrawPos, numericValueStr);
         }
     }

@@ -24,6 +24,7 @@
 
 #include <QPainter>
 #include <QtWidgets/QWidget>
+#include "graphics/legend_layout.h"
 
 #ifdef RCV_DISABLE_OPENGL
 typedef QWidget BasePlotWidget;
@@ -73,28 +74,6 @@ struct PlotCurve
     void UpdateLOD(float range, int width, int bias);
 };
 
-struct LegendLayoutItem
-{
-    size_t index;
-    QString label;
-};
-
-struct LegendLayoutResult
-{
-    std::vector<std::pair<size_t, QPoint>> positions;
-    int last_row_y = 0;
-};
-
-LegendLayoutResult ComputeCenteredLegendLayout(
-    const std::vector<LegendLayoutItem>& items,
-    const QFontMetrics& fm,
-    int total_width,
-    int left_x,
-    int right_limit,
-    int start_y,
-    int margin
-);
-
 class PlotGraph : public BasePlotWidget
 {
     Q_OBJECT
@@ -132,7 +111,11 @@ public:
 
     void setDisabled(const std::vector<std::pair<std::string, bool>>& names)
     {
-        for (auto& name : names) setDisabled(name.first, name.second);
+        for (const auto& name : names)
+            for (auto& curve : curves)
+                if (curve.fullname == name.first) curve.disabled = name.second;
+        updateLayoutMetrics();
+        updateGeometry();
         update();
     }
 

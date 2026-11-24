@@ -104,8 +104,8 @@ LegendLayoutResult HotspotView::computeLegendForWidth(int available_width, const
 void HotspotView::updateLayoutMetrics()
 {
     const int margin = 8;
-    const int top_font_value = MainWindow::font() + IF_QT6_ELSE(1, 0);
-    const int bottom_font_value = MainWindow::font() - IF_QT6_ELSE(0, 2);
+    const int top_font_value = std::max(1, MainWindow::font() + IF_QT6_ELSE(1, 0));
+    const int bottom_font_value = std::max(1, MainWindow::font() - IF_QT6_ELSE(0, 2));
     QFont font = MainWindow::default_font.isEmpty() ? this->font() : QFont(MainWindow::default_font);
     font.setPointSize(top_font_value);
     const QFontMetrics legend_metrics(font);
@@ -116,12 +116,7 @@ void HotspotView::updateLayoutMetrics()
     font.setPointSize(bottom_font_value);
     const QFontMetrics label_metrics(font);
     bottom_space = margin * 3 + 2 * label_metrics.height();
-    const int raw_top_space = legend.last_row_y + legend_metrics.height() + label_metrics.height() + margin;
-    const int max_top_space = height() > 0 ? std::max(35, (height() - bottom_space) / 2) : raw_top_space;
-    top_space = std::min(raw_top_space, max_top_space);
-    legend_positions.clear();
-    for (const auto& entry : legend.positions)
-        if (entry.second.y() + legend_metrics.height() <= top_space) legend_positions.push_back(entry);
+    top_space = legend.last_row_y + legend_metrics.height() + label_metrics.height() + margin;
     left_side_x = std::max(40, label_metrics.horizontalAdvance("999.9M") + 2 * margin);
 }
 
@@ -185,8 +180,8 @@ void HotspotView::mouseMoveEvent(QMouseEvent* ev)
 void HotspotView::paintEvent(QPaintEvent* event)
 {
     int margin = 8;
-    const int top_font_value = MainWindow::font() + IF_QT6_ELSE(1, 0);
-    const int bottom_font_value = MainWindow::font() - IF_QT6_ELSE(0, 2);
+    const int top_font_value = std::max(1, MainWindow::font() + IF_QT6_ELSE(1, 0));
+    const int bottom_font_value = std::max(1, MainWindow::font() - IF_QT6_ELSE(0, 2));
 
     QPainter painter(this);
     painter.setRenderHint(QPainter::TextAntialiasing);
@@ -204,6 +199,7 @@ void HotspotView::paintEvent(QPaintEvent* event)
     const QFontMetrics labelMetrics(font);
 
     int start_y = height() - bottom_space;
+    const bool has_plot_area = start_y > top_space;
     const int plot_height = std::max(1, start_y - top_space);
     int num_divs = std::max(1, plot_height / std::max(80, 2 * labelMetrics.height()));
     int width_x = std::max(0, width() - left_side_x - margin);
@@ -218,6 +214,7 @@ void HotspotView::paintEvent(QPaintEvent* event)
     painter.fillRect(QRect(0, 0, width(), height()), WindowColors::HotspotBkg());
 
     // Draw axes
+    if (has_plot_area)
     {
         pen.setColor(Qt::lightGray);
         painter.setPen(pen);
@@ -258,6 +255,7 @@ void HotspotView::paintEvent(QPaintEvent* event)
     pen.setColor(WindowColors::textColor());
     painter.setPen(pen);
 
+    if (has_plot_area)
     {
         QFontMetrics fm(font);
 
@@ -318,6 +316,7 @@ void HotspotView::paintEvent(QPaintEvent* event)
 
     for (const auto& [index, pos] : legend_positions)
     {
+        if (index >= Config::TokenColors().size()) continue;
         const auto& color = Config::TokenColors().at(index);
         painter.fillRect(
             QRectF(pos.x() + font_height / 4, pos.y() + font_height / 4, font_height / 2, font_height / 2), color.qcolor

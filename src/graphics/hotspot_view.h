@@ -26,7 +26,7 @@
 #include <atomic>
 #include <vector>
 #include "data/wavemanager.h"
-#include "graphics/plot.h"
+#include "graphics/legend_layout.h"
 #include "util/custom_layouts.h"
 
 #ifdef RCV_DISABLE_OPENGL

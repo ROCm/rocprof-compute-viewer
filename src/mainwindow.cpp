@@ -42,7 +42,9 @@
 #include <filesystem>
 #include <fstream>
 #include <future>
+#include <cctype>
 #include <iostream>
+#include <optional>
 #include <set>
 #include <utility>
 #include <vector>
@@ -170,11 +172,10 @@ QString MainWindow::code_font_family{};
 MainWindow::MainWindow(std::string uidir) : QMainWindow(nullptr), ui(new Ui::MainWindow)
 {
     MainWindow::window = this;
-    WindowColors::setDark(AppConfig::getInstance().getDarkTheme());
     ui->setupUi(this);
 
     {
-        const QStringList families = QFontDatabase().families();
+        const QStringList families = IF_QT6_ELSE(QFontDatabase::families(), QFontDatabase().families());
         default_font = [&families]()
         {
             for (const char* desired : {"Consolas", "Arial", "Times"})
@@ -184,16 +185,23 @@ MainWindow::MainWindow(std::string uidir) : QMainWindow(nullptr), ui(new Ui::Mai
         }();
         code_font_family = [&families]()
         {
-            for (const char* desired : {"Consolas", "Menlo", "Monaco", "Courier New", "Courier", "monospace"})
+            auto findFixed = [&families](const char* desired) -> QString
+            {
                 for (const auto& family : families)
                     if (family.toStdString().find(desired) != std::string::npos)
                     {
                         QFont qf(family);
                         if (QFontInfo(qf).fixedPitch()) return family;
                     }
+                return {};
+            };
+            for (const char* desired : {"Consolas", "Menlo", "Monaco"})
+                if (QString match = findFixed(desired); !match.isEmpty()) return match;
             QFont fixed = QFontDatabase::systemFont(QFontDatabase::FixedFont);
             QFontInfo fi(fixed);
             if (fi.fixedPitch() && !fi.family().isEmpty()) return fi.family();
+            for (const char* desired : {"Courier New", "Courier"})
+                if (QString match = findFixed(desired); !match.isEmpty()) return match;
             return default_font;
         }();
     }
@@ -396,11 +404,11 @@ MainWindow::MainWindow(std::string uidir) : QMainWindow(nullptr), ui(new Ui::Mai
     connect(ui->search_edit, &QLineEdit::returnPressed, this, [this]() { DoSearch(true); });
     connect(ui->next_inst, &QPushButton::clicked, this, [this]() { DoSearch(true); });
     connect(ui->prev_inst, &QPushButton::clicked, this, [this]() { DoSearch(false); });
-    auto* scFocus = new QShortcut(QKeySequence(Qt::CTRL | Qt::Key_F), this);
+    auto* scFocus = new QShortcut(QKeySequence::Find, this);
     connect(scFocus, &QShortcut::activated, this, &MainWindow::FocusSearch);
-    auto* scF3 = new QShortcut(QKeySequence(Qt::Key_F3), this);
+    auto* scF3 = new QShortcut(QKeySequence::FindNext, this);
     connect(scF3, &QShortcut::activated, this, [this]() { DoSearch(true); });
-    auto* scSF3 = new QShortcut(QKeySequence(Qt::SHIFT | Qt::Key_F3), this);
+    auto* scSF3 = new QShortcut(QKeySequence::FindPrevious, this);
     connect(scSF3, &QShortcut::activated, this, [this]() { DoSearch(false); });
 
     ui->source_hotspot_size_edit->setValidator(new QIntValidator(this));
@@ -478,6 +486,8 @@ double MainWindow::painterScale() const { return getScaling(); }
 
 void MainWindow::listingChanged()
 {
+    current_search_pos = -1;
+    last_search_term.clear();
     if (label_minimap) label_minimap->Populate();
 }
 
@@ -487,7 +497,7 @@ void MainWindow::updateFont()
     if (code_contents) code_contents->refreshLayout();
     if (source_filetab)
         for (auto& [filename, file] : source_filetab->files)
-            file.second->refreshLayout();
+            if (file.second) file.second->refreshLayout();
 
     update();
     updateGeometry();
@@ -524,11 +534,9 @@ int MainWindow::_scaling_var = 1;
 
 void MainWindow::getScaling(QPainter& painter)
 {
-    const double device_scale = 1.0 / painter.device()->devicePixelRatio();
-    if (painter.device()->devType() == QInternal::Widget && _paint_scale != device_scale)
-        _paint_scale = device_scale;
-    const double scale = _scaling_var ? device_scale : 1.0;
-    painter.scale(scale, scale);
+    if (painter.device() && painter.device()->devType() == QInternal::Widget)
+        _paint_scale = 1.0 / painter.device()->devicePixelRatio();
+    painter.scale(getScaling(), getScaling());
 }
 
 double MainWindow::getScaling() { return _scaling_var ? _paint_scale : 1.0; }
@@ -2216,7 +2224,6 @@ void MainWindow::SetSearchText(const std::string& text)
     ui->search_edit->blockSignals(true);
     ui->search_edit->setText(QString::fromStdString(text));
     ui->search_edit->blockSignals(false);
-    last_search_term.clear();
 }
 
 void MainWindow::selectInstruction(const ASMLine& instruction)
@@ -2321,7 +2328,6 @@ void MainWindow::DoSearch(bool forward)
         ui->statusbar->showMessage("No matches for: " + QString::fromStdString(to_search), 3000);
     }
 }
-
 
 void MainWindow::SetIteration(int code_line, int iteration)
 {
@@ -2629,6 +2635,7 @@ void MainWindow::loadConfigSettings()
 
     // Apply loaded settings
     font() = config.getFontSize();
+    WindowColors::setDark(config.getDarkTheme());
     _scaling_var = config.getDisplayScaling() ? 1 : 0;
     SourceLine::bDisplayLineNumber = config.getDisplayLineNumber();
     HorizontalHotspot::SetHistogramWidth(config.getSourceHotspotSize());

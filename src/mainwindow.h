@@ -235,7 +235,7 @@ private:
     int slider_scrollbar;
     int slider_cuwaves;
     int slider_global;
-    int current_search_pos = 0;
+    int current_search_pos = -1;
     std::string last_search_term;
 
     std::unordered_set<std::string> disabled_counters{};

@@ -225,7 +225,7 @@ PlotGraph::PlotGraph(int _penwidth, QWidget* parent) : BasePlotWidget(parent), p
 QFont PlotGraph::plotFont() const
 {
     QFont font = MainWindow::default_font.isEmpty() ? this->font() : QFont(MainWindow::default_font);
-    font.setPointSize(MainWindow::font() - 1);
+    font.setPointSize(std::max(1, MainWindow::font() - 1));
     return font;
 }
 
@@ -241,16 +241,12 @@ LegendLayoutResult PlotGraph::computeLegendForWidth(int available_width, const Q
 void PlotGraph::updateLayoutMetrics()
 {
     const QFontMetrics fm(plotFont());
-    left_space = std::max(50, fm.horizontalAdvance("999.9M") + 2 * margin);
+    left_space = std::max(50, fm.horizontalAdvance("999.9M") + 2 * margin + ticksize);
     bottom_space = std::max(20, fm.height() + 2 * margin);
     const int available_width = width() > 0 ? width() : 640;
     const LegendLayoutResult legend = computeLegendForWidth(available_width, fm, left_space);
-    const int raw_top_space = std::max(35, legend.last_row_y + 2 * fm.height() + margin);
-    const int max_top_space = height() > 0 ? std::max(35, (height() - bottom_space) / 2) : raw_top_space;
-    top_space = std::min(raw_top_space, max_top_space);
-    legend_positions.clear();
-    for (const auto& entry : legend.positions)
-        if (entry.second.y() + fm.height() <= top_space) legend_positions.push_back(entry);
+    legend_positions = legend.positions;
+    top_space = std::max(35, legend.last_row_y + 2 * fm.height() + margin);
 }
 
 void PlotGraph::resizeEvent(QResizeEvent* event)
@@ -369,11 +365,13 @@ void PlotGraph::paintEvent(QPaintEvent* ev)
         if (!curve.disabled) ymax = std::max(ymax, curve.ymax);
 
     int start_y = height() - bottom_space;
+    const bool has_plot_area = start_y > top_space;
     const int plot_height = std::max(1, start_y - top_space);
     double cvty = plot_height * yscale / ymax;
 
-    for (auto& series : curves)
-    {
+    if (has_plot_area)
+        for (auto& series : curves)
+        {
         if (!series.lods.size() || series.disabled) continue;
 
         series.UpdateLOD((xmax - xmin) / xscale, width(), lodBias);
@@ -418,61 +416,64 @@ void PlotGraph::paintEvent(QPaintEvent* ev)
         painter.fillRect(QRect(left_space, height() - bottom_space, width() - left_space, bottom_space), bkgcolor)
     );
 
-    QPen whitepen = painter.pen();
-    whitepen.setColor(WindowColors::reverseTextColor());
-    whitepen.setWidth(0);
-    painter.setPen(whitepen);
-
-    painter.drawLine(left_space, top_space, left_space, height() - bottom_space);
-    painter.drawLine(left_space, height() - bottom_space, width() - margin, height() - bottom_space);
-    painter.drawLine(width() - margin, top_space, width() - margin, height() - bottom_space);
-    painter.drawLine(left_space, top_space, width() - margin, top_space);
-
-    double xview = smallwidth() / double(xticks + 1);
-
-    int label_end = left_space - margin;
-    for (int i = 0; i <= xticks; i++)
+    if (has_plot_area)
     {
-        double xpos = left_space + i * xview;
+        QPen whitepen = painter.pen();
+        whitepen.setColor(WindowColors::reverseTextColor());
+        whitepen.setWidth(0);
+        painter.setPen(whitepen);
 
-        std::string line = std::to_string(int64_t(pixelToPos(xpos)));
+        painter.drawLine(left_space, top_space, left_space, height() - bottom_space);
+        painter.drawLine(left_space, height() - bottom_space, width() - margin, height() - bottom_space);
+        painter.drawLine(width() - margin, top_space, width() - margin, height() - bottom_space);
+        painter.drawLine(left_space, top_space, width() - margin, top_space);
 
-        painter.setPen(pen);
-        int label_x = xpos + ticksize;
-        int label_width = fm.horizontalAdvance(line.c_str());
-        if (label_x >= label_end + margin && label_x + label_width <= width() - margin)
+        double xview = smallwidth() / double(xticks + 1);
+
+        int label_end = left_space - margin;
+        for (int i = 0; i <= xticks; i++)
         {
-            painter.drawText(label_x, height() - margin - fm.descent(), line.c_str());
-            label_end = label_x + label_width;
+            double xpos = left_space + i * xview;
+
+            std::string line = std::to_string(int64_t(pixelToPos(xpos)));
+
+            painter.setPen(pen);
+            int label_x = xpos + ticksize;
+            int label_width = fm.horizontalAdvance(line.c_str());
+            if (label_x >= label_end + margin && label_x + label_width <= width() - margin)
+            {
+                painter.drawText(label_x, height() - margin - fm.descent(), line.c_str());
+                label_end = label_x + label_width;
+            }
+
+            painter.setPen(whitepen);
+            painter.drawLine(xpos, start_y - ticksize, xpos, start_y + ticksize);
         }
 
-        painter.setPen(whitepen);
-        painter.drawLine(xpos, start_y - ticksize, xpos, start_y + ticksize);
-    }
+        int divisions = std::max(1, std::min(yticks, plot_height / (2 * fm.height())));
+        double yview = double(plot_height) / divisions;
 
-    int divisions = std::max(1, std::min(yticks, plot_height / (2 * fm.height())));
-    double yview = double(plot_height) / divisions;
+        std::array<char, 5> exp_char = {' ', 'K', 'M', 'G', 'T'};
+        std::array<double, 5> exp_value = {1.0, 1E3, 1E6, 1E9, 1E12};
 
-    std::array<char, 5> exp_char = {' ', 'K', 'M', 'G', 'T'};
-    std::array<double, 5> exp_value = {1.0, 1E3, 1E6, 1E9, 1E12};
+        for (int i = 0; i <= divisions; i++)
+        {
+            double d_value = i * ymax / yscale / divisions;
 
-    for (int i = 0; i <= divisions; i++)
-    {
-        double d_value = i * ymax / yscale / divisions;
+            int exp_idx = 0;
+            for (int j = 1; j < exp_value.size(); j++) exp_idx += d_value >= exp_value.at(j);
 
-        int exp_idx = 0;
-        for (int i = 1; i < exp_value.size(); i++) exp_idx += d_value >= exp_value.at(i);
+            int precision = (d_value / exp_value.at(exp_idx) < 10.0) ? 1 : 0;
+            auto value = QString("%1").arg(d_value / exp_value.at(exp_idx), 0, 'f', precision) + exp_char.at(exp_idx);
 
-        int precision = (d_value / exp_value.at(exp_idx) < 10.0) ? 1 : 0;
-        auto value = QString("%1").arg(d_value / exp_value.at(exp_idx), 0, 'f', precision) + exp_char.at(exp_idx);
+            double ypos = height() - bottom_space - i * yview;
 
-        double ypos = height() - bottom_space - i * yview;
+            painter.setPen(pen);
+            painter.drawText(left_space - margin - ticksize - fm.horizontalAdvance(value), ypos - 3, value);
 
-        painter.setPen(pen);
-        painter.drawText(left_space - margin - ticksize - fm.horizontalAdvance(value), ypos - 3, value);
-
-        painter.setPen(whitepen);
-        painter.drawLine(left_space - ticksize, ypos, left_space + ticksize, ypos);
+            painter.setPen(whitepen);
+            painter.drawLine(left_space - ticksize, ypos, left_space + ticksize, ypos);
+        }
     }
 
     painter.setPen(pen);
@@ -488,32 +489,35 @@ void PlotGraph::paintEvent(QPaintEvent* ev)
         painter.drawText(pos.x() + font_height, pos.y() + fm.ascent(), data.shortname.c_str());
     }
 
-    pen.setStyle(Qt::DotLine);
-
-    if (mousepos.x() >= left_space && mousepos.x() < width() - margin)
+    if (has_plot_area)
     {
-        pen.setColor(Qt::lightGray);
-        painter.setPen(pen);
-        painter.drawLine(mousepos.x(), top_space - margin, mousepos.x(), height() - bottom_space / 2);
-    }
+        pen.setStyle(Qt::DotLine);
 
-    int barpixelpos = posToPixel(barpos);
+        if (mousepos.x() >= left_space && mousepos.x() < width() - margin)
+        {
+            pen.setColor(Qt::lightGray);
+            painter.setPen(pen);
+            painter.drawLine(mousepos.x(), top_space - margin, mousepos.x(), height() - bottom_space / 2);
+        }
 
-    if (barpos >= 0 && barpixelpos >= left_space && barpixelpos < width() - margin)
-    {
-        pen.setColor(Qt::cyan);
-        painter.setPen(pen);
-        painter.drawLine(barpixelpos, top_space - margin, barpixelpos, height() - bottom_space / 2);
-    }
+        int barpixelpos = posToPixel(barpos);
 
-    if (bLClick)
-    {
-        pen.setColor(Qt::cyan);
-        painter.setPen(pen);
-        int minpos = std::max<int>(std::min<int>(lclickpos.x(), mousepos.x()), left_space);
-        int maxpos = std::min<int>(std::max<int>(lclickpos.x(), mousepos.x()), width() - margin);
+        if (barpos >= 0 && barpixelpos >= left_space && barpixelpos < width() - margin)
+        {
+            pen.setColor(Qt::cyan);
+            painter.setPen(pen);
+            painter.drawLine(barpixelpos, top_space - margin, barpixelpos, height() - bottom_space / 2);
+        }
 
-        if (minpos < maxpos) painter.drawRect(QRect(minpos, top_space, maxpos - minpos, start_y - top_space));
+        if (bLClick)
+        {
+            pen.setColor(Qt::cyan);
+            painter.setPen(pen);
+            int minpos = std::max<int>(std::min<int>(lclickpos.x(), mousepos.x()), left_space);
+            int maxpos = std::min<int>(std::max<int>(lclickpos.x(), mousepos.x()), width() - margin);
+
+            if (minpos < maxpos) painter.drawRect(QRect(minpos, top_space, maxpos - minpos, start_y - top_space));
+        }
     }
 }
 
