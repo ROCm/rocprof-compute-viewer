@@ -55,6 +55,11 @@ struct SpmData
     // Contains shader-clock values after alignment, or relative SPM timestamp
     // values when clock alignment is unavailable.
     std::vector<float> clock;
+    // Row-major [XCC][sample], in the units of `clock`: the length of the
+    // window ending at each sample, computed before rounding the clock to float.
+    // The first sample has no start, so it and the padding copy the next
+    // interval. XCCs with fewer than two samples use 1.
+    std::vector<float> clock_delta;
     // One bit per [XCC][sample]. Empty means every sample is valid.
     SpmValidityMask sample_valid;
     std::vector<SpmCounterData> counters;
@@ -84,6 +89,9 @@ struct SpmSampleEvent
     int se = 0;
     int64_t shader_clock = 0;
 };
+
+// Row-major [XCC][sample] deltas between SPM timestamps, in timestamp units.
+std::vector<float> timestampIntervals(const SpmData& spm);
 
 SpmData loadSpmJson(const std::string& path);
 bool spmClockRangesOverlap(const SpmData& spm, const std::vector<SpmClockAnchor>& anchors);

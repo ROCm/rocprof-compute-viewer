@@ -71,6 +71,10 @@ float LODCurve::search(float time) const
 void PlotCurve::SetData(std::vector<WeightedPoint>&& data)
 {
     int n_lods = 0;
+    // Non-finite values, such as ratios over zero activity, are shown as 0.
+    for (auto& elem : data)
+        if (!std::isfinite(elem.value)) elem.value = 0;
+
     ymax = 1E-3;
     for (auto& elem : data) ymax = std::max(ymax, 1.025 * elem.value);
 
@@ -225,7 +229,7 @@ void PlotGraph::mouseReleaseEvent(QMouseEvent* ev)
 
         if (maxpos > minpos)
         {
-            xoffset = -pixelToPos(minpos);
+            xoffset = xmin - pixelToPos(minpos);
             xscale *= smallwidth() / double(maxpos - minpos);
         }
     }
@@ -280,7 +284,7 @@ void PlotGraph::paintEvent(QPaintEvent* ev)
     {
         if (!series.lods.size() || series.disabled) continue;
 
-        series.UpdateLOD((xmax - xmin) / xscale, width(), lodBias);
+        series.UpdateLOD(xrange() / xscale, width(), lodBias);
         auto& data = series.get().data;
         if (data.size() < 2) continue;
 
@@ -291,7 +295,7 @@ void PlotGraph::paintEvent(QPaintEvent* ev)
 
         QVector<QPoint> points;
 
-        size_t i = binarySearch(data, -xoffset);
+        size_t i = binarySearch(data, xmin - xoffset);
         float last_time = data.at(0).time;
 
         while (i < data.size())
@@ -425,7 +429,11 @@ void PlotGraph::paintEvent(QPaintEvent* ev)
 
 void PlotGraph::AddData(std::string name, QColor color, std::vector<WeightedPoint>&& data)
 {
-    for (const auto& point : data) xmax = std::max(xmax, (double) point.time);
+    for (const auto& point : data)
+    {
+        xmin = std::min(xmin, (double) point.time);
+        xmax = std::max(xmax, (double) point.time);
+    }
 
     PlotCurve& curve = curves.emplace_back(PlotCurve{});
     curve.fullname = name;
@@ -442,7 +450,7 @@ void PlotGraph::mouseMoveEvent(QMouseEvent* event)
 
     if ((event->buttons() & Qt::RightButton) && !applyAlignedRange())
     {
-        double cvt = xmax / scaledwidth();
+        double cvt = xrange() / scaledwidth();
         xoffset += cvt * (event->pos().x() - mousepos.x());
     }
     mousepos = event->pos();
@@ -466,7 +474,7 @@ bool PlotGraph::applyAlignedRange()
     const auto range = alignedPlotRange(*reference, plot_global_left, smallwidth());
     if (range.end <= range.start) return false;
 
-    xoffset = -range.start;
-    xscale = xmax / (range.end - range.start);
+    xoffset = xmin - range.start;
+    xscale = xrange() / (range.end - range.start);
     return true;
 }

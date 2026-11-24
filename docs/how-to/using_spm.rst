@@ -76,14 +76,19 @@ Derived counters
 SPM definitions can reference:
 
 - the raw SPM counter names;
-- ``SCLOCK``: the aligned per-XCC shader-clock sample endpoints;
-- ``SPM_CLOCK``: the original per-XCC timestamp deltas.
+- ``SCLOCK``: the per-XCC shader-clock cycles in each sample's window, or
+  SPM timestamp deltas when the clocks are not aligned;
+- ``SPM_CLOCK``: the per-XCC SPM timestamp deltas.
+
+The first sample has no preceding timestamp, so its window copies the length
+of the second sample's window.
 
 For example:
 
 .. code-block:: text
 
-  WAVES_PER_CYCLE := SQ_WAVES / SQ_CYCLES
+  VALU_PER_CYCLE := SQ_INSTS_VALU / SCLOCK
+  VALU_PER_NS := 0.1 * SQ_INSTS_VALU / SPM_CLOCK
   XCC2_WAVES := select[SQ_WAVES, 2, axis=XCC]
 
 SE and CU/instance dimensions are automatically summed when a result is
