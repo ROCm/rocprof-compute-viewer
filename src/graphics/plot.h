@@ -24,6 +24,7 @@
 
 #include <QPainter>
 #include <QtWidgets/QWidget>
+#include "graphics/legend_layout.h"
 
 #ifdef RCV_DISABLE_OPENGL
 typedef QWidget BasePlotWidget;
@@ -106,13 +107,21 @@ public:
     {
         for (auto& curve : curves)
             if (curve.fullname == name) curve.disabled = disable;
+        updateLayoutMetrics();
+        updateGeometry();
     }
 
     void setDisabled(const std::vector<std::pair<std::string, bool>>& names)
     {
-        for (auto& name : names) setDisabled(name.first, name.second);
+        for (const auto& name : names)
+            for (auto& curve : curves)
+                if (curve.fullname == name.first) curve.disabled = name.second;
+        updateLayoutMetrics();
+        updateGeometry();
         update();
     }
+
+    void updateLayoutMetrics();
 
     std::vector<std::pair<std::string, bool>> getDisabled() const
     {
@@ -130,6 +139,8 @@ private slots:
 protected:
     virtual bool supportsTraceAlignment() const { return true; }
     void paintEvent(QPaintEvent*) override;
+    void resizeEvent(QResizeEvent*) override;
+    void changeEvent(QEvent*) override;
     virtual void UpdateGraphTable(float timepos) = 0;
     bool applyAlignedRange();
     int lodBias = 0;
@@ -149,9 +160,12 @@ protected:
     std::vector<PlotCurve> curves;
 
 private:
-    const int bottom_space = 20;
-    const int top_space = 35;
-    const int left_space = 50;
+    QFont plotFont() const;
+    LegendLayoutResult computeLegendForWidth(int available_width, const QFontMetrics& fm, int plot_left) const;
+    std::vector<std::pair<size_t, QPoint>> legend_positions;
+    int bottom_space = 20;
+    int top_space = 35;
+    int left_space = 50;
     const int margin = 6;
     const int penwidth;
 };

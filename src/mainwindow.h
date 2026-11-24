@@ -31,6 +31,7 @@
 #include <QApplication>
 #include <QLineEdit>
 #include <QMetaObject>
+#include <QShortcut>
 #include <QStyleFactory>
 #include <QTreeView>
 #include <memory>
@@ -114,8 +115,8 @@ public:
 
     static uint64_t ToMask(const std::vector<bool>& list);
 
-    void PrevSearch();
-    void NextSearch();
+    void DoSearch(bool forward);
+    void FocusSearch();
     void SetSearchText(const std::string& text);
     void SourceHotspotSizeEdited();
     LoadResult LoadInputForTests(InputInfo info, const std::string& display_path);
@@ -184,6 +185,7 @@ public:
     void updateFont();
 
     static QString default_font;
+    static QString code_font_family;
 
     QFont codeFont(const QFont& fallback) const override;
     int currentIteration() const override;
@@ -233,7 +235,8 @@ private:
     int slider_scrollbar;
     int slider_cuwaves;
     int slider_global;
-    int current_search_pos = 0;
+    int current_search_pos = -1;
+    std::string last_search_term;
 
     std::unordered_set<std::string> disabled_counters{};
 

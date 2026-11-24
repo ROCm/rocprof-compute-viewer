@@ -407,7 +407,12 @@ void CounterPlotView::UpdateDerivedCounters(const std::string& derivedDefinition
         int derived_count = 0;
         for (auto& der : derived)
             if (!der.first.empty() && der.first.at(0) != '_') derived_count++;
-        if (derived_count == 0) return;
+        if (derived_count == 0)
+        {
+            updateLayoutMetrics();
+            update();
+            return;
+        }
 
         auto& accessed = derivedmanager->context().accessedRawCounters();
         for (size_t i = 0; i < rawCounterCount && i < curves.size() && i < raw_curve_sources.size(); i++)
@@ -418,12 +423,19 @@ void CounterPlotView::UpdateDerivedCounters(const std::string& derivedDefinition
     std::shared_ptr<const DerivedCounter::Tensor> time_data;
     try
     {
-        if (!derivedmanager->context().hasCounter("SCLOCK")) return;
+        if (!derivedmanager->context().hasCounter("SCLOCK"))
+        {
+            updateLayoutMetrics();
+            update();
+            return;
+        }
         time_data = derivedmanager->context().getCounter("SCLOCK");
     }
     catch (const std::exception&)
     {
         RCV_LOG();
+        updateLayoutMetrics();
+        update();
         return;
     }
 
@@ -434,6 +446,7 @@ void CounterPlotView::UpdateDerivedCounters(const std::string& derivedDefinition
         addDerivedSeries(derived_name, *result, *time_data, derived_index);
     }
 
+    updateLayoutMetrics();
     update();
 }
 

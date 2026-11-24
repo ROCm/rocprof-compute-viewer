@@ -42,7 +42,9 @@
 #include <filesystem>
 #include <fstream>
 #include <future>
+#include <cctype>
 #include <iostream>
+#include <optional>
 #include <set>
 #include <utility>
 #include <vector>
@@ -165,19 +167,44 @@ std::string MainWindow::cli_code_json_override;
 std::string MainWindow::cli_snapshots_json_override;
 
 QString MainWindow::default_font{};
+QString MainWindow::code_font_family{};
 
 MainWindow::MainWindow(std::string uidir) : QMainWindow(nullptr), ui(new Ui::MainWindow)
 {
     MainWindow::window = this;
     ui->setupUi(this);
 
-    default_font = []()
     {
-        for (const char* desired : {"Consolas", "Arial", "Times"})
-            for (auto& font : QFontDatabase().families())
-                if (font.toStdString().find(desired) != std::string::npos) return font;
-        return QString("");
-    }();
+        const QStringList families = IF_QT6_ELSE(QFontDatabase::families(), QFontDatabase().families());
+        default_font = [&families]()
+        {
+            for (const char* desired : {"Consolas", "Arial", "Times"})
+                for (const auto& font : families)
+                    if (font.toStdString().find(desired) != std::string::npos) return font;
+            return QString("");
+        }();
+        code_font_family = [&families]()
+        {
+            auto findFixed = [&families](const char* desired) -> QString
+            {
+                for (const auto& family : families)
+                    if (family.toStdString().find(desired) != std::string::npos)
+                    {
+                        QFont qf(family);
+                        if (QFontInfo(qf).fixedPitch()) return family;
+                    }
+                return {};
+            };
+            for (const char* desired : {"Consolas", "Menlo", "Monaco"})
+                if (QString match = findFixed(desired); !match.isEmpty()) return match;
+            QFont fixed = QFontDatabase::systemFont(QFontDatabase::FixedFont);
+            QFontInfo fi(fixed);
+            if (fi.fixedPitch() && !fi.family().isEmpty()) return fi.family();
+            for (const char* desired : {"Courier New", "Courier"})
+                if (QString match = findFixed(desired); !match.isEmpty()) return match;
+            return default_font;
+        }();
+    }
 
     // Load settings from configuration
     loadConfigSettings();
@@ -374,9 +401,15 @@ MainWindow::MainWindow(std::string uidir) : QMainWindow(nullptr), ui(new Ui::Mai
     connect(ui->wview_range_min, &QLineEdit::editingFinished, this, &MainWindow::UpdateWaveViewRange);
     connect(ui->wview_range_max, &QLineEdit::editingFinished, this, &MainWindow::UpdateWaveViewRange);
 
-    connect(ui->search_edit, &QLineEdit::editingFinished, this, &MainWindow::NextSearch);
-    connect(ui->next_inst, &QPushButton::clicked, this, &MainWindow::NextSearch);
-    connect(ui->prev_inst, &QPushButton::clicked, this, &MainWindow::PrevSearch);
+    connect(ui->search_edit, &QLineEdit::returnPressed, this, [this]() { DoSearch(true); });
+    connect(ui->next_inst, &QPushButton::clicked, this, [this]() { DoSearch(true); });
+    connect(ui->prev_inst, &QPushButton::clicked, this, [this]() { DoSearch(false); });
+    auto* scFocus = new QShortcut(QKeySequence::Find, this);
+    connect(scFocus, &QShortcut::activated, this, &MainWindow::FocusSearch);
+    auto* scF3 = new QShortcut(QKeySequence::FindNext, this);
+    connect(scF3, &QShortcut::activated, this, [this]() { DoSearch(true); });
+    auto* scSF3 = new QShortcut(QKeySequence::FindPrevious, this);
+    connect(scSF3, &QShortcut::activated, this, [this]() { DoSearch(false); });
 
     ui->source_hotspot_size_edit->setValidator(new QIntValidator(this));
     connect(ui->source_hotspot_size_edit, &QLineEdit::editingFinished, this, &MainWindow::SourceHotspotSizeEdited);
@@ -438,7 +471,7 @@ int& MainWindow::font()
 
 QFont MainWindow::codeFont(const QFont& fallback) const
 {
-    QFont code_font = default_font.isEmpty() ? fallback : QFont(default_font);
+    QFont code_font = code_font_family.isEmpty() ? fallback : QFont(code_font_family);
     code_font.setPointSize(font());
     return code_font;
 }
@@ -453,6 +486,8 @@ double MainWindow::painterScale() const { return getScaling(); }
 
 void MainWindow::listingChanged()
 {
+    current_search_pos = -1;
+    last_search_term.clear();
     if (label_minimap) label_minimap->Populate();
 }
 
@@ -460,9 +495,24 @@ void MainWindow::updateFont()
 {
     if (auto newFontValue = parseLineEditInt(ui->fontedit)) { font() = std::clamp(*newFontValue, 5, 19); }
     if (code_contents) code_contents->refreshLayout();
+    if (source_filetab)
+        for (auto& [filename, file] : source_filetab->files)
+            if (file.second) file.second->refreshLayout();
 
     update();
     updateGeometry();
+    for (auto* plot : findChildren<PlotGraph*>())
+    {
+        plot->updateLayoutMetrics();
+        plot->updateGeometry();
+        plot->update();
+    }
+    for (auto* view : findChildren<HotspotView*>())
+    {
+        view->updateLayoutMetrics();
+        view->updateGeometry();
+        view->update();
+    }
 
     if (ui->tabWidget)
     {
@@ -484,11 +534,8 @@ int MainWindow::_scaling_var = 1;
 
 void MainWindow::getScaling(QPainter& painter)
 {
-    static bool capture = [&]()
-    {
+    if (painter.device() && painter.device()->devType() == QInternal::Widget)
         _paint_scale = 1.0 / painter.device()->devicePixelRatio();
-        return true;
-    }();
     painter.scale(getScaling(), getScaling());
 }
 
@@ -2182,6 +2229,8 @@ void MainWindow::SetSearchText(const std::string& text)
 void MainWindow::selectInstruction(const ASMLine& instruction)
 {
     SetSearchText(instruction.getStdText());
+    last_search_term = instruction.getStdText();
+    current_search_pos = instruction.line_number;
 
     const int64_t clock = WaveInstance::GetMainClock(instruction.line_number, iteration_current.second);
     if (clock >= 0) ScrollViewsTo(clock);
@@ -2208,51 +2257,76 @@ void MainWindow::selectInstruction(const ASMLine& instruction)
         }
 }
 
-void MainWindow::NextSearch()
+void MainWindow::FocusSearch()
 {
-    QWARNING(code_contents, "No code", return );
-
-    std::string to_search = ui->search_edit->displayText().toStdString();
-
-    for (auto& [line_number, line] : ASMCodeline::line_map)
-    {
-        if (!line || line_number <= current_search_pos) continue;
-
-        auto& str = line->elements.at(ASMCodeline::Element::EASM);
-
-        if (!str || str->getStdText().find(to_search) == std::string::npos) continue;
-
-        current_search_pos = line_number;
-        code_contents->Highlight(line->line_index, line->line_index, true);
-        return;
-    }
-
-    current_search_pos = -1;
+    ui->search_edit->setFocus();
+    ui->search_edit->selectAll();
 }
 
-void MainWindow::PrevSearch()
+void MainWindow::DoSearch(bool forward)
 {
-    QWARNING(code_contents, "No code", return );
-
-    std::string to_search = ui->search_edit->displayText().toStdString();
-
-    auto it = ASMCodeline::line_map.end();
-    while (it != ASMCodeline::line_map.begin())
+    if (!code_contents || ASMCodeline::line_map.empty())
     {
-        auto& [line_number, line] = *std::prev(it);
-        it = std::prev(it);
-
-        if (!line || line_number >= current_search_pos) continue;
-
-        auto& str = line->elements.at(ASMCodeline::Element::EASM);
-
-        if (!str || str->getStdText().find(to_search) == std::string::npos) continue;
-
-        current_search_pos = line_number;
-        code_contents->Highlight(line->line_index, line->line_index, true);
+        ui->statusbar->showMessage("No code loaded", 3000);
         return;
     }
-    current_search_pos = 0x7FFFFFFF;
+    const std::string to_search = ui->search_edit->displayText().toStdString();
+    if (to_search.empty()) return;
+    if (to_search != last_search_term)
+    {
+        last_search_term = to_search;
+        current_search_pos = forward ? -1 : 0x7FFFFFFF;
+    }
+
+    auto matches_line = [&](const ASMCodeline& line)
+    {
+        const auto& e = line.elements.at(ASMCodeline::Element::EASM);
+        if (!e) return false;
+        const std::string& text = e->getStdText();
+        auto it = std::search(
+            text.begin(),
+            text.end(),
+            to_search.begin(),
+            to_search.end(),
+            [](char a, char b)
+            {
+                return std::toupper(static_cast<unsigned char>(a)) ==
+                       std::toupper(static_cast<unsigned char>(b));
+            }
+        );
+        return it != text.end();
+    };
+
+    const auto& map = ASMCodeline::line_map;
+    std::optional<int> matched_line;
+    if (forward)
+    {
+        auto start = map.upper_bound(current_search_pos);
+        for (auto it = start; it != map.end() && !matched_line; ++it)
+            if (it->second && matches_line(*it->second)) matched_line = it->first;
+        for (auto it = map.begin(); it != start && !matched_line; ++it)
+            if (it->second && matches_line(*it->second)) matched_line = it->first;
+    }
+    else
+    {
+        auto start = map.lower_bound(current_search_pos);
+        for (auto it = std::make_reverse_iterator(start); it != map.rend() && !matched_line; ++it)
+            if (it->second && matches_line(*it->second)) matched_line = it->first;
+        for (auto it = map.rbegin(); it != std::make_reverse_iterator(start) && !matched_line; ++it)
+            if (it->second && matches_line(*it->second)) matched_line = it->first;
+    }
+
+    if (matched_line)
+    {
+        current_search_pos = *matched_line;
+        const auto& line = map.at(current_search_pos);
+        code_contents->Highlight(line->line_index, line->line_index, true);
+        ui->statusbar->clearMessage();
+    }
+    else
+    {
+        ui->statusbar->showMessage("No matches for: " + QString::fromStdString(to_search), 3000);
+    }
 }
 
 void MainWindow::SetIteration(int code_line, int iteration)
