@@ -115,15 +115,20 @@ void HotspotView::updateLayoutMetrics()
 
     font.setPointSize(bottom_font_value);
     const QFontMetrics label_metrics(font);
-    top_space = legend.last_row_y + legend_metrics.height() + label_metrics.height() + margin;
     bottom_space = margin * 3 + 2 * label_metrics.height();
+    const int raw_top_space = legend.last_row_y + legend_metrics.height() + label_metrics.height() + margin;
+    const int max_top_space = height() > 0 ? std::max(35, (height() - bottom_space) / 2) : raw_top_space;
+    top_space = std::min(raw_top_space, max_top_space);
+    legend_positions.clear();
+    for (const auto& entry : legend.positions)
+        if (entry.second.y() + legend_metrics.height() <= top_space) legend_positions.push_back(entry);
     left_side_x = std::max(40, label_metrics.horizontalAdvance("999.9M") + 2 * margin);
 }
 
 void HotspotView::resizeEvent(QResizeEvent* event)
 {
     BaseHistogramWidget::resizeEvent(event);
-    if (event->oldSize().width() != event->size().width()) updateLayoutMetrics();
+    if (event->oldSize() != event->size()) updateLayoutMetrics();
 }
 
 void HotspotView::changeEvent(QEvent* event)
@@ -199,7 +204,8 @@ void HotspotView::paintEvent(QPaintEvent* event)
     const QFontMetrics labelMetrics(font);
 
     int start_y = height() - bottom_space;
-    int num_divs = std::max(1, (start_y - top_space) / std::max(80, 2 * labelMetrics.height()));
+    const int plot_height = std::max(1, start_y - top_space);
+    int num_divs = std::max(1, plot_height / std::max(80, 2 * labelMetrics.height()));
     int width_x = std::max(0, width() - left_side_x - margin);
     double bar_width = width_x / (2 * bins.size() + 1.0);
     double bar_wid_multiplier = 1.25;
@@ -216,7 +222,7 @@ void HotspotView::paintEvent(QPaintEvent* event)
         pen.setColor(Qt::lightGray);
         painter.setPen(pen);
 
-        double ystep = double(start_y - top_space) / num_divs;
+        double ystep = double(plot_height) / num_divs;
 
         for (int y = 0; y <= num_divs; y++)
             painter.drawLine(

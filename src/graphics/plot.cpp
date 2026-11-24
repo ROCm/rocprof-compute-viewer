@@ -245,14 +245,18 @@ void PlotGraph::updateLayoutMetrics()
     bottom_space = std::max(20, fm.height() + 2 * margin);
     const int available_width = width() > 0 ? width() : 640;
     const LegendLayoutResult legend = computeLegendForWidth(available_width, fm, left_space);
-    legend_positions = legend.positions;
-    top_space = std::max(35, legend.last_row_y + 2 * fm.height() + margin);
+    const int raw_top_space = std::max(35, legend.last_row_y + 2 * fm.height() + margin);
+    const int max_top_space = height() > 0 ? std::max(35, (height() - bottom_space) / 2) : raw_top_space;
+    top_space = std::min(raw_top_space, max_top_space);
+    legend_positions.clear();
+    for (const auto& entry : legend.positions)
+        if (entry.second.y() + fm.height() <= top_space) legend_positions.push_back(entry);
 }
 
 void PlotGraph::resizeEvent(QResizeEvent* event)
 {
     BasePlotWidget::resizeEvent(event);
-    if (event->oldSize().width() != event->size().width()) updateLayoutMetrics();
+    if (event->oldSize() != event->size()) updateLayoutMetrics();
 }
 
 void PlotGraph::changeEvent(QEvent* event)
@@ -365,7 +369,8 @@ void PlotGraph::paintEvent(QPaintEvent* ev)
         if (!curve.disabled) ymax = std::max(ymax, curve.ymax);
 
     int start_y = height() - bottom_space;
-    double cvty = (start_y - top_space) * yscale / ymax;
+    const int plot_height = std::max(1, start_y - top_space);
+    double cvty = plot_height * yscale / ymax;
 
     for (auto& series : curves)
     {
@@ -445,8 +450,8 @@ void PlotGraph::paintEvent(QPaintEvent* ev)
         painter.drawLine(xpos, start_y - ticksize, xpos, start_y + ticksize);
     }
 
-    int divisions = std::max(1, std::min(yticks, (start_y - top_space) / (2 * fm.height())));
-    double yview = double(start_y - top_space) / divisions;
+    int divisions = std::max(1, std::min(yticks, plot_height / (2 * fm.height())));
+    double yview = double(plot_height) / divisions;
 
     std::array<char, 5> exp_char = {' ', 'K', 'M', 'G', 'T'};
     std::array<double, 5> exp_value = {1.0, 1E3, 1E6, 1E9, 1E12};

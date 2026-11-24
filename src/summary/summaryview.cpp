@@ -18,17 +18,7 @@ PieChartWidget::PieChartWidget(QWidget* parent /*= nullptr*/) : QWidget(parent)
 
 QSize PieChartWidget::minimumSizeHint() const
 {
-    const QFontMetrics metrics = fontMetrics();
-    int textWidth = metrics.boundingRect(chart_title).width();
-    for (const auto& item : data)
-    {
-        const QString label = item.first + " (" + QString::number(item.second, 'f', 0) + ')';
-        textWidth = std::max(textWidth, metrics.boundingRect(label).width());
-    }
-    return {
-        std::max({100, textWidth + metrics.horizontalAdvance(QLatin1Char('M')), QWidget::minimumSizeHint().width()}),
-        std::max(200, QWidget::minimumSizeHint().height())
-    };
+    return {std::max(200, QWidget::minimumSizeHint().width()), std::max(200, QWidget::minimumSizeHint().height())};
 }
 
 void PieChartWidget::paintEvent(QPaintEvent* event)
@@ -457,16 +447,6 @@ void SummaryView::setPieChartData(const QList<QPair<QString, float>>& data, cons
             totalHeight += legendTable->frameWidth() * 2;
             legendTable->setMinimumHeight(totalHeight);
             legendTable->setMaximumHeight(totalHeight);
-
-            legendTable->resizeColumnToContents(1);
-            legendTable->resizeColumnToContents(2);
-            const int width = legendTable->horizontalHeader()->length() + 2 * legendTable->frameWidth();
-            legendTable->setFixedWidth(width);
-            pieChartWidget->updateGeometry();
-            legendTable->parentWidget()->layout()->activate();
-            pieChartContainer->layout()->activate();
-            layout()->activate();
-            updateGeometry();
         }
         else
         {

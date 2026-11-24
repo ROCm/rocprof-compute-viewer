@@ -185,6 +185,7 @@ public:
     void updateFont();
 
     static QString default_font;
+    static QString code_font_family;
 
     QFont codeFont(const QFont& fallback) const override;
     int currentIteration() const override;

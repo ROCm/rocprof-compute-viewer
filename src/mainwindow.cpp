@@ -31,7 +31,6 @@
 #include <QLabel>
 #include <QMessageBox>
 #include <QPainterPath>
-#include <QProxyStyle>
 #include <QScrollArea>
 #include <QSignalBlocker>
 #include <QSpinBox>
@@ -92,21 +91,6 @@ namespace fs = std::filesystem;
 
 namespace
 {
-class PersistentScrollBarStyle : public QProxyStyle
-{
-public:
-    int styleHint(
-        QStyle::StyleHint hint,
-        const QStyleOption* option = nullptr,
-        const QWidget* widget = nullptr,
-        QStyleHintReturn* returnData = nullptr
-    ) const override
-    {
-        if (hint == QStyle::SH_ScrollBar_Transient) return 0;
-        return QProxyStyle::styleHint(hint, option, widget, returnData);
-    }
-};
-
 struct LoadedSpm
 {
     SpmData data;
@@ -181,6 +165,7 @@ std::string MainWindow::cli_code_json_override;
 std::string MainWindow::cli_snapshots_json_override;
 
 QString MainWindow::default_font{};
+QString MainWindow::code_font_family{};
 
 MainWindow::MainWindow(std::string uidir) : QMainWindow(nullptr), ui(new Ui::MainWindow)
 {
@@ -188,24 +173,30 @@ MainWindow::MainWindow(std::string uidir) : QMainWindow(nullptr), ui(new Ui::Mai
     WindowColors::setDark(AppConfig::getInstance().getDarkTheme());
     ui->setupUi(this);
 
-    default_font = []()
     {
         const QStringList families = QFontDatabase().families();
-        QFont fixed = QFontDatabase::systemFont(QFontDatabase::FixedFont);
-        QFontInfo fi(fixed);
-        if (fi.fixedPitch() && !fi.family().isEmpty())
-            return fi.family();
-        for (const char* desired : {"Menlo", "Monaco", "Courier New", "Courier", "Consolas", "monospace"})
-            for (const auto& family : families)
-                if (family.toStdString().find(desired) != std::string::npos) {
-                    QFont qf(family); QFontInfo cfi(qf);
-                    if (cfi.fixedPitch()) return family;
-                }
-        for (const char* desired : {"Consolas", "Arial", "Times"})
-            for (auto& font : families)
-                if (font.toStdString().find(desired) != std::string::npos) return font;
-        return QString("");
-    }();
+        default_font = [&families]()
+        {
+            for (const char* desired : {"Consolas", "Arial", "Times"})
+                for (const auto& font : families)
+                    if (font.toStdString().find(desired) != std::string::npos) return font;
+            return QString("");
+        }();
+        code_font_family = [&families]()
+        {
+            for (const char* desired : {"Consolas", "Menlo", "Monaco", "Courier New", "Courier", "monospace"})
+                for (const auto& family : families)
+                    if (family.toStdString().find(desired) != std::string::npos)
+                    {
+                        QFont qf(family);
+                        if (QFontInfo(qf).fixedPitch()) return family;
+                    }
+            QFont fixed = QFontDatabase::systemFont(QFontDatabase::FixedFont);
+            QFontInfo fi(fixed);
+            if (fi.fixedPitch() && !fi.family().isEmpty()) return fi.family();
+            return default_font;
+        }();
+    }
 
     // Load settings from configuration
     loadConfigSettings();
@@ -279,11 +270,6 @@ MainWindow::MainWindow(std::string uidir) : QMainWindow(nullptr), ui(new Ui::Mai
         this->code_scrollarea = new QScrollArea();
         this->code_scrollarea->setWidgetResizable(true);
         this->code_scrollarea->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-
-        auto* horizontalScrollBar = code_scrollarea->horizontalScrollBar();
-        auto* scrollBarStyle = new PersistentScrollBarStyle();
-        scrollBarStyle->setParent(horizontalScrollBar);
-        horizontalScrollBar->setStyle(scrollBarStyle);
 
         this->code_contents = new QCodelist(*this);
         this->code_scrollarea->setWidget(this->code_contents);
@@ -477,7 +463,7 @@ int& MainWindow::font()
 
 QFont MainWindow::codeFont(const QFont& fallback) const
 {
-    QFont code_font = default_font.isEmpty() ? fallback : QFont(default_font);
+    QFont code_font = code_font_family.isEmpty() ? fallback : QFont(code_font_family);
     code_font.setPointSize(font());
     return code_font;
 }
@@ -509,11 +495,13 @@ void MainWindow::updateFont()
     {
         plot->updateLayoutMetrics();
         plot->updateGeometry();
+        plot->update();
     }
     for (auto* view : findChildren<HotspotView*>())
     {
         view->updateLayoutMetrics();
         view->updateGeometry();
+        view->update();
     }
 
     if (ui->tabWidget)
@@ -2285,27 +2273,21 @@ void MainWindow::DoSearch(bool forward)
 
     auto matches_line = [&](const ASMCodeline& line)
     {
-        using El = ASMCodeline::Element;
-        const std::array<El, 4> cols = {El::EASM, El::EADDRESS, El::ESOURCEREF, El::ECODEOBJ};
-        for (El c : cols)
-        {
-            const auto& e = line.elements.at(c);
-            if (!e) continue;
-            const std::string& text = e->getStdText();
-            auto it = std::search(
-                text.begin(),
-                text.end(),
-                to_search.begin(),
-                to_search.end(),
-                [](char a, char b)
-                {
-                    return std::toupper(static_cast<unsigned char>(a)) ==
-                           std::toupper(static_cast<unsigned char>(b));
-                }
-            );
-            if (it != text.end()) return true;
-        }
-        return false;
+        const auto& e = line.elements.at(ASMCodeline::Element::EASM);
+        if (!e) return false;
+        const std::string& text = e->getStdText();
+        auto it = std::search(
+            text.begin(),
+            text.end(),
+            to_search.begin(),
+            to_search.end(),
+            [](char a, char b)
+            {
+                return std::toupper(static_cast<unsigned char>(a)) ==
+                       std::toupper(static_cast<unsigned char>(b));
+            }
+        );
+        return it != text.end();
     };
 
     const auto& map = ASMCodeline::line_map;

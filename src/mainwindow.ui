@@ -60,7 +60,7 @@
           <number>6</number>
          </property>
          <item>
-          <layout class="QHBoxLayout" name="horizontalLayout" stretch="1,1,1,1,0">
+          <layout class="QHBoxLayout" name="horizontalLayout" stretch="0,0,0,0,0">
            <property name="spacing">
             <number>1</number>
            </property>
@@ -72,10 +72,16 @@
              <item>
               <widget class="QPushButton" name="ShaderSel">
                <property name="sizePolicy">
-                <sizepolicy hsizetype="Ignored" vsizetype="Fixed">
+                <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
                  <horstretch>0</horstretch>
                  <verstretch>0</verstretch>
                 </sizepolicy>
+               </property>
+               <property name="maximumSize">
+                <size>
+                 <width>52</width>
+                 <height>16777215</height>
+                </size>
                </property>
                <property name="text">
                 <string>Shader</string>
@@ -92,10 +98,16 @@
              <item>
               <widget class="QPushButton" name="SimdSel">
                <property name="sizePolicy">
-                <sizepolicy hsizetype="Ignored" vsizetype="Fixed">
+                <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
                  <horstretch>0</horstretch>
                  <verstretch>0</verstretch>
                 </sizepolicy>
+               </property>
+               <property name="maximumSize">
+                <size>
+                 <width>52</width>
+                 <height>16777215</height>
+                </size>
                </property>
                <property name="text">
                 <string> SIMD </string>
@@ -112,10 +124,16 @@
              <item>
               <widget class="QPushButton" name="WSLSel">
                <property name="sizePolicy">
-                <sizepolicy hsizetype="Ignored" vsizetype="Fixed">
+                <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
                  <horstretch>0</horstretch>
                  <verstretch>0</verstretch>
                 </sizepolicy>
+               </property>
+               <property name="maximumSize">
+                <size>
+                 <width>52</width>
+                 <height>16777215</height>
+                </size>
                </property>
                <property name="text">
                 <string>  Slot  </string>
@@ -132,10 +150,16 @@
              <item>
               <widget class="QPushButton" name="WIDSel">
                <property name="sizePolicy">
-                <sizepolicy hsizetype="Ignored" vsizetype="Fixed">
+                <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
                  <horstretch>0</horstretch>
                  <verstretch>0</verstretch>
                 </sizepolicy>
+               </property>
+               <property name="maximumSize">
+                <size>
+                 <width>52</width>
+                 <height>16777215</height>
+                </size>
                </property>
                <property name="toolTip">
                 <string>Wave ID: Not available</string>
